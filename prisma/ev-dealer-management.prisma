@@ -1,0 +1,353 @@
+// ============================================================================
+// EV CRM — MODULE 2: DEALER MANAGEMENT (operational layer)
+// ============================================================================
+// Paste these models + enums into packages/db/prisma/schema.prisma.
+//
+// This is the OPERATIONAL layer: it manages a dealer AFTER they have been
+// appointed (i.e. after the onboarding pipeline reaches GO_LIVE). It is
+// grounded in how Luxus Green actually runs its network:
+//   - dealers spread across many states, each covering a territory
+//   - retail leads routed to the NEAREST authorised dealer
+//   - monthly unit/revenue targets tracked against actuals
+//   - finance facilitated through NBFC/bank partners (the key margin enabler)
+//   - after-sales: spare-parts availability + trained-technician service
+//
+// DEPENDENCIES (already defined elsewhere in your schema / other fragments):
+//   - enum DealerTier            -> defined in ev-onboarding.prisma fragment
+//   - model DealerApplication    -> defined in ev-onboarding.prisma fragment
+//   - model User                 -> existing InnoCRM model
+//   - model Lead                 -> existing InnoCRM model
+//   Do NOT redefine those here.
+//
+// BACK-RELATIONS TO ADD MANUALLY (see notes at bottom of this file):
+//   User.managedDealers, User.dealerActivity
+//   Lead.dealerAssignment
+//   DealerApplication.dealer
+// ============================================================================
+
+
+// ------------------------- OPERATIONAL DEALER --------------------------------
+// The OEM's view of an appointed, live dealer in the network.
+model Dealer {
+  id            Int      @id @default(autoincrement())
+  publicId      String   @unique @default(cuid()) @map("public_id") // safe id for URLs / portal
+
+  // Identity (mirrors the appointed applicant; kept here so Dealer Management
+  // is usable even before you wire the Subdealer login portal)
+  legalName     String   @map("legal_name")
+  tradeName     String?  @map("trade_name")
+  dealerCode    String   @unique @map("dealer_code") // e.g. LGM-MP-001 (OEM-STATE-SEQ)
+  gstNumber     String?  @map("gst_number")
+  panNumber     String?  @map("pan_number")
+
+  // Primary contact / principal
+  principalName String   @map("principal_name")
+  phone         String
+  email         String?
+
+  // Location (primary showroom / office)
+  addressLine   String?  @map("address_line")
+  city          String?
+  district      String?
+  state         String
+  pincode       String?
+
+  // Network position
+  tier          DealerTier              @default(STANDARD)
+  status        DealerOperationalStatus @default(ONBOARDING)
+  segments      VehicleSegment[]        @default([]) // which product lines this dealer sells
+
+  // OEM relationship manager (a User in the CRM)
+  relationshipManagerId Int?  @map("relationship_manager_id")
+
+  // Finance / commercial
+  creditLimit   Decimal? @map("credit_limit") @db.Decimal(12, 2)
+  securityDeposit Decimal? @map("security_deposit") @db.Decimal(12, 2)
+
+  // Lifecycle
+  appointedAt   DateTime? @map("appointed_at")
+  goLiveAt      DateTime? @map("go_live_at")
+  suspendedAt   DateTime? @map("suspended_at")
+  notes         String?
+
+  // Provenance: which onboarding application produced this dealer (optional)
+  applicationId Int?     @unique @map("application_id")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  relationshipManager User?               @relation("DealerRelationshipManager", fields: [relationshipManagerId], references: [id])
+  application         DealerApplication?  @relation("ApplicationToDealer", fields: [applicationId], references: [id])
+  territories         DealerTerritory[]
+  targets             DealerTarget[]
+  performance         DealerPerformanceSnapshot[]
+  leadAssignments     DealerLeadAssignment[]
+  financeCases        FinanceCase[]
+  serviceTickets      ServiceTicket[]
+  sparePartRequests   SparePartRequest[]
+
+  @@index([state])
+  @@index([status])
+  @@index([tier])
+  @@index([relationshipManagerId])
+  @@map("dealers")
+}
+
+
+// ------------------------- TERRITORY COVERAGE --------------------------------
+// A dealer covers one or more (state, district) areas. Used to route leads to
+// the nearest / responsible dealer. `exclusive` marks a protected territory.
+model DealerTerritory {
+  id        Int      @id @default(autoincrement())
+  dealerId  Int      @map("dealer_id")
+  state     String
+  district  String?               // null = whole state
+  exclusive Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  dealer    Dealer   @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@unique([dealerId, state, district])
+  @@index([state, district])
+  @@map("dealer_territories")
+}
+
+
+// ------------------------- SALES TARGETS -------------------------------------
+// Monthly/quarterly unit + revenue targets, optionally per vehicle segment.
+model DealerTarget {
+  id           Int              @id @default(autoincrement())
+  dealerId     Int              @map("dealer_id")
+  periodType   TargetPeriodType @default(MONTHLY) @map("period_type")
+  periodStart  DateTime         @map("period_start") // first day of the period
+  segment      VehicleSegment?                       // null = all segments combined
+  unitTarget   Int              @default(0) @map("unit_target")
+  revenueTarget Decimal?        @map("revenue_target") @db.Decimal(12, 2)
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  dealer       Dealer           @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@unique([dealerId, periodType, periodStart, segment])
+  @@index([dealerId])
+  @@index([periodStart])
+  @@map("dealer_targets")
+}
+
+
+// ------------------------- PERFORMANCE ACTUALS -------------------------------
+// A snapshot of what a dealer actually achieved in a period. Populate from your
+// Order/Invoice data (nightly job) or write on order confirmation.
+model DealerPerformanceSnapshot {
+  id             Int              @id @default(autoincrement())
+  dealerId       Int              @map("dealer_id")
+  periodType     TargetPeriodType @default(MONTHLY) @map("period_type")
+  periodStart    DateTime         @map("period_start")
+  unitsSold      Int              @default(0) @map("units_sold")
+  revenue        Decimal          @default(0) @db.Decimal(12, 2)
+  leadsReceived  Int              @default(0) @map("leads_received")
+  leadsConverted Int              @default(0) @map("leads_converted")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  dealer         Dealer           @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@unique([dealerId, periodType, periodStart])
+  @@index([dealerId])
+  @@map("dealer_performance_snapshots")
+}
+
+
+// ------------------------- LEAD ROUTING --------------------------------------
+// Ties a retail Lead (from the Leads module / landing page) to the dealer it was
+// routed to. This is Luxus Green's "leads passed to the nearest dealer" model.
+model DealerLeadAssignment {
+  id           Int                @id @default(autoincrement())
+  leadId       Int                @unique @map("lead_id") // one active assignment per lead
+  dealerId     Int                @map("dealer_id")
+  status       LeadRoutingStatus  @default(ASSIGNED)
+  routedBy     RoutingMethod      @default(AUTO_TERRITORY) @map("routed_by")
+  assignedAt   DateTime           @default(now()) @map("assigned_at")
+  respondedAt  DateTime?          @map("responded_at")
+  outcome      String?            // free text: test-drive booked, sold, lost, etc.
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  dealer       Dealer             @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  // Lead relation added as a back-relation on Lead (see notes)
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("dealer_lead_assignments")
+}
+
+
+// ------------------------- FINANCE FACILITATION ------------------------------
+// Luxus acts as a bridge to NBFCs/banks. Track each buyer finance case so the
+// OEM and dealer can see the pipeline and clear ROI/financing blockers.
+model FinanceCase {
+  id            Int               @id @default(autoincrement())
+  dealerId      Int               @map("dealer_id")
+  leadId        Int?              @map("lead_id") // optional link to the buyer lead
+
+  buyerName     String            @map("buyer_name")
+  buyerPhone    String            @map("buyer_phone")
+  vehicleModel  String?           @map("vehicle_model") // e.g. "Vikas Lifter"
+  loanAmount    Decimal?          @map("loan_amount") @db.Decimal(12, 2)
+  financierName String?           @map("financier_name") // NBFC / bank
+  status        FinanceCaseStatus @default(NEW)
+  notes         String?
+
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  dealer        Dealer            @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("finance_cases")
+}
+
+
+// ------------------------- AFTER-SALES: SERVICE ------------------------------
+model ServiceTicket {
+  id           Int                   @id @default(autoincrement())
+  ticketNumber String                @unique @map("ticket_number")
+  dealerId     Int                   @map("dealer_id")
+
+  customerName String                @map("customer_name")
+  customerPhone String?              @map("customer_phone")
+  vehicleModel String?               @map("vehicle_model")
+  chassisNumber String?              @map("chassis_number")
+  issue        String
+  priority     ServiceTicketPriority @default(NORMAL)
+  status       ServiceTicketStatus   @default(OPEN)
+  resolvedAt   DateTime?             @map("resolved_at")
+
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+
+  dealer       Dealer                @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("service_tickets")
+}
+
+
+// ------------------------- AFTER-SALES: SPARE PARTS --------------------------
+model SparePartRequest {
+  id           Int                    @id @default(autoincrement())
+  requestNumber String                @unique @map("request_number")
+  dealerId     Int                    @map("dealer_id")
+
+  partName     String                 @map("part_name")
+  partCode     String?                @map("part_code")
+  quantity     Int                    @default(1)
+  status       SparePartRequestStatus @default(REQUESTED)
+  dispatchedAt DateTime?              @map("dispatched_at")
+
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @updatedAt @map("updated_at")
+
+  dealer       Dealer                 @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("spare_part_requests")
+}
+
+
+// ============================================================================
+// ENUMS  (DealerTier lives in ev-onboarding.prisma — do NOT duplicate it here)
+// ============================================================================
+
+enum DealerOperationalStatus {
+  ONBOARDING   // appointed but not yet fully live
+  ACTIVE       // trading normally
+  ON_HOLD      // temporarily paused (credit/compliance)
+  SUSPENDED    // suspended pending action
+  TERMINATED   // exited the network
+}
+
+// Grounded in Luxus Green's product portfolio
+enum VehicleSegment {
+  L5           // heavy-duty / high-speed (Vikas Lifter, Spark, Speedo, Soorma, Nirmal)
+  L3           // standard e-rickshaw / cargo (Vikas Rani, Loader, Carry, Swachh)
+  CUSTOMISED   // mobile-business builds (Foodcart, Nursery, Milk/Cylinder vans)
+}
+
+enum TargetPeriodType {
+  MONTHLY
+  QUARTERLY
+}
+
+enum LeadRoutingStatus {
+  ASSIGNED     // routed to a dealer, awaiting response
+  ACCEPTED     // dealer picked it up
+  CONTACTED    // dealer reached the buyer
+  CONVERTED    // resulted in a sale
+  LOST         // did not convert
+  REASSIGNED   // moved to another dealer
+}
+
+enum RoutingMethod {
+  AUTO_TERRITORY // matched by state/district territory
+  MANUAL         // assigned by an OEM user
+}
+
+enum FinanceCaseStatus {
+  NEW
+  DOCS_PENDING     // waiting on buyer documents
+  SUBMITTED        // sent to NBFC/bank
+  APPROVED
+  DISBURSED
+  REJECTED
+}
+
+enum ServiceTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ServiceTicketStatus {
+  OPEN
+  IN_PROGRESS
+  AWAITING_PARTS
+  RESOLVED
+  CLOSED
+}
+
+enum SparePartRequestStatus {
+  REQUESTED
+  APPROVED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+
+// ============================================================================
+// MANUAL BACK-RELATIONS  — add these lines to the referenced models
+// ============================================================================
+//
+// model User {
+//   ...
+//   managedDealers  Dealer[]  @relation("DealerRelationshipManager")
+// }
+//
+// model Lead {
+//   ...
+//   dealerAssignment DealerLeadAssignment?
+// }
+//   // then in DealerLeadAssignment add:
+//   //   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+//
+// model DealerApplication {   // in ev-onboarding.prisma
+//   ...
+//   dealer Dealer? @relation("ApplicationToDealer")
+// }
+// ============================================================================

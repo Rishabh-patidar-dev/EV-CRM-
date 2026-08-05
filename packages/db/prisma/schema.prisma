@@ -1,0 +1,1110 @@
+// =============================================================================
+// EV CRM — merged Prisma schema (runs against a real Supabase Postgres db)
+// -----------------------------------------------------------------------------
+// This is the RUNNABLE version of the schema fragments delivered in
+// /prisma/*.prisma at the repo root. Those files remain the canonical,
+// Postgres-flavoured drop-in source for the real innocrm-staging codebase.
+// This schema now runs against a real Postgres instance (Supabase) via
+// DATABASE_URL (pooled, pgbouncer :6543, used at query time) and DIRECT_URL
+// (:5432, used only by `prisma db push`/migrate — pgbouncer's transaction
+// pooling doesn't reliably support the schema-engine's DDL statements).
+//
+// This schema was originally built and adapted for local SQLite dev; a few
+// SQLite-era adaptations are still in place even though Postgres supports
+// the native form (they work fine as plain columns on Postgres too, just
+// not idiomatic — left alone rather than churned without a reason to):
+//   - `String[]` scalar lists (e.g. Dealer.segments) -> comma-joined String,
+//     serialized/deserialized by helpers in dealerManagement.service.ts.
+//   - `@db.Decimal(12,2)` native-type attributes dropped; the Prisma
+//     `Decimal` scalar itself is still used and still gives exact decimal
+//     arithmetic (Postgres NUMERIC under the hood either way).
+//   - A few `DealerTier` naming collisions between the onboarding fragment
+//     (FLAGSHIP_3S / MINI_SHOWROOM / SERVICE_PARTNER — an applicant's
+//     requested/assessed tier) and the operational dealer-management
+//     fragment (STANDARD / PREMIUM / FLAGSHIP — a live dealer's network
+//     tier) are resolved by keeping them as two distinct enums:
+//     `DealerTier` (onboarding) and `DealerNetworkTier` (operational).
+// =============================================================================
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled (pgbouncer, :6543) — used at runtime
+  directUrl = env("DIRECT_URL")   // direct (:5432) — used by `prisma db push`/migrate
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// =============================================================================
+// CORE CRM (minimal — just enough of the base InnoCRM/Synkro schema for the
+// modules below to attach to: users, leads, and the landing-page pipeline)
+// =============================================================================
+
+enum UserRole {
+  SYSTEM_ADMIN
+  ADMIN
+  NETWORK_EXPANSION
+  RELATIONSHIP_MANAGER
+  SALES
+  SUPPORT
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  firstName String   @map("first_name")
+  lastName  String?  @map("last_name")
+  email     String   @unique
+  role      UserRole @default(SALES)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Dealer Management back-relations
+  managedDealers    Dealer[]        @relation("DealerRelationshipManager")
+  warrantyClaimEvents   WarrantyClaimEvent[]   @relation("WarrantyClaimEventActor")
+
+  // Onboarding back-relations
+  assignedApplications  DealerApplication[]         @relation("ApplicationAssignee")
+  verifiedAppDocuments  DealerApplicationDocument[]  @relation("AppDocVerifier")
+  onboardingStageEvents OnboardingStageEvent[]       @relation("StageEventActor")
+
+  // Lead module back-relations (ported from innocrm-staging)
+  ownedLeads              Lead[]                @relation("LeadOwner")
+  leadsDeleted            Lead[]                @relation("LeadDeletedBy")
+  leadRemarks             LeadRemark[]
+  landingPageCampaigns    LandingPageCampaign[]  @relation("LandingPageCampaignCreator")
+  enquiriesResolved       Enquiry[]              @relation("EnquiryResolver")
+
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// LEAD MODULE + LANDING PAGE INTEGRATION
+// Ported from the real innocrm-staging (Synkro) CRM — same field names, same
+// enums, same lead-scoring formula and webhook dedup logic — trimmed of the
+// parts that don't apply here (WhatsApp/Brevo campaign delivery, Contact
+// conversion, keyword segmentation, CSV bulk-import). `district` is the one
+// EV-CRM-specific addition, used by dealer-territory lead routing.
+// -----------------------------------------------------------------------------
+
+enum LeadSource {
+  IMPORT
+  LANDING_PAGE
+  MANUAL
+}
+
+enum LeadStatus {
+  OPEN
+  WORKING
+  QUALIFIED
+  UNQUALIFIED
+  NURTURING
+  CONVERTED
+}
+
+model Lead {
+  id          Int         @id @default(autoincrement())
+  firstName   String      @map("first_name")
+  lastName    String?     @map("last_name")
+  email       String
+  phone       String?
+  countryCode String?     @default("91") @map("country_code")
+  companyName String?     @map("company_name")
+  city        String?
+  district    String?
+  state       String?
+  pincode     String?
+  source      LeadSource? @default(MANUAL)
+  status      LeadStatus? @default(OPEN)
+
+  // Lead score (see LeadScoringService): completeness x0.7 + quality x0.3
+  score             Int   @default(0)
+  completenessScore Int   @default(0) @map("completeness_score")
+  qualityScore      Int   @default(0) @map("quality_score")
+  // SQLite adaptation: real schema uses native String[]; stored as JSON here.
+  missingFields     Json? @map("missing_fields")
+  invalidFields     Json? @map("invalid_fields")
+
+  ownerId    Int?      @map("owner_id")
+  assignedAt DateTime? @map("assigned_at")
+
+  emailOptOut Boolean @default(false) @map("email_opt_out")
+  smsOptOut   Boolean @default(false) @map("sms_opt_out")
+
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy Int?      @map("deleted_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  owner         User? @relation("LeadOwner", fields: [ownerId], references: [id])
+  deletedByUser User? @relation("LeadDeletedBy", fields: [deletedBy], references: [id])
+
+  enquiries       Enquiry[]
+  formSubmissions FormSubmission[]
+  remarks         LeadRemark[]
+
+  dealerApplication DealerApplication?
+  dealerAssignment  DealerLeadAssignment?
+
+  @@index([email])
+  @@index([phone])
+  @@index([state])
+  @@index([deletedAt])
+  @@map("leads")
+}
+
+// Free-text activity trail on a lead ("every move is logged as a remark").
+model LeadRemark {
+  id        Int      @id @default(autoincrement())
+  leadId    Int      @map("lead_id")
+  userId    Int      @map("user_id")
+  remark    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([leadId])
+  @@map("lead_remarks")
+}
+
+enum EnquiryStatus {
+  UNRESOLVED
+  IN_PROGRESS
+  RESOLVED
+}
+
+model Enquiry {
+  id                    Int                  @id @default(autoincrement())
+  leadId                Int                  @map("lead_id")
+  lead                  Lead                 @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  landingPageCampaignId Int?                 @map("landing_page_campaign_id")
+  landingPageCampaign   LandingPageCampaign? @relation(fields: [landingPageCampaignId], references: [id])
+  customFields          Json?                @map("custom_fields")
+  status                EnquiryStatus        @default(UNRESOLVED)
+  enquiryCreatedAt       DateTime            @default(now()) @map("enquiry_created_at")
+  resolvedAt            DateTime?            @map("resolved_at")
+  resolvedBy            Int?                 @map("resolved_by")
+  resolver              User?                @relation("EnquiryResolver", fields: [resolvedBy], references: [id])
+
+  @@index([leadId])
+  @@index([landingPageCampaignId])
+  @@index([status])
+  @@map("enquiries")
+}
+
+model FormSubmission {
+  id          Int      @id @default(autoincrement())
+  leadId      Int?     @map("lead_id")
+  lead        Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  formData    Json     @map("form_data")
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  @@index([leadId])
+  @@map("form_submissions")
+}
+
+enum LandingPageCampaignStatus {
+  ACTIVE
+  PAUSED
+  SCHEDULED
+  CLOSED
+  ARCHIVED
+}
+
+model LandingPageCampaign {
+  id          Int                       @id @default(autoincrement())
+  name        String
+  description String?
+  uniqueId    String                    @unique @default(cuid()) @map("unique_id")
+  status      LandingPageCampaignStatus @default(ACTIVE)
+  // GTM integration: the container ID the external landing page should load
+  // for this campaign, handed back on the public unique-ID lookup so the
+  // page never hardcodes it. See ingest.controller.ts's dataLayer note.
+  gtmContainerId String? @map("gtm_container_id")
+  createdBy   Int?                      @map("created_by")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+
+  creator      User?                @relation("LandingPageCampaignCreator", fields: [createdBy], references: [id])
+  applications DealerApplication[]
+  enquiries    Enquiry[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("landing_page_campaigns")
+}
+
+// =============================================================================
+// SUBMODULE — Campaign Management (outbound Email/WhatsApp to lead segments)
+// -----------------------------------------------------------------------------
+// Distinct from LandingPageCampaign above (that's inbound webhook
+// attribution — "which ad brought this lead in"). This is outbound: a named
+// Segment is a saved filter over the Lead table (status/source/state — no
+// duplicate membership list, recomputed live so it's never stale), and a
+// MarketingCampaign targets one Segment over one channel. Sending isn't
+// wired to a live provider (no SMTP/WhatsApp Business API credentials in
+// this scaffold) — a campaign's lifecycle (Draft -> Scheduled -> Sent) and
+// its audience size are real; the actual dispatch is not.
+// =============================================================================
+
+model Segment {
+  id            Int         @id @default(autoincrement())
+  name          String
+  description   String?
+  statusFilter  LeadStatus? @map("status_filter")
+  sourceFilter  LeadSource? @map("source_filter")
+  stateFilter   String?     @map("state_filter")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  campaigns MarketingCampaign[]
+
+  @@map("segments")
+}
+
+enum CampaignChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum MarketingCampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+}
+
+model MarketingCampaign {
+  id      Int             @id @default(autoincrement())
+  name    String
+  channel CampaignChannel
+  subject String? // email only
+  message String
+
+  segmentId Int?     @map("segment_id")
+  segment   Segment? @relation(fields: [segmentId], references: [id])
+
+  status      MarketingCampaignStatus @default(DRAFT)
+  scheduledAt DateTime?               @map("scheduled_at")
+  sentAt      DateTime?               @map("sent_at")
+  // Audience size at the moment it was sent — a real snapshot of the
+  // segment's live membership count at send time, not a fabricated delivery
+  // report (no open/click/bounce data since nothing is actually dispatched).
+  audienceCount Int? @map("audience_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([channel])
+  @@index([status])
+  @@map("marketing_campaigns")
+}
+
+// =============================================================================
+// MODULE 3 — DEALER ONBOARDING (8-stage pipeline)
+// =============================================================================
+
+enum ApplicationIntent {
+  DEALERSHIP_APPLICATION
+  RETAIL_INQUIRY
+}
+
+// 5-stage pipeline: Application -> Screening & NDA -> Business Proposal ->
+// Due Diligence -> Legal Agreement (this is where the Letter of Intent is
+// issued to the applicant) -> OPERATIONAL once appointed as a live dealer.
+// Facility/branding sign-off, staff training and go-live checks happen after
+// the LOI, outside this tracked pipeline — not modelled here.
+enum OnboardingStage {
+  APPLICATION
+  SCREENING_NDA
+  BUSINESS_PROPOSAL
+  DUE_DILIGENCE
+  LEGAL_AGREEMENT
+  OPERATIONAL
+}
+
+enum ApplicationStatus {
+  IN_PROGRESS
+  ON_HOLD
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+// Applicant's requested/assessed tier during onboarding (distinct from the
+// live network tier below — see header note).
+enum DealerTier {
+  FLAGSHIP_3S
+  MINI_SHOWROOM
+  SERVICE_PARTNER
+}
+
+enum DocumentStatus {
+  PENDING
+  UPLOADED
+  VERIFIED
+  REJECTED
+}
+
+model DealerApplication {
+  id       Int    @id @default(autoincrement())
+  publicId String @unique @default(cuid()) @map("public_id")
+
+  intent ApplicationIntent @default(DEALERSHIP_APPLICATION)
+
+  legalName          String  @map("legal_name")
+  tradeName          String? @map("trade_name")
+  contactName        String  @map("contact_name")
+  email              String
+  phone              String?
+  gstin              String?
+  pan                String?
+  city               String?
+  state              String?
+  pincode            String?
+  investmentCapacity String? @map("investment_capacity")
+
+  tier   DealerTier?
+  stage  OnboardingStage   @default(APPLICATION)
+  status ApplicationStatus @default(IN_PROGRESS)
+
+  assignedTeam String? @default("NETWORK_EXPANSION") @map("assigned_team")
+  assignedToId Int?    @map("assigned_to_id")
+  assignedTo   User?   @relation("ApplicationAssignee", fields: [assignedToId], references: [id])
+
+  utmSource             String?              @map("utm_source")
+  utmMedium             String?              @map("utm_medium")
+  utmCampaign           String?              @map("utm_campaign")
+  landingPageCampaignId Int?                 @map("landing_page_campaign_id")
+  landingPageCampaign   LandingPageCampaign? @relation(fields: [landingPageCampaignId], references: [id])
+
+  leadId Int?  @unique @map("lead_id")
+  lead   Lead? @relation(fields: [leadId], references: [id])
+
+  rawPayload Json? @map("raw_payload")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  documents    DealerApplicationDocument[]
+  stageHistory OnboardingStageEvent[]
+  dealer       Dealer?                     @relation("ApplicationToDealer")
+
+  @@index([stage])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([email])
+  @@index([createdAt])
+  @@map("dealer_applications")
+}
+
+model DealerApplicationDocument {
+  id            Int               @id @default(autoincrement())
+  applicationId Int               @map("application_id")
+  application   DealerApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  stage    OnboardingStage
+  docKey   String          @map("doc_key")
+  label    String
+  required Boolean         @default(true)
+
+  status  DocumentStatus @default(PENDING)
+  fileUrl String?        @map("file_url")
+  notes   String?
+
+  verifiedById Int?      @map("verified_by_id")
+  verifiedBy   User?     @relation("AppDocVerifier", fields: [verifiedById], references: [id])
+  verifiedAt   DateTime? @map("verified_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([applicationId, stage, docKey])
+  @@index([applicationId])
+  @@index([status])
+  @@map("dealer_application_documents")
+}
+
+model OnboardingStageEvent {
+  id            Int               @id @default(autoincrement())
+  applicationId Int               @map("application_id")
+  application   DealerApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  fromStage OnboardingStage? @map("from_stage")
+  toStage   OnboardingStage  @map("to_stage")
+  note      String?
+
+  actorId Int?  @map("actor_id")
+  actor   User? @relation("StageEventActor", fields: [actorId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([applicationId])
+  @@index([toStage])
+  @@map("onboarding_stage_events")
+}
+
+// =============================================================================
+// MODULE 2 — DEALER MANAGEMENT (operational layer)
+// =============================================================================
+
+enum DealerNetworkTier {
+  STANDARD
+  PREMIUM
+  FLAGSHIP
+}
+
+enum DealerOperationalStatus {
+  ONBOARDING
+  ACTIVE
+  ON_HOLD
+  SUSPENDED
+  TERMINATED
+}
+
+enum VehicleSegment {
+  L5
+  L3
+  CUSTOMISED
+}
+
+enum TargetPeriodType {
+  MONTHLY
+  QUARTERLY
+}
+
+enum LeadRoutingStatus {
+  ASSIGNED
+  ACCEPTED
+  CONTACTED
+  CONVERTED
+  LOST
+  REASSIGNED
+}
+
+enum RoutingMethod {
+  AUTO_TERRITORY
+  MANUAL
+}
+
+enum FinanceCaseStatus {
+  NEW
+  DOCS_PENDING
+  SUBMITTED
+  APPROVED
+  DISBURSED
+  REJECTED
+}
+
+enum ServiceTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ServiceTicketStatus {
+  OPEN
+  IN_PROGRESS
+  AWAITING_PARTS
+  RESOLVED
+  CLOSED
+}
+
+enum SparePartRequestStatus {
+  REQUESTED
+  APPROVED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+model Dealer {
+  id       Int    @id @default(autoincrement())
+  publicId String @unique @default(cuid()) @map("public_id")
+
+  legalName  String  @map("legal_name")
+  tradeName  String? @map("trade_name")
+  dealerCode String  @unique @map("dealer_code")
+  gstNumber  String? @map("gst_number")
+  panNumber  String? @map("pan_number")
+
+  principalName String  @map("principal_name")
+  phone         String
+  email         String?
+
+  addressLine String? @map("address_line")
+  city        String?
+  district    String?
+  state       String
+  pincode     String?
+
+  tier   DealerNetworkTier       @default(STANDARD)
+  status DealerOperationalStatus @default(ONBOARDING)
+  // SQLite adaptation: comma-joined VehicleSegment codes, e.g. "L5,L3".
+  // Use serializeSegments()/parseSegments() from dealerManagement.service.ts.
+  segments String @default("")
+
+  relationshipManagerId Int? @map("relationship_manager_id")
+
+  creditLimit     Decimal? @map("credit_limit")
+  securityDeposit Decimal? @map("security_deposit")
+
+  appointedAt DateTime? @map("appointed_at")
+  goLiveAt    DateTime? @map("go_live_at")
+  suspendedAt DateTime? @map("suspended_at")
+  notes       String?
+
+  applicationId Int? @unique @map("application_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  relationshipManager User?              @relation("DealerRelationshipManager", fields: [relationshipManagerId], references: [id])
+  application          DealerApplication? @relation("ApplicationToDealer", fields: [applicationId], references: [id])
+  territories          DealerTerritory[]
+  targets              DealerTarget[]
+  performance          DealerPerformanceSnapshot[]
+  leadAssignments      DealerLeadAssignment[]
+  financeCases         FinanceCase[]
+  serviceTickets       ServiceTicket[]
+  sparePartRequests    SparePartRequest[]
+
+  // New operational submodules
+  vehicleUnits          VehicleUnit[]
+  stockTransferRequests StockTransferRequest[]
+  complianceRecords     DealerComplianceRecord[]
+  warrantyClaims        WarrantyClaim[]
+
+  @@index([state])
+  @@index([status])
+  @@index([tier])
+  @@index([relationshipManagerId])
+  @@map("dealers")
+}
+
+model DealerTerritory {
+  id        Int      @id @default(autoincrement())
+  dealerId  Int      @map("dealer_id")
+  state     String
+  district  String?
+  exclusive Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@unique([dealerId, state, district])
+  @@index([state, district])
+  @@map("dealer_territories")
+}
+
+model DealerTarget {
+  id            Int              @id @default(autoincrement())
+  dealerId      Int              @map("dealer_id")
+  periodType    TargetPeriodType @default(MONTHLY) @map("period_type")
+  periodStart   DateTime         @map("period_start")
+  segment       VehicleSegment?
+  unitTarget    Int              @default(0) @map("unit_target")
+  revenueTarget Decimal?         @map("revenue_target")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@unique([dealerId, periodType, periodStart, segment])
+  @@index([dealerId])
+  @@index([periodStart])
+  @@map("dealer_targets")
+}
+
+model DealerPerformanceSnapshot {
+  id             Int              @id @default(autoincrement())
+  dealerId       Int              @map("dealer_id")
+  periodType     TargetPeriodType @default(MONTHLY) @map("period_type")
+  periodStart    DateTime         @map("period_start")
+  unitsSold      Int              @default(0) @map("units_sold")
+  revenue        Decimal          @default(0)
+  leadsReceived  Int              @default(0) @map("leads_received")
+  leadsConverted Int              @default(0) @map("leads_converted")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@unique([dealerId, periodType, periodStart])
+  @@index([dealerId])
+  @@map("dealer_performance_snapshots")
+}
+
+model DealerLeadAssignment {
+  id          Int               @id @default(autoincrement())
+  leadId      Int               @unique @map("lead_id")
+  lead        Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  dealerId    Int               @map("dealer_id")
+  status      LeadRoutingStatus @default(ASSIGNED)
+  routedBy    RoutingMethod     @default(AUTO_TERRITORY) @map("routed_by")
+  assignedAt  DateTime          @default(now()) @map("assigned_at")
+  respondedAt DateTime?         @map("responded_at")
+  outcome     String?
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("dealer_lead_assignments")
+}
+
+model FinanceCase {
+  id            Int               @id @default(autoincrement())
+  dealerId      Int               @map("dealer_id")
+  leadId        Int?              @map("lead_id")
+  buyerName     String            @map("buyer_name")
+  buyerPhone    String            @map("buyer_phone")
+  vehicleModel  String?           @map("vehicle_model")
+  loanAmount    Decimal?          @map("loan_amount")
+  financierName String?           @map("financier_name")
+  status        FinanceCaseStatus @default(NEW)
+  notes         String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("finance_cases")
+}
+
+model ServiceTicket {
+  id            Int                   @id @default(autoincrement())
+  ticketNumber  String                @unique @map("ticket_number")
+  dealerId      Int                   @map("dealer_id")
+  customerName  String                @map("customer_name")
+  customerPhone String?               @map("customer_phone")
+  vehicleModel  String?               @map("vehicle_model")
+  chassisNumber String?               @map("chassis_number")
+  issue         String
+  priority      ServiceTicketPriority @default(NORMAL)
+  status        ServiceTicketStatus   @default(OPEN)
+  resolvedAt    DateTime?             @map("resolved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("service_tickets")
+}
+
+model SparePartRequest {
+  id            Int                    @id @default(autoincrement())
+  requestNumber String                 @unique @map("request_number")
+  dealerId      Int                    @map("dealer_id")
+  partName      String                 @map("part_name")
+  partCode      String?                @map("part_code")
+  quantity      Int                    @default(1)
+  status        SparePartRequestStatus @default(REQUESTED)
+  dispatchedAt  DateTime?              @map("dispatched_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("spare_part_requests")
+}
+
+// =============================================================================
+// NEW SUBMODULE — Vehicle Inventory & Stock Allocation
+// -----------------------------------------------------------------------------
+// VIN-level answer to "what can this dealer actually sell today": every
+// physical unit is tracked from OEM stock through allocation to a dealer to
+// sale/demo, and dealers raise StockTransferRequests against their credit
+// standing to pull more stock in.
+// =============================================================================
+
+enum VehicleUnitStatus {
+  IN_TRANSIT
+  IN_STOCK
+  ALLOCATED
+  DEMO
+  SOLD
+  SERVICE_HOLD
+  DAMAGED
+}
+
+enum StockTransferStatus {
+  REQUESTED
+  APPROVED
+  DISPATCHED
+  DELIVERED
+  REJECTED
+  CANCELLED
+}
+
+model VehicleUnit {
+  id       Int    @id @default(autoincrement())
+  vin      String @unique
+  model    String
+  segment  VehicleSegment
+  color    String?
+
+  status   VehicleUnitStatus @default(IN_STOCK)
+  isDemoUnit Boolean @default(false) @map("is_demo_unit")
+  batteryHealthPct Int? @map("battery_health_pct")
+
+  dealerId Int? @map("dealer_id")
+  dealer   Dealer? @relation(fields: [dealerId], references: [id])
+
+  manufacturedAt DateTime? @map("manufactured_at")
+  allocatedAt    DateTime? @map("allocated_at")
+  soldAt         DateTime? @map("sold_at")
+  invoiceNumber  String?   @map("invoice_number")
+  buyerName      String?   @map("buyer_name")
+  notes          String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  warrantyClaims WarrantyClaim[]
+  componentUnits ComponentUnit[]
+
+  @@index([dealerId])
+  @@index([status])
+  @@index([model])
+  @@map("vehicle_units")
+}
+
+model StockTransferRequest {
+  id            Int    @id @default(autoincrement())
+  requestNumber String @unique @map("request_number")
+
+  dealerId Int    @map("dealer_id")
+  dealer   Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  model    String
+  segment  VehicleSegment
+  quantity Int    @default(1)
+  status   StockTransferStatus @default(REQUESTED)
+
+  requestedById Int? @map("requested_by_id")
+  dispatchedAt  DateTime? @map("dispatched_at")
+  deliveredAt   DateTime? @map("delivered_at")
+  notes         String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("stock_transfer_requests")
+}
+
+// =============================================================================
+// SUBMODULE — Purchase Management (manufacturer's own inbound stock)
+// -----------------------------------------------------------------------------
+// StockTransferRequest above is dealer -> OEM ("send me more stock"). This is
+// the OEM's own side of that: batches of vehicles purchased/imported from a
+// manufacturing plant or import source into OEM warehouse stock, tracked as
+// their own order (not yet reflected as individual VehicleUnit rows — that
+// linkage is the natural next step, not built here). "Sold" figures on the
+// Purchase Management page are read directly from VehicleUnit.status=SOLD;
+// no separate sales record was invented.
+// =============================================================================
+
+enum VehiclePurchaseOrderStatus {
+  ORDERED
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+model VehiclePurchaseOrder {
+  id           Int    @id @default(autoincrement())
+  poNumber     String @unique @map("po_number")
+  supplierName String @map("supplier_name")
+
+  model    String
+  segment  VehicleSegment
+  quantity Int    @default(1)
+  unitCost Decimal @map("unit_cost")
+
+  status VehiclePurchaseOrderStatus @default(ORDERED)
+
+  orderedAt  DateTime  @default(now()) @map("ordered_at")
+  expectedAt DateTime? @map("expected_at")
+  receivedAt DateTime? @map("received_at")
+  notes      String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([model])
+  @@map("vehicle_purchase_orders")
+}
+
+// =============================================================================
+// NEW SUBMODULE — Compliance & Document Renewals
+// -----------------------------------------------------------------------------
+// Ongoing, post-go-live compliance tracking (distinct from the onboarding
+// checklist, which ends at GO_LIVE): dealer agreement, trade license,
+// insurance, statutory NOCs — each with an expiry date so renewals don't
+// slip. `status` is recomputed from `expiresAt` by
+// computeComplianceStatus() in dealerManagement.service.ts.
+// =============================================================================
+
+enum ComplianceDocType {
+  DEALER_AGREEMENT
+  TRADE_LICENSE
+  GST_CERTIFICATE
+  INSURANCE_POLICY
+  FIRE_NOC
+  POLLUTION_NOC
+  SHOWROOM_LEASE
+  DISCOM_SANCTION
+  OTHER
+}
+
+enum ComplianceStatus {
+  VALID
+  EXPIRING_SOON
+  EXPIRED
+  MISSING
+}
+
+model DealerComplianceRecord {
+  id       Int    @id @default(autoincrement())
+  dealerId Int    @map("dealer_id")
+  dealer   Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  docType   ComplianceDocType @map("doc_type")
+  docNumber String?           @map("doc_number")
+  issuedAt  DateTime?         @map("issued_at")
+  expiresAt DateTime?         @map("expires_at")
+  status    ComplianceStatus  @default(MISSING)
+  fileUrl   String?           @map("file_url")
+
+  reminderSentAt DateTime? @map("reminder_sent_at")
+  notes          String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([dealerId, docType])
+  @@index([dealerId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("dealer_compliance_records")
+}
+
+// =============================================================================
+// CENTREPIECE MODULE — Warranty Management
+// -----------------------------------------------------------------------------
+// Grounded in DMS-and-Warranty-Research.pdf §4. Phase-1 "demo-ready core" per
+// that document's own build roadmap: warranty plans, serial-level component
+// registration, instant coverage lookup, dealer claim intake, auto-adjudication
+// against policy, approval, reimbursement to the dealer ledger, and supplier
+// recovery on the closed loop. Deliberately deferred (that doc's own Phase
+// 2/3): a standalone PartReturn/RMA model (folded into two fields on the
+// claim instead), Recall/Campaign, Extended-warranty/AMC contracts, and
+// telematics/BMS log ingestion.
+// =============================================================================
+
+enum WarrantyComponentType {
+  BATTERY
+  MOTOR
+  CONTROLLER
+  CHARGER
+  CHASSIS
+  BRAKES
+}
+
+// Policy data, not code — one row per (vehicle model, component). Matches
+// the PDF's "component warranty matrix": the battery carries its own SoH
+// floor and approved-charger list; other components just carry a term.
+model WarrantyPlan {
+  id            Int                   @id @default(autoincrement())
+  name          String
+  vehicleModel  String                @map("vehicle_model")
+  componentType WarrantyComponentType @map("component_type")
+
+  termMonths Int     @map("term_months")
+  termKm     Int?    @map("term_km")
+  // Battery-only: capacity floor (e.g. 70) and comma-joined approved charger
+  // types — a claim naming a charger outside this list is void.
+  sohFloorPct       Int?    @map("soh_floor_pct")
+  approvedChargers  String? @map("approved_chargers")
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  componentUnits ComponentUnit[]
+  claims         WarrantyClaim[]
+
+  @@unique([vehicleModel, componentType])
+  @@index([vehicleModel])
+  @@map("warranty_plans")
+}
+
+enum ComponentUnitStatus {
+  IN_SERVICE
+  RETURNED
+  REPLACED
+  SCRAPPED
+}
+
+// The serial registry — "which exact battery/motor is in which chassis" —
+// is what makes both the instant coverage check and supplier recovery
+// possible at all. Registered at sale (Vehicle Inventory §NEW SUBMODULE
+// above marks the VehicleUnit SOLD in the same moment this row is created).
+model ComponentUnit {
+  id            Int                   @id @default(autoincrement())
+  serialNumber  String                @unique @map("serial_number")
+  componentType WarrantyComponentType @map("component_type")
+  supplierName  String?               @map("supplier_name")
+  batchNumber   String?               @map("batch_number")
+
+  vehicleUnitId Int?         @map("vehicle_unit_id")
+  vehicleUnit   VehicleUnit? @relation(fields: [vehicleUnitId], references: [id])
+  planId        Int?         @map("plan_id")
+  plan          WarrantyPlan? @relation(fields: [planId], references: [id])
+
+  // Warranty clock start — first registration date, per the PDF.
+  registeredAt DateTime?           @map("registered_at")
+  status       ComponentUnitStatus @default(IN_SERVICE)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  claims WarrantyClaim[]
+
+  @@index([vehicleUnitId])
+  @@index([componentType])
+  @@map("component_units")
+}
+
+// The claim lifecycle state machine from the PDF §4.5, collapsed to the
+// states this build actually drives through (UNDER_REVIEW == "Needs
+// review"; INFO_REQUESTED is available but the auto-adjudicator here never
+// emits it — a human can set it manually pending the guided-evidence UI).
+enum WarrantyClaimStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  INFO_REQUESTED
+  APPROVED
+  IN_REPAIR
+  REIMBURSED
+  RECOVERY
+  REJECTED
+  CLOSED
+}
+
+model WarrantyClaim {
+  id          Int    @id @default(autoincrement())
+  claimNumber String @unique @map("claim_number")
+
+  dealerId        Int            @map("dealer_id")
+  dealer          Dealer         @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  vehicleUnitId   Int?           @map("vehicle_unit_id")
+  vehicleUnit     VehicleUnit?   @relation(fields: [vehicleUnitId], references: [id])
+  componentUnitId Int?           @map("component_unit_id")
+  componentUnit   ComponentUnit? @relation(fields: [componentUnitId], references: [id])
+  planId          Int?           @map("plan_id")
+  plan            WarrantyPlan?  @relation(fields: [planId], references: [id])
+
+  chassisNumber    String? @map("chassis_number")
+  customerName     String  @map("customer_name")
+  customerPhone    String? @map("customer_phone")
+  issueDescription String  @map("issue_description") // "symptom" in the PDF
+
+  // Intake evidence the adjudication rules run against (PDF Appendix B).
+  odometerReading        Int?     @map("odometer_reading")
+  measuredSohPct         Int?     @map("measured_soh_pct") // battery claims only
+  chargerType            String?  @map("charger_type")
+  serviceRecordsComplete Boolean  @default(true) @map("service_records_complete")
+
+  claimAmount    Decimal? @map("claim_amount")
+  approvedAmount Decimal? @map("approved_amount")
+  status         WarrantyClaimStatus @default(SUBMITTED)
+  voidReason      String? @map("void_reason")
+  rejectionReason String? @map("rejection_reason")
+  // Human-readable trail of what the rules engine checked — the "evidenced
+  // decision, not an argument" the PDF asks for.
+  adjudicationNotes String? @map("adjudication_notes")
+
+  // Lightweight stand-in for a full PartReturn/RMA model (Phase 2 there).
+  partReturned   Boolean   @default(false) @map("part_returned")
+  partReturnedAt DateTime? @map("part_returned_at")
+
+  submittedAt DateTime  @default(now()) @map("submitted_at")
+  resolvedAt  DateTime? @map("resolved_at")
+  notes       String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  events           WarrantyClaimEvent[]
+  supplierRecovery SupplierRecovery?
+
+  @@index([dealerId])
+  @@index([status])
+  @@index([componentUnitId])
+  @@map("warranty_claims")
+}
+
+// Append-only audit trail per claim — every adjudication run and manual
+// decision, who made it and when.
+model WarrantyClaimEvent {
+  id      Int           @id @default(autoincrement())
+  claimId Int           @map("claim_id")
+  claim   WarrantyClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  fromStatus WarrantyClaimStatus? @map("from_status")
+  toStatus   WarrantyClaimStatus  @map("to_status")
+  note       String?
+
+  actorId Int?  @map("actor_id")
+  actor   User? @relation("WarrantyClaimEventActor", fields: [actorId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([claimId])
+  @@map("warranty_claim_events")
+}
+
+enum SupplierRecoveryStatus {
+  OPEN
+  RECOVERED
+  WRITTEN_OFF
+}
+
+// The closed loop: when a returned part confirms a supplier-caused defect,
+// recovery is a query against this table, not a forensic exercise — because
+// every claim is already tied to a serial, supplier and batch at registration.
+model SupplierRecovery {
+  id      Int           @id @default(autoincrement())
+  claimId Int           @unique @map("claim_id")
+  claim   WarrantyClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  supplierName  String                 @map("supplier_name")
+  componentType WarrantyComponentType  @map("component_type")
+  amount        Decimal
+  status        SupplierRecoveryStatus @default(OPEN)
+
+  openedAt DateTime  @default(now()) @map("opened_at")
+  closedAt DateTime? @map("closed_at")
+  notes    String?
+
+  @@map("supplier_recoveries")
+}
+

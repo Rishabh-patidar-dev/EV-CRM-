@@ -1,0 +1,282 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@source "../../../apps/web/**/*.{js,ts,jsx,tsx}";
+@source "../**/*.{js,ts,jsx,tsx}";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* =========================================================================
+   ZIRA PALETTE  —  warm, muted, practical enterprise theme
+   -------------------------------------------------------------------------
+   Sampled from the supplied palette board:
+     ink   #10222C   deepest teal-charcoal   → sidebar, nav, structure
+     slate #3D4D55   blue-grey slate          → secondary structure, headings
+     stone #A79E9C   warm grey                → muted text / icons
+     sand  #D3C3B9   warm beige               → subtle surfaces, hover tints
+     camel #B58863   camel / tan (signature)  → accent, active, links, focus
+     noir  #161618   near-black               → deep text
+
+   Design intent: minimal chrome, no heavy animation, fast tab switches,
+   AA-legible on dense data tables. Primary CTAs use a *deepened* camel
+   (#9A6A3D ≈ AA on white) so buttons stay readable; the pure camel
+   (#B58863) is reserved for accents/active states where contrast is less
+   critical. Flip --primary to var(--zira-camel) if you prefer a brighter
+   button and accept ~3:1 contrast.
+   ========================================================================= */
+
+@theme {
+	/* Body / UI text — Inter */
+	--font-sans: var(--font-inter);
+	--font-mono: var(--font-geist-mono);
+	/* Headings / display — Plus Jakarta Sans */
+	--font-display: var(--font-jakarta);
+	--max-width-screen-3xl: 1920px;
+
+	/* -------- Zira raw tokens -------- */
+	--zira-ink: #10222c;
+	--zira-slate: #3d4d55;
+	--zira-stone: #a79e9c;
+	--zira-sand: #d3c3b9;
+	--zira-camel: #b58863;
+	--zira-noir: #161618;
+
+	/* deepened / softened working shades derived from the raw six */
+	--zira-camel-deep: #9a6a3d; /* AA-legible camel for buttons */
+	--zira-camel-soft: #c79a6e; /* brighter camel for dark surfaces */
+	--zira-sand-tint: #ede4da; /* pale sand for hover / selected rows */
+	--zira-warm-white: #f7f5f2; /* warm page background */
+
+	/* muted semantic badges (harmonised with the warm neutrals) */
+	--zira-approved: #5c8a73; /* muted sage — Approved */
+	--zira-pending: #c79a5b; /* warm ochre — Pending  */
+	--zira-rejected: #b0554c; /* muted terracotta — Rejected */
+	--zira-info: #5b7a88; /* muted slate-blue — Info */
+}
+
+:root {
+	--background: #f7f5f2; /* warm off-white */
+	--foreground: #1b1b1d; /* near noir */
+	--card: #ffffff;
+	--card-foreground: #1b1b1d;
+	--popover: #ffffff;
+	--popover-foreground: #1b1b1d;
+	--primary: #9a6a3d; /* deepened camel — CTAs / primary buttons */
+	--primary-foreground: #ffffff;
+	--secondary: #efebe6; /* warm tint */
+	--secondary-foreground: #2a3339;
+	--muted: #efebe6;
+	--muted-foreground: #6e6763; /* warm stone — secondary text */
+	--accent: #ede4da; /* sand tint — hover / subtle accent surfaces */
+	--accent-foreground: #3d4d55;
+	--destructive: #b0554c; /* muted terracotta */
+	--destructive-foreground: #ffffff;
+	--border: #e4ddd5; /* warm cool-grey */
+	--input: #e4ddd5;
+	--ring: #b58863; /* camel focus ring */
+	--chart-1: #b58863; /* camel */
+	--chart-2: #3d4d55; /* slate */
+	--chart-3: #a9724a; /* secondary camel */
+	--chart-4: #c79a5b; /* ochre */
+	--chart-5: #5c8a73; /* sage */
+	--radius: 0.55rem;
+	--navbar: #10222c; /* ink */
+	/* Sidebar: ink rail, warm near-white text, camel active state */
+	--sidebar: #10222c;
+	--sidebar-foreground: #ede7e1; /* warm near-white */
+	--sidebar-primary: #b58863; /* camel — active item */
+	--sidebar-primary-foreground: #17130e;
+	--sidebar-accent: #1c2f39; /* lighter ink — hover */
+	--sidebar-accent-foreground: #ffffff;
+	--sidebar-border: #24333b;
+	--sidebar-ring: #b58863;
+	/* ink → slate rail gradient (mostly solid ink, warms toward slate at foot) */
+	--sidebar-gradient: linear-gradient(180deg, #10222c 0%, #10222c 70%, #243139 88%, #3d4d55 100%);
+}
+
+.dark {
+	--background: #121214; /* near-noir */
+	--foreground: #f2efe9;
+	--card: #191a1d;
+	--card-foreground: #f2efe9;
+	--popover: #191a1d;
+	--popover-foreground: #f2efe9;
+	--primary: #c79a6e; /* brighter camel on dark */
+	--primary-foreground: #17130e;
+	--secondary: #232427;
+	--secondary-foreground: #f2efe9;
+	--muted: #232427;
+	--muted-foreground: #a79e9c; /* stone */
+	--accent: #2a2723; /* warm dark tint */
+	--accent-foreground: #f2efe9;
+	--destructive: #c46a60;
+	--destructive-foreground: #ffffff;
+	--border: #2c2d30;
+	--input: #2c2d30;
+	--ring: #c79a6e;
+	--chart-1: #c79a6e; /* camel */
+	--chart-2: #7f929b; /* slate-tint */
+	--chart-3: #d3c3b9; /* sand */
+	--chart-4: #c79a5b; /* ochre */
+	--chart-5: #7fae95; /* sage */
+	--navbar: #10222c;
+	--sidebar: #10222c;
+	--sidebar-foreground: #ede7e1;
+	--sidebar-primary: #c79a6e;
+	--sidebar-primary-foreground: #17130e;
+	--sidebar-accent: #1c2f39;
+	--sidebar-accent-foreground: #ffffff;
+	--sidebar-border: #24333b;
+	--sidebar-ring: #c79a6e;
+	--sidebar-gradient: linear-gradient(180deg, #10222c 0%, #10222c 70%, #243139 88%, #3d4d55 100%);
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+	--color-navbar: var(--navbar);
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar: var(--sidebar);
+
+	/* Zira tokens exposed as utilities (e.g. bg-zira-camel, text-zira-slate) */
+	--color-zira-ink: var(--zira-ink);
+	--color-zira-slate: var(--zira-slate);
+	--color-zira-stone: var(--zira-stone);
+	--color-zira-sand: var(--zira-sand);
+	--color-zira-camel: var(--zira-camel);
+	--color-zira-noir: var(--zira-noir);
+	--color-zira-approved: var(--zira-approved);
+	--color-zira-pending: var(--zira-pending);
+	--color-zira-rejected: var(--zira-rejected);
+	--color-zira-info: var(--zira-info);
+
+	/* -------------------------------------------------------------------
+	   Legacy --brand-* aliases remapped onto the Zira palette so existing
+	   components that use bg-brand-teal / text-brand-indigo etc. keep
+	   working WITHOUT edits. Remove these once components are migrated to
+	   the zira-* / semantic tokens above.
+	   ------------------------------------------------------------------- */
+	--color-brand-indigo: var(--zira-ink);
+	--color-brand-teal: #9a6a3d; /* old primary teal → deepened camel */
+	--color-brand-turquoise: var(--zira-camel);
+	--color-brand-mint: #a7d3be;
+	--color-brand-soft-white: #f7f5f2;
+	--color-brand-pale-aqua: #ede4da;
+	--color-brand-lavender: #ece7e1;
+	--color-brand-stone: #6e6763;
+	--color-brand-cool-grey: #e4ddd5;
+	--color-brand-amber: #c79a5b;
+	--color-brand-coral: #b0554c;
+	--color-brand-purple: #7a6a86;
+	--color-brand-sky: #5b7a88;
+	--color-brand-lime: #7fa37e;
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+		font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+	}
+
+	h1,
+	h2,
+	h3,
+	h4,
+	h5,
+	h6 {
+		font-family: var(--font-display), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+	}
+
+	button:not(:disabled),
+	[role='button']:not(:disabled) {
+		cursor: pointer;
+	}
+}
+
+/* -------------------------------------------------------------------------
+   Sidebar theming (unlayered → wins over Tailwind utility layers). The
+   `synkro-sidebar` class is on the <aside> in appSidebar.tsx; we keep the
+   class name so no component edit is required, only the colours change.
+   ------------------------------------------------------------------------- */
+.synkro-sidebar {
+	background-color: #10222c !important; /* ink fallback */
+	background-image: linear-gradient(180deg, #10222c 0%, #10222c 70%, #243139 88%, #3d4d55 100%);
+	color: var(--sidebar-foreground);
+	border-color: var(--sidebar-border) !important;
+}
+.synkro-sidebar a,
+.synkro-sidebar button,
+.synkro-sidebar p,
+.synkro-sidebar span,
+.synkro-sidebar h4 {
+	color: var(--sidebar-foreground);
+}
+.synkro-sidebar .sidebar-muted {
+	color: color-mix(in srgb, var(--sidebar-foreground) 55%, transparent);
+}
+.synkro-sidebar a:hover,
+.synkro-sidebar button:hover {
+	background-color: var(--sidebar-accent);
+}
+/* active item = camel */
+.synkro-sidebar a.sidebar-active,
+.synkro-sidebar button.sidebar-active,
+.synkro-sidebar .bg-sidebar-primary {
+	background-color: var(--sidebar-primary) !important; /* camel */
+	color: var(--sidebar-primary-foreground) !important;
+}
+
+/* ----------------------------------------------------------------------------
+   Semantic status badges — used by Dealer Onboarding & Dealer Management UIs.
+   Soft tinted fills (color-mix keeps them muted against the warm neutrals).
+---------------------------------------------------------------------------- */
+.badge-approved {
+	background-color: color-mix(in srgb, var(--zira-approved) 16%, transparent);
+	color: color-mix(in srgb, var(--zira-approved) 78%, black);
+}
+.badge-pending {
+	background-color: color-mix(in srgb, var(--zira-pending) 18%, transparent);
+	color: color-mix(in srgb, var(--zira-pending) 72%, black);
+}
+.badge-rejected {
+	background-color: color-mix(in srgb, var(--zira-rejected) 16%, transparent);
+	color: color-mix(in srgb, var(--zira-rejected) 82%, black);
+}
+.dark .badge-approved { color: var(--zira-approved); }
+.dark .badge-pending { color: var(--zira-pending); }
+.dark .badge-rejected { color: var(--zira-rejected); }

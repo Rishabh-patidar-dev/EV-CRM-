@@ -1,0 +1,304 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Font fallbacks — next/font isn't wired up in this standalone scaffold
+   (kept offline-friendly, no Google Fonts fetch at build time). System
+   stacks stand in for the --font-inter / --font-jakarta / --font-geist-mono
+   variables the theme below references. */
+:root {
+	--font-inter: ui-sans-serif, system-ui, -apple-system, sans-serif;
+	--font-jakarta: ui-sans-serif, system-ui, -apple-system, sans-serif;
+	--font-geist-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* =========================================================================
+   THEME — plain, white, working software
+   -------------------------------------------------------------------------
+   One accent (a teal drawn from innocrm-staging's real brand, not an
+   invented palette), white surfaces, a light sidebar instead of a dark
+   rail, and grey doing almost all of the talking. Nothing gradient,
+   nothing glowing — the point is that a dense table of dealers or leads
+   reads clearly, not that the CRM looks like a poster.
+
+   The --zira-* names below are kept from an earlier theme purely so the
+   pages already written against them (dealer onboarding, inventory,
+   compliance, visits) don't need touching — read it as this repo's
+   internal name for "the status tint set", not a separate brand.
+   ========================================================================= */
+
+@theme {
+	--font-sans: var(--font-inter);
+	--font-mono: var(--font-geist-mono);
+	--font-display: var(--font-jakarta);
+	--max-width-screen-3xl: 1920px;
+}
+
+:root {
+	/* Page background sits a shade below card white — the same "structured
+	   SaaS" trick as the reference mock: cards read as raised surfaces
+	   instead of the whole page being one flat white plane. */
+	--background: #f4f7f7;
+	--foreground: #14201e; /* near-black, slight cool bias */
+	--card: #ffffff;
+	--card-foreground: #14201e;
+	--popover: #ffffff;
+	--popover-foreground: #14201e;
+	--primary: #0e7d70; /* teal — the one accent, used for actions and active states */
+	/* muted semantic tones for status badges */
+	--zira-approved: #1f7a52; /* Approved / valid / delivered */
+	--zira-pending: #a86518; /* Pending / expiring / in review */
+	--zira-rejected: #b23c30; /* Rejected / expired / urgent */
+	--zira-info: #2f6690; /* Informational */
+	--primary-foreground: #ffffff;
+	--secondary: #eef2f1;
+	--secondary-foreground: #14201e;
+	--muted: #eef2f1;
+	--muted-foreground: #5c6864; /* grey — secondary text */
+	--accent: #e5f3f0; /* pale teal — hover / subtle accent surfaces */
+	--accent-foreground: #0e7d70;
+	--destructive: #b23c30;
+	--destructive-foreground: #ffffff;
+	--border: #dfe6e5;
+	--input: #dfe6e5;
+	--ring: #0e7d70;
+	--shadow-card: 0 1px 2px rgba(20, 32, 30, 0.04), 0 1px 10px rgba(20, 32, 30, 0.035);
+	--chart-1: #0e7d70;
+	--chart-2: #14201e;
+	--chart-3: #2f6690;
+	--chart-4: #a86518;
+	--chart-5: #1f7a52;
+	/* Validated categorical dataviz palette (dataviz skill reference.md) —
+	   fixed hue order, never cycled/reassigned per-chart. */
+	--viz-1: #2a78d6; /* blue */
+	--viz-2: #eb6834; /* orange */
+	--viz-3: #1baf7a; /* aqua */
+	--viz-4: #eda100; /* yellow */
+	--viz-5: #e87ba4; /* magenta */
+	--viz-6: #008300; /* green */
+	--viz-7: #4a3aa7; /* violet */
+	--viz-8: #e34948; /* red */
+	--viz-surface: #fcfcfb;
+	--viz-text-secondary: #52514e;
+	--radius: 0.4rem;
+	--navbar: #ffffff;
+	/* Sidebar: light rail matching the reference mock — white surface, a
+	   solid teal pill for the active item (not just a tint), light hover. */
+	--sidebar: #ffffff;
+	--sidebar-foreground: #14201e;
+	--sidebar-primary: #0e7d70;
+	--sidebar-primary-foreground: #ffffff;
+	--sidebar-accent: #eef2f1;
+	--sidebar-accent-foreground: #0e7d70;
+	--sidebar-border: #e2e8e7;
+	--sidebar-ring: #0e7d70;
+}
+
+.dark {
+	--background: #14181a;
+	--foreground: #eef1f0;
+	--card: #1a1f21;
+	--card-foreground: #eef1f0;
+	--popover: #1a1f21;
+	--popover-foreground: #eef1f0;
+	--primary: #35b5a3; /* brighter teal on dark */
+	--primary-foreground: #08201c;
+	/* brighter than the light-mode values so badge text keeps AA contrast on a dark card */
+	--zira-approved: #4fb884;
+	--zira-pending: #d1a24c;
+	--zira-rejected: #e2685e;
+	--zira-info: #6ea3c9;
+	--secondary: #212728;
+	--secondary-foreground: #eef1f0;
+	--muted: #212728;
+	--muted-foreground: #9aa2a3;
+	--accent: #16302c; /* deep teal tint */
+	--accent-foreground: #eef1f0;
+	--destructive: #d15a4c;
+	--destructive-foreground: #ffffff;
+	--border: #2a3133;
+	--input: #2a3133;
+	--ring: #35b5a3;
+	--shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 10px rgba(0, 0, 0, 0.2);
+	--chart-1: #35b5a3;
+	--chart-2: #eef1f0;
+	--chart-3: #6ea3c9;
+	--chart-4: #d1a24c;
+	--chart-5: #4fae7f;
+	--viz-1: #3987e5;
+	--viz-2: #d95926;
+	--viz-3: #199e70;
+	--viz-4: #c98500;
+	--viz-5: #d55181;
+	--viz-6: #008300;
+	--viz-7: #9085e9;
+	--viz-8: #e66767;
+	--viz-surface: #1a1a19;
+	--viz-text-secondary: #c3c2b7;
+	--navbar: #14181a;
+	/* Dark theme keeps its own distinct (darker-than-card) rail rather than
+	   flipping to white — same relationship to --background as light mode
+	   has, just inverted. */
+	--sidebar: #0e1213;
+	--sidebar-foreground: #eef1f0;
+	--sidebar-primary: #35b5a3;
+	--sidebar-primary-foreground: #08201c;
+	--sidebar-accent: #1a2022;
+	--sidebar-accent-foreground: #35b5a3;
+	--sidebar-border: #22282a;
+	--sidebar-ring: #35b5a3;
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+	--color-navbar: var(--navbar);
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar: var(--sidebar);
+
+	--color-zira-approved: var(--zira-approved);
+	--color-zira-pending: var(--zira-pending);
+	--color-zira-rejected: var(--zira-rejected);
+	--color-zira-info: var(--zira-info);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+		font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+	}
+
+	h1,
+	h2,
+	h3,
+	h4,
+	h5,
+	h6 {
+		font-family: var(--font-display), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+	}
+
+	button:not(:disabled),
+	[role='button']:not(:disabled) {
+		cursor: pointer;
+	}
+}
+
+/* -------------------------------------------------------------------------
+   Sidebar theming — the `synkro-sidebar` class is on the <aside> in
+   components/Sidebar.tsx. Named for the base CRM this bundle integrates
+   with (innocrm-staging, internally "Synkro"); left as-is rather than
+   renamed for a one-word class nobody else reads.
+   ------------------------------------------------------------------------- */
+.synkro-sidebar {
+	background-color: var(--sidebar);
+	color: var(--sidebar-foreground);
+	border-color: var(--sidebar-border) !important;
+}
+.synkro-sidebar a,
+.synkro-sidebar button,
+.synkro-sidebar p,
+.synkro-sidebar span,
+.synkro-sidebar h4 {
+	color: var(--sidebar-foreground);
+}
+.synkro-sidebar .sidebar-muted {
+	color: color-mix(in srgb, var(--sidebar-foreground) 55%, transparent);
+}
+.synkro-sidebar a:hover,
+.synkro-sidebar button:hover {
+	background-color: var(--sidebar-accent);
+}
+/* Active item is a solid filled pill (not just a tint) — matches the
+   reference mock's highlighted nav item. */
+.synkro-sidebar a.sidebar-active,
+.synkro-sidebar button.sidebar-active {
+	background-color: var(--sidebar-primary) !important;
+	color: var(--sidebar-primary-foreground) !important;
+	font-weight: 600;
+}
+.synkro-sidebar a.sidebar-active:hover,
+.synkro-sidebar button.sidebar-active:hover {
+	background-color: var(--sidebar-primary) !important;
+}
+
+/* Scrollable nav list — scrollbar hidden (still scrolls via wheel/touch/keys,
+   just no visible track/thumb cluttering the rail). */
+.sidebar-scroll {
+	scrollbar-width: none; /* Firefox */
+	-ms-overflow-style: none; /* old Edge */
+}
+.sidebar-scroll::-webkit-scrollbar {
+	display: none; /* Chrome, Safari, new Edge */
+}
+
+/* ----------------------------------------------------------------------------
+   Semantic status badges — used across Dealer Onboarding, Dealer Management,
+   Leads and Landing Page Campaigns. Soft tinted fills, never a solid block.
+---------------------------------------------------------------------------- */
+.badge-approved {
+	background-color: color-mix(in srgb, var(--zira-approved) 12%, transparent);
+	color: var(--zira-approved);
+}
+.badge-pending {
+	background-color: color-mix(in srgb, var(--zira-pending) 14%, transparent);
+	color: var(--zira-pending);
+}
+.badge-rejected {
+	background-color: color-mix(in srgb, var(--zira-rejected) 12%, transparent);
+	color: var(--zira-rejected);
+}
+
+/* ----------------------------------------------------------------------------
+   Elevated card + trend primitives — the "structured SaaS" surface used by
+   StatCard/ChartCard/AccentStat (components/ui/, components/charts/ChartCard).
+   A soft shadow instead of just a border, so cards read as raised against
+   the slightly-off-white page background instead of blending into it.
+---------------------------------------------------------------------------- */
+.card-elevated {
+	background-color: var(--card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow-card);
+}
+.trend-up {
+	color: var(--zira-approved);
+}
+.trend-down {
+	color: var(--zira-rejected);
+}

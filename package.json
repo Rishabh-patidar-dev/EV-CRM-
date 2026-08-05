@@ -1,0 +1,24 @@
+{
+  "name": "ev-crm",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Luxus Green EV CRM — runnable local scaffold wiring the delivered bundle (theme, onboarding, dealer management) into a working Express + Next.js + Prisma app.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n API,WEB -c blue,green \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "db:generate": "npm run db:generate -w packages/db",
+    "db:push": "npm run db:push -w packages/db",
+    "db:seed": "npm run db:seed -w packages/db",
+    "db:studio": "npm run studio -w packages/db",
+    "setup": "npm install && npm run db:generate && npm run db:push && npm run db:seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
+}

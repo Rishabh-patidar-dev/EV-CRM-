@@ -1,0 +1,174 @@
+// =============================================================================
+//  EV DEALER ONBOARDING — schema fragment
+//  Paste these models + enums into packages/db/prisma/schema.prisma, then run:
+//     npm run db:generate  &&  npm run db:migrate
+//
+//  Notes on conventions (matched to the existing InnoCRM schema):
+//   - Int autoincrement PKs (the codebase uses Int, NOT uuid — keep it uniform
+//     so relations to User/Lead work). A cuid `publicId` is added for the
+//     public-facing reference exposed to the landing-page portal / dealer.
+//   - snake_case @map columns, @@map table names, @updatedAt, soft-friendly.
+//   - Stage enum follows YOUR "List of Documents required at each stage of
+//     Onboarding" PDF (8 stages). The 5-stage digital flow and the 7-stage
+//     spec map onto these — see OnboardingStage comments.
+//
+//  You must also add these back-relations to the existing `User` model:
+//     assignedApplications   DealerApplication[]     @relation("ApplicationAssignee")
+//     verifiedAppDocuments   DealerApplicationDocument[] @relation("AppDocVerifier")
+//     onboardingStageEvents  OnboardingStageEvent[]  @relation("StageEventActor")
+//  ...and (optional) to the existing `Lead` model:
+//     dealerApplication      DealerApplication?
+// =============================================================================
+
+model DealerApplication {
+  id            Int      @id @default(autoincrement())
+  publicId      String   @unique @default(cuid()) @map("public_id") // shown to applicant
+
+  intent        ApplicationIntent @default(DEALERSHIP_APPLICATION)
+
+  // --- Applicant / entity identity (Stage 1 intake) ---
+  legalName     String   @map("legal_name")
+  tradeName     String?  @map("trade_name")
+  contactName   String   @map("contact_name")
+  email         String
+  phone         String?
+  gstin         String?  // verify via Perfios/WhiteBooks GST API
+  pan           String?  // verify via Sandbox/Eko PAN API
+  city          String?
+  state         String?
+  pincode       String?
+  investmentCapacity String? @map("investment_capacity") // free text / band from EoI
+
+  tier          DealerTier?         // requested / assessed tier
+  stage         OnboardingStage     @default(APPLICATION)
+  status        ApplicationStatus   @default(IN_PROGRESS)
+
+  // --- Routing / ownership ---
+  assignedTeam  String?  @default("NETWORK_EXPANSION") @map("assigned_team")
+  assignedToId  Int?     @map("assigned_to_id")
+  assignedTo    User?    @relation("ApplicationAssignee", fields: [assignedToId], references: [id])
+
+  // --- Landing-page attribution (Module 1 requirement) ---
+  utmSource     String?  @map("utm_source")
+  utmMedium     String?  @map("utm_medium")
+  utmCampaign   String?  @map("utm_campaign")
+  landingPageCampaignId Int? @map("landing_page_campaign_id")
+  landingPageCampaign   LandingPageCampaign? @relation(fields: [landingPageCampaignId], references: [id])
+
+  // --- Optional link to the CRM Lead created for visibility ---
+  leadId        Int?     @unique @map("lead_id")
+  lead          Lead?    @relation(fields: [leadId], references: [id])
+
+  rawPayload    Json?    @map("raw_payload") // full sanitised webhook body
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  documents     DealerApplicationDocument[]
+  stageHistory  OnboardingStageEvent[]
+
+  @@index([stage])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([email])
+  @@index([createdAt])
+  @@map("dealer_applications")
+}
+
+// Per-stage document checklist item. Rows are seeded from ONBOARDING_DOC_CATALOG
+// (see api/services/applicationRouting.service.ts) when a stage is entered.
+model DealerApplicationDocument {
+  id            Int      @id @default(autoincrement())
+  applicationId Int      @map("application_id")
+  application   DealerApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  stage         OnboardingStage
+  docKey        String   @map("doc_key")   // e.g. "GSTIN_CERTIFICATE"
+  label         String                     // human label for UI
+  required      Boolean  @default(true)
+
+  status        DocumentStatus @default(PENDING)
+  fileUrl       String?  @map("file_url")  // S3 / Cloudinary URL (upload.service.ts)
+  notes         String?
+
+  verifiedById  Int?     @map("verified_by_id")
+  verifiedBy    User?    @relation("AppDocVerifier", fields: [verifiedById], references: [id])
+  verifiedAt    DateTime? @map("verified_at")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([applicationId, stage, docKey])
+  @@index([applicationId])
+  @@index([status])
+  @@map("dealer_application_documents")
+}
+
+// Audit trail of stage transitions (drives the timeline in the monitoring UI).
+model OnboardingStageEvent {
+  id            Int      @id @default(autoincrement())
+  applicationId Int      @map("application_id")
+  application   DealerApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  fromStage     OnboardingStage? @map("from_stage")
+  toStage       OnboardingStage  @map("to_stage")
+  note          String?
+
+  actorId       Int?     @map("actor_id")
+  actor         User?    @relation("StageEventActor", fields: [actorId], references: [id])
+
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([applicationId])
+  @@index([toStage])
+  @@map("onboarding_stage_events")
+}
+
+// -----------------------------------------------------------------------------
+//  ENUMS
+// -----------------------------------------------------------------------------
+
+enum ApplicationIntent {
+  DEALERSHIP_APPLICATION // portal -> onboarding pipeline
+  RETAIL_INQUIRY         // portal -> Leads module (handled as Lead, not here)
+}
+
+// 8-stage machine from "List of Documents required at each stage of Onboarding".
+// Mapping to the 5-stage DIGITAL flow (EV_Dealer_Onboarding_Detailed):
+//   Digital 1 Portal & E-KYC        -> APPLICATION + SCREENING_NDA
+//   Digital 2 Financial Vetting     -> BUSINESS_PROPOSAL + DUE_DILIGENCE
+//   Digital 3 Virtual Site Assess.  -> DUE_DILIGENCE (property track)
+//   Digital 4 Digital LOI & E-Sign  -> LEGAL_AGREEMENT
+//   Digital 5 LMS & Handover        -> FACILITY_BRANDING + STAFF_TRAINING + GO_LIVE
+enum OnboardingStage {
+  APPLICATION        // Stage 1: Initial Application & Intake (ID, PAN, GST, profile)
+  SCREENING_NDA      // Stage 2: Screening, Interview & NDA (EoI, CIBIL)
+  BUSINESS_PROPOSAL  // Stage 3: Business Proposal & Evaluation (DPR, projections)
+  DUE_DILIGENCE      // Stage 4: Due Diligence & Site Validation (financial + property)
+  LEGAL_AGREEMENT    // Stage 5: Legal Agreement & Security Deposit (LOI, e-sign, deposit)
+  FACILITY_BRANDING  // Stage 6: Facility Development & Branding (DISCOM, PCB NOC)
+  STAFF_TRAINING     // Stage 7: Staff Recruitment & LMS Training (HV safety, LMS)
+  GO_LIVE            // Stage 8: Grand Launch & Go-Live (RTO trade cert, insurance)
+  OPERATIONAL        // terminal: live dealer
+}
+
+enum ApplicationStatus {
+  IN_PROGRESS
+  ON_HOLD
+  APPROVED   // cleared current stage gate
+  REJECTED
+  WITHDRAWN
+}
+
+enum DealerTier {
+  FLAGSHIP_3S     // Sales + Service + Spares
+  MINI_SHOWROOM
+  SERVICE_PARTNER
+}
+
+enum DocumentStatus {
+  PENDING    // awaiting upload
+  UPLOADED   // file received, not yet checked
+  VERIFIED   // passed manual / API verification
+  REJECTED   // failed — needs re-upload
+}
