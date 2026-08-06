@@ -83,7 +83,7 @@ export class AuthController {
 
       let payload: { sub: number };
       try {
-        payload = jwt.verify(token, JWT_SECRET) as { sub: number };
+        payload = jwt.verify(token, JWT_SECRET) as unknown as { sub: number };
       } catch {
         return res.status(401).json({ success: false, message: "Session expired" });
       }

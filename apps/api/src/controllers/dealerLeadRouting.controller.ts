@@ -1,7 +1,7 @@
 // ============================================================================
 // Dealer Management — lead routing controller
 // ============================================================================
-// Implements EV Vikas's "leads passed to the nearest authorised dealer"
+// Implements EV CRM's "leads passed to the nearest authorised dealer"
 // model. A retail Lead (from the Leads module / landing page) is matched to a
 // dealer by territory and handed over for follow-up. Copied from the
 // delivered bundle with no changes.

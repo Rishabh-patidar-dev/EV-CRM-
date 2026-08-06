@@ -2,16 +2,21 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import path from "path";
+import { fileURLToPath } from "url";
 import routes from "./routes/index.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
 
-// `credentials: true` + a specific origin (not "*") so the browser will
-// both send and accept the crm_session cookie on cross-port XHR (the web
-// app on :3000 calling this API on :4000 counts as cross-origin even
-// though they're both localhost).
-app.use(cors({ origin: process.env.WEB_ORIGIN || "http://localhost:3000", credentials: true }));
+// `credentials: true` + specific origins (not "*") so the browser will both
+// send and accept session cookies on cross-port XHR — the CRM web app
+// (:3000, crm_session) and the landing page's dealer portal (:3001,
+// dealer_session) both call this API cross-origin even though everything's
+// on localhost.
+const ALLOWED_ORIGINS = [process.env.WEB_ORIGIN || "http://localhost:3000", process.env.LANDING_ORIGIN || "http://localhost:3001"];
+app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(cookieParser());
 app.use(
   express.json({
@@ -20,6 +25,10 @@ app.use(
     },
   })
 );
+
+// Warranty claim evidence — see routes/warranty.routes.ts for the multer
+// config that writes here.
+app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 app.get("/", (_req, res) => {
   res.json({ success: true, message: "EV CRM API", docs: "/api/v1/health" });

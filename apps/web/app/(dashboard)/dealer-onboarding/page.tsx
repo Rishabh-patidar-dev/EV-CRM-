@@ -14,8 +14,10 @@ import {
   ChevronRight,
   Loader2,
   MapPin,
+  Plus,
   RefreshCw,
 } from "lucide-react";
+import CreateDealerModal from "@/components/orders/CreateDealerModal";
 
 // ---- Stage metadata (labels mirror the 8-stage onboarding pipeline) ----------
 const STAGE_META: Record<string, { short: string; n: number }> = {
@@ -64,6 +66,7 @@ export default function DealerOnboardingPage() {
   const [apps, setApps] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeStage, setActiveStage] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const loadBoard = useCallback(async () => {
     const { data } = await apiClient.get("/api/v1/onboarding/board");
@@ -107,13 +110,23 @@ export default function DealerOnboardingPage() {
             {total} active application{total === 1 ? "" : "s"} across the pipeline
           </p>
         </div>
-        <button
-          onClick={refresh}
-          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm transition-colors hover:bg-accent"
-        >
-          <RefreshCw className="h-4 w-4" /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" /> Create dealer
+          </button>
+          <button
+            onClick={refresh}
+            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm transition-colors hover:bg-accent"
+          >
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </button>
+        </div>
       </header>
+
+      <CreateDealerModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={refresh} />
 
       {/* Stage pipeline strip */}
       <div className="flex gap-3 overflow-x-auto border-b border-border px-6 py-4">

@@ -360,6 +360,14 @@ model DealerApplication {
   contactName        String  @map("contact_name")
   email              String
   phone              String?
+
+  // Self-service dealer portal login (landing page /login, /dashboard) —
+  // lets the applicant who owns this row sign in and upload documents
+  // stage-by-stage. Nullable: applications created via the no-login /apply
+  // flow or the CRM's own ingest webhook don't have one until the dealer
+  // signs up (see dealerAuth.controller.ts).
+  username     String? @unique
+  passwordHash String? @map("password_hash")
   gstin              String?
   pan                String?
   city               String?
@@ -1047,6 +1055,10 @@ model WarrantyClaim {
   // Lightweight stand-in for a full PartReturn/RMA model (Phase 2 there).
   partReturned   Boolean   @default(false) @map("part_returned")
   partReturnedAt DateTime? @map("part_returned_at")
+
+  // Evidence photos/PDFs attached at intake or during review — local-disk
+  // paths served from /uploads (see warranty.controller.ts#uploadDocuments).
+  documentPaths String[] @default([]) @map("document_paths")
 
   submittedAt DateTime  @default(now()) @map("submitted_at")
   resolvedAt  DateTime? @map("resolved_at")

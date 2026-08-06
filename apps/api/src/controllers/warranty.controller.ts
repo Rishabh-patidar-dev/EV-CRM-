@@ -245,6 +245,34 @@ export class WarrantyClaimController {
     }
   }
 
+  // POST /api/v1/warranty-claims/:id/documents  (multipart, field "files", up to 5)
+  // Evidence photos/PDFs attached at intake or during review. Disk storage
+  // under apps/api/uploads/warranty (see routes/warranty.routes.ts for the
+  // multer config), served back via the static /uploads mount in index.ts.
+  async uploadDocuments(req: Request, res: Response) {
+    try {
+      const id = parseInt(req.params.id as string);
+      if (!id) return handleValidationError(res, "Claim ID is required", "id", "Upload claim documents");
+
+      const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+      if (files.length === 0) return handleValidationError(res, "No files were uploaded", "files", "Upload claim documents");
+
+      const claim = await prisma.warrantyClaim.findUnique({ where: { id }, select: { documentPaths: true } });
+      if (!claim) return handleNotFoundError(res, "Warranty claim", "Upload claim documents");
+
+      const newPaths = files.map((f) => `/uploads/warranty/${f.filename}`);
+      const updated = await prisma.warrantyClaim.update({
+        where: { id },
+        data: { documentPaths: [...claim.documentPaths, ...newPaths] },
+        select: { id: true, documentPaths: true },
+      });
+
+      res.status(201).json(updated);
+    } catch (error) {
+      handleError(error, res, "Upload claim documents");
+    }
+  }
+
   // GET /api/v1/warranty-claims/:id
   async getById(req: Request, res: Response) {
     try {

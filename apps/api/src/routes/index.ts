@@ -1,5 +1,6 @@
 import { Router } from "express";
 import authRoutes from "./auth.routes.js";
+import dealerAuthRoutes from "./dealerAuth.routes.js";
 import ingestRoutes from "./ingest.routes.js";
 import onboardingRoutes from "./onboarding.routes.js";
 import dealerRoutes from "./dealer.routes.js";
@@ -17,6 +18,10 @@ const router = Router();
 
 // CRM staff login (session cookie)
 router.use("/auth", authRoutes);
+
+// Dealer self-service portal login (landing page /login, /dashboard) —
+// separate trust domain from CRM staff auth above.
+router.use("/dealer-auth", dealerAuthRoutes);
 
 // Public dual-intent ingestion webhook (landing page portal)
 router.use("/ingest", ingestRoutes);

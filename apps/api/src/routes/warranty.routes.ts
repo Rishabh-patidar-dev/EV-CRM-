@@ -1,4 +1,8 @@
 import { Router } from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import { UserRole } from "@repo/db";
 import { requireAuth, requireRole } from "../middleware/auth.middleware.js";
 import {
@@ -7,6 +11,19 @@ import {
   WarrantyClaimController,
   SupplierRecoveryController,
 } from "../controllers/warranty.controller.js";
+
+// Claim evidence (photos/PDFs) — local disk, same pattern as the landing
+// portal's own upload storage: no external service, gated behind auth.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadsDir = path.join(__dirname, "..", "..", "uploads", "warranty");
+fs.mkdirSync(uploadsDir, { recursive: true });
+const claimUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => cb(null, `${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`),
+  }),
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+});
 
 const ADMINS = [UserRole.ADMIN, UserRole.SYSTEM_ADMIN];
 const plans = new WarrantyPlanController();
@@ -34,6 +51,7 @@ claimRouter.use(requireAuth);
 claimRouter.get("/", requireRole(ADMINS), claims.list.bind(claims));
 claimRouter.post("/", requireRole(ADMINS), claims.create.bind(claims));
 claimRouter.get("/:id", requireRole(ADMINS), claims.getById.bind(claims));
+claimRouter.post("/:id/documents", requireRole(ADMINS), claimUpload.array("files", 5), claims.uploadDocuments.bind(claims));
 claimRouter.post("/:id/status", requireRole(ADMINS), claims.setStatus.bind(claims));
 claimRouter.post("/:claimId/supplier-recovery", requireRole(ADMINS), recoveries.create.bind(recoveries));
 

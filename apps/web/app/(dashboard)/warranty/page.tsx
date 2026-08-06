@@ -313,6 +313,7 @@ function NewClaimForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () => vo
       <div className="mb-4 rounded-[var(--radius)] border border-primary/40 bg-card p-4 text-sm">
         <p className="font-medium">Claim {result.claimNumber} submitted — auto-adjudicated to <b>{result.status.replace("_", " ")}</b>.</p>
         <p className="mt-1 text-xs text-muted-foreground">{result.adjudication?.reasons?.join(" ")}</p>
+        <ClaimDocumentUpload claimId={result.id} />
         <button onClick={onDone} className="mt-3 rounded-[var(--radius)] border border-border px-3 py-1.5 text-xs hover:bg-accent">Done</button>
       </div>
     );
@@ -347,6 +348,64 @@ function NewClaimForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () => vo
           {saving ? "Submitting…" : "Submit claim (auto-adjudicated)"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// Evidence upload — shown right after a claim is created, since that's
+// when a service advisor has the photos/PDFs on hand. Separate endpoint
+// from claim creation (POST /:id/documents) so the adjudication flow above
+// doesn't need to change to accept multipart bodies.
+function ClaimDocumentUpload({ claimId }: { claimId: number }) {
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploaded, setUploaded] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const upload = async () => {
+    if (files.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      files.forEach((f) => body.append("files", f));
+      const res = await apiClient.post(`/api/v1/warranty-claims/${claimId}/documents`, body, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setUploaded(res.data.documentPaths ?? []);
+      setFiles([]);
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-[var(--radius)] border border-dashed border-border p-3">
+      <p className="text-xs font-medium text-muted-foreground">Attach evidence (photos, service records)</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <input
+          type="file"
+          multiple
+          accept="image/*,application/pdf"
+          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          className="text-xs"
+        />
+        <button
+          onClick={upload}
+          disabled={uploading || files.length === 0}
+          className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+        >
+          {uploading ? "Uploading…" : `Upload ${files.length || ""}`}
+        </button>
+      </div>
+      {error && <p className="mt-1.5 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
+      {uploaded.length > 0 && (
+        <p className="mt-1.5 text-xs" style={{ color: "var(--zira-approved)" }}>
+          {uploaded.length} document{uploaded.length === 1 ? "" : "s"} attached.
+        </p>
+      )}
     </div>
   );
 }

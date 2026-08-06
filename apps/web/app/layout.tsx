@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "EV Vikas",
-  description: "Dealer onboarding, dealer management, warranty management, and landing-page intake for the EV Vikas dealer network.",
+  title: "EV CRM",
+  description: "Dealer onboarding, dealer management, warranty management, and landing-page intake for the EV CRM dealer network.",
 };
 
 // Runs before paint so the page never flashes light-then-dark (or vice

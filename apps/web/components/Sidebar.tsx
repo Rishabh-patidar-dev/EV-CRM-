@@ -109,7 +109,7 @@ export default function Sidebar() {
           <Logo className="h-5 w-5" style={{ color: "var(--sidebar-primary-foreground)" }} />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-bold leading-none tracking-tight">EV Vikas</div>
+          <div className="truncate text-[15px] font-bold leading-none tracking-tight">EV CRM</div>
           <div className="sidebar-muted mt-1 truncate text-[11px] leading-none">Dealer &amp; Warranty CRM</div>
         </div>
       </div>
@@ -144,7 +144,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t px-5 py-4" style={{ borderColor: "var(--sidebar-border)" }}>
-        <p className="sidebar-muted text-[11px]">© {new Date().getFullYear()} EV Vikas</p>
+        <p className="sidebar-muted text-[11px]">© {new Date().getFullYear()} EV CRM</p>
       </div>
     </aside>
   );

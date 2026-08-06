@@ -83,16 +83,17 @@
 	--viz-text-secondary: #52514e;
 	--radius: 0.4rem;
 	--navbar: #ffffff;
-	/* Sidebar: light rail matching the reference mock — white surface, a
-	   solid teal pill for the active item (not just a tint), light hover. */
-	--sidebar: #ffffff;
-	--sidebar-foreground: #14201e;
-	--sidebar-primary: #0e7d70;
-	--sidebar-primary-foreground: #ffffff;
-	--sidebar-accent: #eef2f1;
-	--sidebar-accent-foreground: #0e7d70;
-	--sidebar-border: #e2e8e7;
-	--sidebar-ring: #0e7d70;
+	/* Sidebar: fixed near-black rail (Innovun reference) — deliberately NOT
+	   tied to the light/dark content-theme toggle below; the rail stays
+	   dark either way, only the main content area switches. */
+	--sidebar: #10151a;
+	--sidebar-foreground: #eef1f0;
+	--sidebar-primary: #1fb894;
+	--sidebar-primary-foreground: #06231d;
+	--sidebar-accent: #1a2128;
+	--sidebar-accent-foreground: #1fb894;
+	--sidebar-border: #232a31;
+	--sidebar-ring: #1fb894;
 }
 
 .dark {

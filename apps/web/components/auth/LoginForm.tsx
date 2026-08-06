@@ -1,16 +1,15 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
-import { Eye, EyeOff, ArrowRight } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, ShieldCheck } from "lucide-react";
 
 export default function LoginForm() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
@@ -50,6 +49,14 @@ export default function LoginForm() {
           {error}
         </div>
       )}
+      {notice && (
+        <div
+          className="rounded-[var(--radius)] border px-3.5 py-2.5 text-sm"
+          style={{ borderColor: "var(--border)", backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+        >
+          {notice}
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <label htmlFor="username" className="text-sm font-medium text-foreground">
@@ -62,9 +69,9 @@ export default function LoginForm() {
           autoFocus
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="Testing"
-          className="w-full rounded-[var(--radius)] border bg-transparent px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[var(--ring)]"
-          style={{ borderColor: "var(--border)" }}
+          placeholder="Admin"
+          className="w-full rounded-[var(--radius)] px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[var(--ring)]"
+          style={{ backgroundColor: "var(--muted)", border: "1px solid transparent" }}
           required
         />
       </div>
@@ -84,8 +91,8 @@ export default function LoginForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••••"
-            className="w-full rounded-[var(--radius)] border bg-transparent px-3.5 py-2.5 pr-10 text-sm outline-none transition-colors focus:border-[var(--ring)]"
-            style={{ borderColor: "var(--border)" }}
+            className="w-full rounded-[var(--radius)] px-3.5 py-2.5 pr-10 text-sm outline-none transition-colors focus:border-[var(--ring)]"
+            style={{ backgroundColor: "var(--muted)", border: "1px solid transparent" }}
             required
           />
           <button
@@ -100,15 +107,24 @@ export default function LoginForm() {
         </div>
       </div>
 
-      <label className="flex select-none items-center gap-2 text-sm text-muted-foreground">
-        <input
-          type="checkbox"
-          checked={remember}
-          onChange={(e) => setRemember(e.target.checked)}
-          className="h-3.5 w-3.5 rounded-sm accent-[var(--primary)]"
-        />
-        Keep me signed in on this device
-      </label>
+      <div className="flex items-center justify-between">
+        <label className="flex select-none items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+            className="h-3.5 w-3.5 rounded-sm accent-[var(--primary)]"
+          />
+          Keep me signed in
+        </label>
+        <button
+          type="button"
+          onClick={() => setNotice("Password resets aren't self-serve yet — contact your administrator.")}
+          className="text-sm font-medium text-primary hover:underline"
+        >
+          Forgot password?
+        </button>
+      </div>
 
       <button
         type="submit"
@@ -119,8 +135,24 @@ export default function LoginForm() {
         {!submitting && <ArrowRight className="h-3.5 w-3.5" />}
       </button>
 
+      <div className="flex items-center gap-3">
+        <div className="h-px flex-1" style={{ backgroundColor: "var(--border)" }} />
+        <span className="text-xs text-muted-foreground">or</span>
+        <div className="h-px flex-1" style={{ backgroundColor: "var(--border)" }} />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setNotice("Enterprise SSO isn't configured for this environment yet.")}
+        className="flex w-full items-center justify-center gap-2 rounded-[var(--radius)] border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <ShieldCheck className="h-4 w-4" />
+        Continue with enterprise SSO
+      </button>
+
       <p className="text-center text-xs text-muted-foreground">
-        Access is limited to authorized manufacturer staff.
+        Role-based access &middot; Field-level data masking &middot; Encrypted session
       </p>
     </form>
   );

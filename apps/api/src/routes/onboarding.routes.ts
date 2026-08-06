@@ -14,6 +14,7 @@ const staff = requireRole([UserRole.ADMIN, UserRole.SYSTEM_ADMIN, UserRole.NETWO
 
 router.get("/board", staff, c.board.bind(c));
 router.get("/applications", staff, c.list.bind(c));
+router.post("/applications", staff, c.create.bind(c));
 router.get("/applications/:id", staff, c.getById.bind(c));
 router.post("/applications/:id/advance", staff, c.advance.bind(c));
 // Express 5's router (path-to-regexp v8) dropped inline regex groups like

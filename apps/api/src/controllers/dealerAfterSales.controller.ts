@@ -1,7 +1,7 @@
 // ============================================================================
 // Dealer Management — finance facilitation + after-sales controllers
 // ============================================================================
-// Two of EV Vikas's key dealer-retention pillars:
+// Two of EV CRM's key dealer-retention pillars:
 //   - FinanceController: the NBFC/bank bridge (buyer finance pipeline)
 //   - AfterSalesController: service tickets + spare-part requests
 // Copied from the delivered bundle with no changes — no Postgres-specific

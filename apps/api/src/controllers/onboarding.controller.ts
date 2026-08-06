@@ -56,11 +56,84 @@ export class OnboardingController {
       ]);
 
       res.json({
-        applications,
+        applications: applications.map(({ passwordHash: _omit, ...a }) => a),
         pagination: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
       });
     } catch (error) {
       handleError(error, res, "List dealer applications");
+    }
+  }
+
+  /**
+   * POST /api/v1/onboarding/applications — manual entry (manufacturer staff
+   * creating a dealer application on someone's behalf — phone/walk-in
+   * applicant, not the landing-page webhook). Same shape as
+   * ingest.controller.ts's dealership_application path, minus the Lead
+   * link and UTM fields, which only make sense for a real landing hit.
+   */
+  async create(req: Request, res: Response) {
+    try {
+      const b = req.body ?? {};
+      if (!b.legalName || !b.contactName || !b.email) {
+        return handleValidationError(res, "legalName, contactName and email are required", "body", "Create application");
+      }
+
+      const existing = await prisma.dealerApplication.findFirst({
+        where: {
+          status: { in: ["IN_PROGRESS", "ON_HOLD"] },
+          OR: [{ email: b.email }, ...(b.gstin ? [{ gstin: b.gstin }] : [])],
+        },
+        select: { id: true, publicId: true },
+      });
+      if (existing) {
+        return handleValidationError(res, "An open application with this email or GSTIN already exists", "email", "Create application");
+      }
+
+      const app = await prisma.$transaction(async (tx) => {
+        const created = await tx.dealerApplication.create({
+          data: {
+            intent: "DEALERSHIP_APPLICATION",
+            legalName: b.legalName,
+            tradeName: b.tradeName || null,
+            contactName: b.contactName,
+            email: b.email,
+            phone: b.phone || null,
+            gstin: b.gstin || null,
+            pan: b.pan || null,
+            city: b.city || null,
+            state: b.state || null,
+            pincode: b.pincode || null,
+            investmentCapacity: b.investmentCapacity || null,
+            stage: "APPLICATION",
+            status: "IN_PROGRESS",
+            assignedTeam: "NETWORK_EXPANSION",
+            assignedToId: (req as any).user?.id ?? null,
+          },
+        });
+
+        const specs = ONBOARDING_DOC_CATALOG["APPLICATION"];
+        if (specs.length) {
+          await tx.dealerApplicationDocument.createMany({
+            data: specs.map((s) => ({
+              applicationId: created.id,
+              stage: "APPLICATION" as const,
+              docKey: s.docKey,
+              label: s.label,
+              required: s.required ?? true,
+            })),
+          });
+        }
+
+        await tx.onboardingStageEvent.create({
+          data: { applicationId: created.id, fromStage: null, toStage: "APPLICATION", note: "Application created manually by staff" },
+        });
+
+        return created;
+      });
+
+      res.status(201).json(app);
+    } catch (error) {
+      handleError(error, res, "Create application");
     }
   }
 
@@ -101,7 +174,8 @@ export class OnboardingController {
       });
 
       if (!application) return handleNotFoundError(res, "Dealer Application", "Get application");
-      res.json(application);
+      const { passwordHash: _omit, ...safe } = application;
+      res.json(safe);
     } catch (error) {
       handleError(error, res, "Get application");
     }

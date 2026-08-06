@@ -24,6 +24,7 @@ import BarChart from "@/components/charts/BarChart";
 import LineChart from "@/components/charts/LineChart";
 import ChartCard from "@/components/charts/ChartCard";
 import { StatCard } from "@/components/ui/StatCard";
+import AIInsightsPanel, { type Insight } from "@/components/ui/AIInsightsPanel";
 
 interface DealerStats {
   totalDealers: number;
@@ -91,10 +92,59 @@ export default function DashboardPage() {
     leadTrendPct = prior > 0 ? Math.round(((recent - prior) / prior) * 100) : recent > 0 ? 100 : null;
   }
 
+  // Rule-based reads over the same numbers already on this page — see
+  // AIInsightsPanel's note on why there's no fabricated confidence score.
+  const insights: Insight[] = [];
+  if (leadTrendPct != null && leadTrendPct <= -10) {
+    insights.push({
+      title: `Lead volume down ${Math.abs(leadTrendPct)}%`,
+      detail: "Last 4 weeks vs. the 4 before that, across all sources.",
+      tone: "rejected",
+      href: "/leads",
+    });
+  } else if (leadTrendPct != null && leadTrendPct >= 10) {
+    insights.push({
+      title: `Lead volume up ${leadTrendPct}%`,
+      detail: "Last 4 weeks vs. the 4 before that, across all sources.",
+      tone: "approved",
+      href: "/leads",
+    });
+  }
+  if (leadStats && leadStats.unassigned > 0) {
+    insights.push({
+      title: `${leadStats.unassigned} lead${leadStats.unassigned === 1 ? "" : "s"} unassigned`,
+      detail: "Sitting without an owner in the routing queue.",
+      tone: "pending",
+      href: "/leads/unassigned",
+    });
+  }
+  if (onboardingBoard) {
+    const activeStages = onboardingBoard.stages.filter((s) => s !== "OPERATIONAL");
+    const bottleneck = activeStages
+      .map((s) => ({ stage: s, count: onboardingBoard.counts[s] ?? 0 }))
+      .sort((a, b) => b.count - a.count)[0];
+    if (bottleneck && bottleneck.count > 0) {
+      insights.push({
+        title: `${bottleneck.count} application${bottleneck.count === 1 ? "" : "s"} at ${bottleneck.stage.replace(/_/g, " ")}`,
+        detail: "The largest single stage in the onboarding pipeline right now.",
+        tone: "info",
+        href: "/dealer-onboarding",
+      });
+    }
+  }
+  if (complianceAlerts != null && complianceAlerts > 0) {
+    insights.push({
+      title: `${complianceAlerts} compliance document${complianceAlerts === 1 ? "" : "s"} need attention`,
+      detail: "Expired or expiring within 30 days.",
+      tone: "pending",
+      href: "/dealer-compliance",
+    });
+  }
+
   return (
     <div className="mx-auto max-w-[1500px] p-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">EV Vikas</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">EV CRM</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Landing-page intake → dealer onboarding → live network operations → warranty, in one place.
         </p>
@@ -109,8 +159,8 @@ export default function DashboardPage() {
         <StatCard icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Compliance alerts" value={complianceAlerts ?? "—"} />
       </section>
 
-      {/* ---- lead volume trend ---- */}
-      <section className="mb-4">
+      {/* ---- lead volume trend + AI insights ---- */}
+      <section className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-[1fr_340px]">
         <ChartCard
           title="Lead volume by source"
           subtitle="Weekly new leads, last 8 weeks"
@@ -123,6 +173,8 @@ export default function DashboardPage() {
             <ChartSkeleton />
           )}
         </ChartCard>
+
+        <AIInsightsPanel insights={insights} />
       </section>
 
       {/* ---- BI figures ---- */}

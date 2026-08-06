@@ -1,11 +1,12 @@
 "use client";
 
-// Hand-rolled SVG multi-series line chart — thin 2px lines (fixed categorical
-// hue order from --viz-1..8, never reassigned), a legend, recessive grid, and
-// a shared hover crosshair + tooltip showing every series' value at that
-// x-position. No area fill under multiple series (overlapping fills obscure
-// the lower series) — see the dataviz skill's anti-patterns note.
-import React, { useState } from "react";
+// Hand-rolled SVG multi-series line chart — smoothed curves with a soft
+// gradient area fill under each series (Innovun reference's "adoption
+// trend" look), a floating dark tooltip bubble on hover instead of a
+// static legend readout, fixed categorical hue order from --viz-1..8
+// (never reassigned). Same data contract/props as before — this is a
+// restyle, not a rebuild.
+import React, { useId, useState } from "react";
 
 export interface LineSeries {
   label: string;
@@ -24,8 +25,9 @@ export default function LineChart({
   height?: number;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const gradId = useId();
   const width = 640;
-  const padTop = 12;
+  const padTop = 16;
   const padBottom = 28;
   const padLeft = 8;
   const padRight = 8;
@@ -39,13 +41,35 @@ export default function LineChart({
   const xAt = (i: number) => padLeft + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2);
   const yAt = (v: number) => padTop + plotH - (v / max) * plotH;
 
-  const pathFor = (values: number[]) =>
-    values.map((v, i) => `${i === 0 ? "M" : "L"} ${xAt(i)} ${yAt(v)}`).join(" ");
+  // Smoothed path via quadratic midpoint curves — reads as a soft trend
+  // line instead of a jagged polyline, without pulling in a curve library.
+  const smoothPathFor = (values: number[]) => {
+    const pts = values.map((v, i) => [xAt(i), yAt(v)] as const);
+    if (pts.length < 2) return pts.length ? `M ${pts[0][0]} ${pts[0][1]}` : "";
+    let d = `M ${pts[0][0]} ${pts[0][1]}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, y0] = pts[i];
+      const [x1, y1] = pts[i + 1];
+      const mx = (x0 + x1) / 2;
+      d += ` Q ${x0} ${y0} ${mx} ${(y0 + y1) / 2}`;
+    }
+    const [lx, ly] = pts[pts.length - 1];
+    d += ` T ${lx} ${ly}`;
+    return d;
+  };
+
+  const areaPathFor = (values: number[]) => {
+    const line = smoothPathFor(values);
+    if (!line) return "";
+    const lastX = xAt(values.length - 1);
+    const firstX = xAt(0);
+    return `${line} L ${lastX} ${padTop + plotH} L ${firstX} ${padTop + plotH} Z`;
+  };
 
   const gridLines = 4;
 
   return (
-    <div>
+    <div className="relative">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="w-full"
@@ -53,15 +77,29 @@ export default function LineChart({
         aria-label={`Line chart: ${series.map((s) => s.label).join(", ")} over ${labels.join(", ")}`}
         onMouseLeave={() => setHoverIndex(null)}
       >
+        <defs>
+          {series.map((s, si) => (
+            <linearGradient key={s.label} id={`${gradId}-${si}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={VIZ_COLORS[si % VIZ_COLORS.length]} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={VIZ_COLORS[si % VIZ_COLORS.length]} stopOpacity={0} />
+            </linearGradient>
+          ))}
+        </defs>
+
         {/* recessive horizontal grid */}
         {Array.from({ length: gridLines + 1 }).map((_, i) => {
           const y = padTop + (plotH / gridLines) * i;
           return <line key={i} x1={padLeft} x2={width - padRight} y1={y} y2={y} stroke="var(--border)" strokeWidth={1} opacity={0.6} />;
         })}
 
-        {/* series lines */}
+        {/* gradient area fills, back to front so the first series reads on top */}
         {series.map((s, si) => (
-          <path key={s.label} d={pathFor(s.values)} fill="none" stroke={VIZ_COLORS[si % VIZ_COLORS.length]} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          <path key={`area-${s.label}`} d={areaPathFor(s.values)} fill={`url(#${gradId}-${si})`} stroke="none" />
+        ))}
+
+        {/* smoothed series lines */}
+        {series.map((s, si) => (
+          <path key={s.label} d={smoothPathFor(s.values)} fill="none" stroke={VIZ_COLORS[si % VIZ_COLORS.length]} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
         ))}
 
         {/* hover crosshair + points */}
@@ -104,7 +142,24 @@ export default function LineChart({
         ))}
       </svg>
 
-      {/* legend + hover readout */}
+      {/* floating dark tooltip bubble at the hovered point, above the topmost series */}
+      {hoverIndex != null && series.length > 0 && (
+        <div
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-full rounded-md px-2.5 py-1.5 text-[11px] font-medium shadow-lg"
+          style={{
+            left: `${(xAt(hoverIndex) / width) * 100}%`,
+            top: `${(Math.min(...series.map((s) => yAt(s.values[hoverIndex!]))) / height) * 100}%`,
+            backgroundColor: "var(--foreground)",
+            color: "var(--background)",
+            marginTop: "-8px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {series.reduce((sum, s) => sum + s.values[hoverIndex], 0).toLocaleString()} total &middot; {labels[hoverIndex]}
+        </div>
+      )}
+
+      {/* legend */}
       <div className="mt-2 flex flex-wrap items-center gap-4">
         {series.map((s, si) => (
           <div key={s.label} className="flex items-center gap-1.5 text-xs">
@@ -113,7 +168,6 @@ export default function LineChart({
             {hoverIndex != null && <span className="tabular-nums text-muted-foreground">— {s.values[hoverIndex]}</span>}
           </div>
         ))}
-        {hoverIndex != null && <span className="ml-auto text-xs text-muted-foreground">{labels[hoverIndex]}</span>}
       </div>
     </div>
   );

@@ -13,13 +13,14 @@
 // ============================================================================
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp } from "lucide-react";
+import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
 import ChartCard from "@/components/charts/ChartCard";
 import TargetBarChart from "@/components/charts/TargetBarChart";
 import { StatCard } from "@/components/ui/StatCard";
+import CreateOrderModal from "@/components/orders/CreateOrderModal";
 
 const FLOW: Record<string, string> = { REQUESTED: "APPROVED", APPROVED: "DISPATCHED", DISPATCHED: "DELIVERED" };
 const ORDER_STATUSES = ["REQUESTED", "APPROVED", "DISPATCHED", "DELIVERED", "REJECTED", "CANCELLED"];
@@ -62,6 +63,7 @@ export default function OrderManagementPage() {
   const [zoneFilter, setZoneFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
 
   const loadAnalytics = useCallback(async () => {
     const { data } = await apiClient.get("/api/v1/order-management/analytics");
@@ -98,12 +100,23 @@ export default function OrderManagementPage() {
 
   return (
     <div className="mx-auto max-w-[1700px] p-6">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Order Management</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          The manufacturer's order desk — every vehicle-stock and spare-part order the dealer network has raised, by zone, by dealer, and how fast it's moving.
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Order Management</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The manufacturer's order desk — every vehicle-stock and spare-part order the dealer network has raised, by zone, by dealer, and how fast it's moving.
+          </p>
+        </div>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius)] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          <Plus className="h-4 w-4" />
+          Create order
+        </button>
       </header>
+
+      <CreateOrderModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={refresh} />
 
       {/* KPI row */}
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
