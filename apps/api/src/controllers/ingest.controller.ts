@@ -138,19 +138,30 @@ export class IngestController {
       return { ok: false, intent: "dealership_application", message: "Invalid pincode" };
     }
 
-    // Dedup: an open application for the same email/gstin is reused, not duplicated.
+    // Dedup: an open application for the same email is reused, not duplicated.
+    // (Matches on email only — GSTIN was dropped from this check because
+    // placeholder/example GSTINs get reused across unrelated test submissions,
+    // which was matching genuinely new applicants to old records.)
     const existing = await prisma.dealerApplication.findFirst({
       where: {
         status: { in: ["IN_PROGRESS", "ON_HOLD"] },
-        OR: [
-          { email: applicant.email },
-          ...(applicant.gstin ? [{ gstin: applicant.gstin }] : []),
-        ],
+        email: applicant.email,
       },
       select: { id: true, publicId: true, stage: true },
     });
     if (existing) {
       console.log("📇 Existing open application reused:", existing.publicId);
+      // Don't drop documents just because this is a repeat submission —
+      // attach anything newly uploaded to the checklist rows it already has.
+      const uploaded: { docKey: string; url?: string; path?: string }[] = Array.isArray(body.uploadedDocuments)
+        ? body.uploadedDocuments
+        : [];
+      for (const d of uploaded) {
+        await prisma.dealerApplicationDocument.updateMany({
+          where: { applicationId: existing.id, stage: existing.stage, docKey: d.docKey },
+          data: { status: "UPLOADED", fileUrl: d.url || d.path || null },
+        });
+      }
       return {
         ok: true,
         intent: "dealership_application",
@@ -158,7 +169,7 @@ export class IngestController {
         applicationId: existing.id,
         publicId: existing.publicId,
         stage: existing.stage,
-        message: "An application with these details is already in progress.",
+        message: "An application with these details is already in progress — any new documents you attached have been added to it.",
       };
     }
 
@@ -207,17 +218,29 @@ export class IngestController {
         },
       });
 
-      // Seed the Stage-1 document checklist.
+      // Seed the Stage-1 document checklist. Any doc the applicant already
+      // attached in the wizard (uploaded to the landing app's own storage —
+      // see Ev Landing's /api/apply/upload) lands as UPLOADED with a real
+      // fileUrl right away, instead of a blank PENDING row — this is what
+      // makes an upload show up in the onboarding pipeline immediately.
       const specs = ONBOARDING_DOC_CATALOG["APPLICATION"];
+      const uploaded: { docKey: string; label?: string; path?: string; url?: string }[] = Array.isArray(body.uploadedDocuments)
+        ? body.uploadedDocuments
+        : [];
+      const uploadedByKey = new Map(uploaded.map((d) => [d.docKey, d]));
       if (specs.length) {
         await tx.dealerApplicationDocument.createMany({
-          data: specs.map((s) => ({
-            applicationId: app.id,
-            stage: "APPLICATION" as const,
-            docKey: s.docKey,
-            label: s.label,
-            required: s.required ?? true,
-          })),
+          data: specs.map((s) => {
+            const match = uploadedByKey.get(s.docKey);
+            return {
+              applicationId: app.id,
+              stage: "APPLICATION" as const,
+              docKey: s.docKey,
+              label: s.label,
+              required: s.required ?? true,
+              ...(match ? { status: "UPLOADED" as const, fileUrl: match.url || match.path || null } : {}),
+            };
+          }),
         });
       }
 

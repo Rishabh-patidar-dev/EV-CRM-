@@ -34,6 +34,7 @@ type Application = {
   publicId: string;
   legalName: string;
   tradeName?: string | null;
+  contactName?: string | null;
   email: string;
   city?: string | null;
   state?: string | null;
@@ -193,6 +194,7 @@ export default function DealerOnboardingPage() {
                     )}
                   </div>
                   <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+                    {a.contactName && <span>{a.contactName}</span>}
                     <span className="font-mono">{a.publicId.slice(0, 10)}</span>
                     {(a.city || a.state) && (
                       <span className="inline-flex items-center gap-1">

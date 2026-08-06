@@ -12,9 +12,22 @@ import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
-  ArrowLeft, Building2, FileCheck2, Loader2, ChevronRight, Mail, Phone, MapPin, Landmark,
+  ArrowLeft, Building2, FileCheck2, Loader2, ChevronRight, Mail, Phone, MapPin, Landmark, Eye,
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
+
+// Documents can come from two upload paths with two different fileUrl
+// shapes: the dealer portal (/dashboard) stores a path relative to this
+// CRM's own API (e.g. /uploads/dealer-applications/...); the no-login
+// /apply wizard stores a full URL back to the landing app's own storage
+// (e.g. http://localhost:3001/api/apply/upload?path=...) since that's
+// where the bytes actually live. Resolve the relative case against the
+// CRM API origin; leave absolute URLs alone.
+function resolveFileUrl(fileUrl: string): string {
+  if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
+  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+  return `${apiBase}${fileUrl}`;
+}
 
 const STAGE_META: Record<string, { short: string; n: number }> = {
   APPLICATION: { short: "Application", n: 1 },
@@ -161,6 +174,16 @@ export default function ApplicationDetailPage() {
                       </span>
                       <Badge label={d.status} className={DOC_STATUS_STYLES[d.status] ?? "bg-muted"} />
                     </div>
+                    {d.fileUrl && (
+                      <a
+                        href={resolveFileUrl(d.fileUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        <Eye className="h-3 w-3" /> View document
+                      </a>
+                    )}
                     {d.status !== "VERIFIED" && (
                       <div className="mt-2 flex gap-2">
                         <button onClick={() => verifyDoc(d.id, "VERIFIED")} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
