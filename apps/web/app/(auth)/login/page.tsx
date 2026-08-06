@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 
 const STATS = [
   { label: "OCR ACCURACY", value: "99.9%" },
-  { label: "INVOICE TURNAROUND", value: "11 sec" },
-  { label: "QUERY INPUT", value: "Plain English" },
+  { label: "DEALER COVERAGE", value: "100% Connected" },
+  { label: "DATA SYNC RATE", value: "Live Feed" },
 ];
 
 export default function LoginPage() {
