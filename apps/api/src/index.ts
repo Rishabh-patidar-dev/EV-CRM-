@@ -1,12 +1,18 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import routes from "./routes/index.js";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
 
-app.use(cors());
+// `credentials: true` + a specific origin (not "*") so the browser will
+// both send and accept the crm_session cookie on cross-port XHR (the web
+// app on :3000 calling this API on :4000 counts as cross-origin even
+// though they're both localhost).
+app.use(cors({ origin: process.env.WEB_ORIGIN || "http://localhost:3000", credentials: true }));
+app.use(cookieParser());
 app.use(
   express.json({
     verify: (req, _res, buf) => {

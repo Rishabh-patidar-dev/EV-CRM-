@@ -155,11 +155,11 @@ export default function ApplicationDetailPage() {
                 {docs.map((d: any) => (
                   <div key={d.id} className="rounded-md border border-border p-3">
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm">
+                      <span className="min-w-0 flex-1 text-sm">
                         {d.label}
                         {d.required && <span className="ml-1 text-[color:var(--zira-rejected)]">*</span>}
                       </span>
-                      <Badge label={d.status} className={DOC_STATUS_STYLES[d.status] ?? "bg-muted"} />
+                      <Badge label={d.status} className={`shrink-0 ${DOC_STATUS_STYLES[d.status] ?? "bg-muted"}`} />
                     </div>
                     {d.status !== "VERIFIED" && (
                       <div className="mt-2 flex gap-2">

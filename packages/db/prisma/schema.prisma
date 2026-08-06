@@ -51,13 +51,15 @@ enum UserRole {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  firstName String   @map("first_name")
-  lastName  String?  @map("last_name")
-  email     String   @unique
-  role      UserRole @default(SALES)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           Int      @id @default(autoincrement())
+  firstName    String   @map("first_name")
+  lastName     String?  @map("last_name")
+  email        String   @unique
+  username     String?  @unique @map("username")
+  passwordHash String?  @map("password_hash")
+  role         UserRole @default(SALES)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Dealer Management back-relations
   managedDealers    Dealer[]        @relation("DealerRelationshipManager")

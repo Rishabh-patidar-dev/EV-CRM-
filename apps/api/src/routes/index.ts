@@ -1,4 +1,5 @@
 import { Router } from "express";
+import authRoutes from "./auth.routes.js";
 import ingestRoutes from "./ingest.routes.js";
 import onboardingRoutes from "./onboarding.routes.js";
 import dealerRoutes from "./dealer.routes.js";
@@ -13,6 +14,9 @@ import landingPageCampaignRoutes from "./landingPageCampaign.routes.js";
 import usersRoutes from "./users.routes.js";
 
 const router = Router();
+
+// CRM staff login (session cookie)
+router.use("/auth", authRoutes);
 
 // Public dual-intent ingestion webhook (landing page portal)
 router.use("/ingest", ingestRoutes);
