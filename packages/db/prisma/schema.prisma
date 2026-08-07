@@ -1,5 +1,5 @@
 // =============================================================================
-// EV CRM — merged Prisma schema (runs against a real Supabase Postgres db)
+// VoltOs — merged Prisma schema (runs against a real Supabase Postgres db)
 // -----------------------------------------------------------------------------
 // This is the RUNNABLE version of the schema fragments delivered in
 // /prisma/*.prisma at the repo root. Those files remain the canonical,

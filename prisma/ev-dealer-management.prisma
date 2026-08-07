@@ -1,5 +1,5 @@
 // ============================================================================
-// EV CRM — MODULE 2: DEALER MANAGEMENT (operational layer)
+// VoltOs — MODULE 2: DEALER MANAGEMENT (operational layer)
 // ============================================================================
 // Paste these models + enums into packages/db/prisma/schema.prisma.
 //

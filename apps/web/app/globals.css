@@ -69,16 +69,21 @@
 	--chart-3: #2f6690;
 	--chart-4: #a86518;
 	--chart-5: #1f7a52;
-	/* Validated categorical dataviz palette (dataviz skill reference.md) —
-	   fixed hue order, never cycled/reassigned per-chart. */
-	--viz-1: #2a78d6; /* blue */
-	--viz-2: #eb6834; /* orange */
-	--viz-3: #1baf7a; /* aqua */
-	--viz-4: #eda100; /* yellow */
-	--viz-5: #e87ba4; /* magenta */
-	--viz-6: #008300; /* green */
-	--viz-7: #4a3aa7; /* violet */
-	--viz-8: #e34948; /* red */
+	/* Single-hue teal ordinal ramp, darker variant (dataviz skill, validated
+	   with validate_palette.js --ordinal — monotone L, adjacent ΔL >= 0.06,
+	   light-end contrast 4.07:1, hue spread 9°). Chart status breakdowns
+	   here are lifecycle/pipeline stages (lead status, dealer lifecycle,
+	   claim lifecycle, onboarding stage), which is the ordinal job per the
+	   skill — a one-hue ramp is the correct construct, not a stand-in for
+	   the 8-hue categorical palette. */
+	--viz-1: #008c7a;
+	--viz-2: #007867;
+	--viz-3: #006455;
+	--viz-4: #005143;
+	--viz-5: #003f32;
+	--viz-6: #002d22;
+	--viz-7: #001b13;
+	--viz-8: #000a06;
 	--viz-surface: #fcfcfb;
 	--viz-text-secondary: #52514e;
 	--radius: 0.4rem;
@@ -127,14 +132,16 @@
 	--chart-3: #6ea3c9;
 	--chart-4: #d1a24c;
 	--chart-5: #4fae7f;
-	--viz-1: #3987e5;
-	--viz-2: #d95926;
-	--viz-3: #199e70;
-	--viz-4: #c98500;
-	--viz-5: #d55181;
-	--viz-6: #008300;
-	--viz-7: #9085e9;
-	--viz-8: #e66767;
+	/* Same teal ordinal ramp, re-stepped for the dark surface (validated
+	   --mode dark: light-end contrast 2.01:1 vs #1a1a19, hue spread 6°). */
+	--viz-1: #4ee6d1;
+	--viz-2: #2ed0bc;
+	--viz-3: #00bba7;
+	--viz-4: #00a693;
+	--viz-5: #00917f;
+	--viz-6: #007d6c;
+	--viz-7: #00695a;
+	--viz-8: #005648;
 	--viz-surface: #1a1a19;
 	--viz-text-secondary: #c3c2b7;
 	--navbar: #14181a;

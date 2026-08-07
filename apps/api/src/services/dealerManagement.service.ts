@@ -5,7 +5,7 @@
 //   - nearest-dealer routing (state -> district -> pincode proximity)
 //   - dealer-code generation (EVV-<STATE>-<SEQ>)
 //   - ticket / request number generation
-//   - the EV CRM product catalog (segments + models) for dropdowns
+//   - the VoltOs product catalog (segments + models) for dropdowns
 //   - target-vs-actual attainment maths
 //   - segment (de)serialisation + compliance-expiry status (SQLite adaptations)
 //
@@ -24,7 +24,7 @@
 import { prisma } from "@repo/db";
 
 // ---------------------------------------------------------------------------
-// EV CRM product catalog — drives segment dropdowns and finance/service
+// VoltOs product catalog — drives segment dropdowns and finance/service
 // vehicle-model pickers. Extend as the portfolio grows.
 // ---------------------------------------------------------------------------
 export const VEHICLE_SEGMENTS = ["L5", "L3", "CUSTOMISED"] as const;

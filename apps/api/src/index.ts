@@ -31,7 +31,7 @@ app.use(
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 app.get("/", (_req, res) => {
-  res.json({ success: true, message: "EV CRM API", docs: "/api/v1/health" });
+  res.json({ success: true, message: "VoltOs API", docs: "/api/v1/health" });
 });
 app.get("/api/v1/health", (_req, res) => {
   res.json({ success: true, status: "ok", timestamp: new Date().toISOString() });
@@ -50,5 +50,5 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 app.listen(PORT, () => {
-  console.log(`EV CRM API listening on http://localhost:${PORT}`);
+  console.log(`VoltOs API listening on http://localhost:${PORT}`);
 });

@@ -1,4 +1,4 @@
-// Local-dev seed data for EV CRM. Resets and repopulates every table so
+// Local-dev seed data for VoltOs. Resets and repopulates every table so
 // `npm run db:seed` is safe to re-run. Not meant to model a real dealer
 // network — just enough breadth to click through every module, including
 // enough warranty/workshop/ledger history to see the closed loop.
@@ -851,14 +851,14 @@ async function main() {
   console.log("Seeding purchase orders (manufacturer's own inbound stock)…");
   await prisma.vehiclePurchaseOrder.createMany({
     data: [
-      { poNumber: "PO-2026-000001", supplierName: "EV CRM Manufacturing — Pune Plant", model: "Vikas Lifter", segment: "L5", quantity: 20, unitCost: 285000, status: "RECEIVED", orderedAt: daysFromNow(-60), expectedAt: daysFromNow(-45), receivedAt: daysFromNow(-42) },
-      { poNumber: "PO-2026-000002", supplierName: "EV CRM Manufacturing — Pune Plant", model: "Vikas Rani", segment: "L3", quantity: 15, unitCost: 210000, status: "RECEIVED", orderedAt: daysFromNow(-50), expectedAt: daysFromNow(-35), receivedAt: daysFromNow(-33) },
-      { poNumber: "PO-2026-000003", supplierName: "EV CRM Manufacturing — Chennai Plant", model: "Vikas Spark", segment: "L5", quantity: 10, unitCost: 310000, status: "RECEIVED", orderedAt: daysFromNow(-40), expectedAt: daysFromNow(-25), receivedAt: daysFromNow(-24) },
-      { poNumber: "PO-2026-000004", supplierName: "EV CRM Manufacturing — Chennai Plant", model: "Vikas Loader", segment: "L3", quantity: 12, unitCost: 195000, status: "RECEIVED", orderedAt: daysFromNow(-35), expectedAt: daysFromNow(-20), receivedAt: daysFromNow(-18) },
-      { poNumber: "PO-2026-000005", supplierName: "EV CRM Manufacturing — Pune Plant", model: "Vikas Lifter", segment: "L5", quantity: 18, unitCost: 288000, status: "IN_TRANSIT", orderedAt: daysFromNow(-14), expectedAt: daysFromNow(3) },
+      { poNumber: "PO-2026-000001", supplierName: "VoltOs Manufacturing — Pune Plant", model: "Vikas Lifter", segment: "L5", quantity: 20, unitCost: 285000, status: "RECEIVED", orderedAt: daysFromNow(-60), expectedAt: daysFromNow(-45), receivedAt: daysFromNow(-42) },
+      { poNumber: "PO-2026-000002", supplierName: "VoltOs Manufacturing — Pune Plant", model: "Vikas Rani", segment: "L3", quantity: 15, unitCost: 210000, status: "RECEIVED", orderedAt: daysFromNow(-50), expectedAt: daysFromNow(-35), receivedAt: daysFromNow(-33) },
+      { poNumber: "PO-2026-000003", supplierName: "VoltOs Manufacturing — Chennai Plant", model: "Vikas Spark", segment: "L5", quantity: 10, unitCost: 310000, status: "RECEIVED", orderedAt: daysFromNow(-40), expectedAt: daysFromNow(-25), receivedAt: daysFromNow(-24) },
+      { poNumber: "PO-2026-000004", supplierName: "VoltOs Manufacturing — Chennai Plant", model: "Vikas Loader", segment: "L3", quantity: 12, unitCost: 195000, status: "RECEIVED", orderedAt: daysFromNow(-35), expectedAt: daysFromNow(-20), receivedAt: daysFromNow(-18) },
+      { poNumber: "PO-2026-000005", supplierName: "VoltOs Manufacturing — Pune Plant", model: "Vikas Lifter", segment: "L5", quantity: 18, unitCost: 288000, status: "IN_TRANSIT", orderedAt: daysFromNow(-14), expectedAt: daysFromNow(3) },
       { poNumber: "PO-2026-000006", supplierName: "Imported — TorqueDrive Assembly (Thailand)", model: "Vikas Foodcart", segment: "CUSTOMISED", quantity: 6, unitCost: 340000, status: "IN_TRANSIT", orderedAt: daysFromNow(-10), expectedAt: daysFromNow(6) },
-      { poNumber: "PO-2026-000007", supplierName: "EV CRM Manufacturing — Chennai Plant", model: "Vikas Rani", segment: "L3", quantity: 20, unitCost: 212000, status: "ORDERED", orderedAt: daysFromNow(-3), expectedAt: daysFromNow(20) },
-      { poNumber: "PO-2026-000008", supplierName: "EV CRM Manufacturing — Pune Plant", model: "Vikas Nirmal", segment: "L5", quantity: 8, unitCost: 265000, status: "ORDERED", orderedAt: daysFromNow(-1), expectedAt: daysFromNow(25) },
+      { poNumber: "PO-2026-000007", supplierName: "VoltOs Manufacturing — Chennai Plant", model: "Vikas Rani", segment: "L3", quantity: 20, unitCost: 212000, status: "ORDERED", orderedAt: daysFromNow(-3), expectedAt: daysFromNow(20) },
+      { poNumber: "PO-2026-000008", supplierName: "VoltOs Manufacturing — Pune Plant", model: "Vikas Nirmal", segment: "L5", quantity: 8, unitCost: 265000, status: "ORDERED", orderedAt: daysFromNow(-1), expectedAt: daysFromNow(25) },
       { poNumber: "PO-2026-000009", supplierName: "Imported — TorqueDrive Assembly (Thailand)", model: "Vikas Soorma", segment: "L5", quantity: 5, unitCost: 355000, status: "CANCELLED", orderedAt: daysFromNow(-25), notes: "Supplier missed the committed window twice — reordering domestically instead." },
     ],
   });
@@ -902,14 +902,14 @@ async function main() {
   // ---------------------------------------------------------------------
   console.log("Seeding warranty plans…");
   const planSeeds = [
-    { name: "Vikas Lifter — Battery", vehicleModel: "Vikas Lifter", componentType: "BATTERY" as const, termMonths: 60, termKm: 100000, sohFloorPct: 70, approvedChargers: "EV CRM OEM Charger,EV CRM Fast Charger" },
+    { name: "Vikas Lifter — Battery", vehicleModel: "Vikas Lifter", componentType: "BATTERY" as const, termMonths: 60, termKm: 100000, sohFloorPct: 70, approvedChargers: "VoltOs OEM Charger,VoltOs Fast Charger" },
     { name: "Vikas Lifter — Motor", vehicleModel: "Vikas Lifter", componentType: "MOTOR" as const, termMonths: 36, termKm: 60000, sohFloorPct: null, approvedChargers: null },
     { name: "Vikas Lifter — Controller", vehicleModel: "Vikas Lifter", componentType: "CONTROLLER" as const, termMonths: 24, termKm: null, sohFloorPct: null, approvedChargers: null },
-    { name: "Vikas Rani — Battery", vehicleModel: "Vikas Rani", componentType: "BATTERY" as const, termMonths: 48, termKm: 80000, sohFloorPct: 70, approvedChargers: "EV CRM OEM Charger" },
+    { name: "Vikas Rani — Battery", vehicleModel: "Vikas Rani", componentType: "BATTERY" as const, termMonths: 48, termKm: 80000, sohFloorPct: 70, approvedChargers: "VoltOs OEM Charger" },
     { name: "Vikas Rani — Motor", vehicleModel: "Vikas Rani", componentType: "MOTOR" as const, termMonths: 36, termKm: 50000, sohFloorPct: null, approvedChargers: null },
     { name: "Vikas Loader — Motor", vehicleModel: "Vikas Loader", componentType: "MOTOR" as const, termMonths: 36, termKm: 50000, sohFloorPct: null, approvedChargers: null },
     { name: "Vikas Loader — Controller", vehicleModel: "Vikas Loader", componentType: "CONTROLLER" as const, termMonths: 24, termKm: null, sohFloorPct: null, approvedChargers: null },
-    { name: "Vikas Spark — Battery", vehicleModel: "Vikas Spark", componentType: "BATTERY" as const, termMonths: 60, termKm: 100000, sohFloorPct: 70, approvedChargers: "EV CRM OEM Charger,EV CRM Fast Charger" },
+    { name: "Vikas Spark — Battery", vehicleModel: "Vikas Spark", componentType: "BATTERY" as const, termMonths: 60, termKm: 100000, sohFloorPct: 70, approvedChargers: "VoltOs OEM Charger,VoltOs Fast Charger" },
   ];
   const plans: Record<string, Awaited<ReturnType<typeof prisma.warrantyPlan.create>>> = {};
   for (const p of planSeeds) {
@@ -956,12 +956,12 @@ async function main() {
       issueDescription: "Battery capacity degraded — customer reports reduced range on full charge.",
       odometerReading: 8200,
       measuredSohPct: 64,
-      chargerType: "EV CRM OEM Charger",
+      chargerType: "VoltOs OEM Charger",
       serviceRecordsComplete: true,
       claimAmount: 45000,
       approvedAmount: 45000,
       status: "IN_REPAIR",
-      adjudicationNotes: "Within time term: 8 of 60 months elapsed. Within distance term: 8200 of 100000km. Measured SoH 64% is below the 70% floor — capacity claim valid. Charger \"EV CRM OEM Charger\" is an approved accessory. Service records complete. No open duplicate claim for this component.",
+      adjudicationNotes: "Within time term: 8 of 60 months elapsed. Within distance term: 8200 of 100000km. Measured SoH 64% is below the 70% floor — capacity claim valid. Charger \"VoltOs OEM Charger\" is an approved accessory. Service records complete. No open duplicate claim for this component.",
       submittedAt: daysFromNow(-6),
     },
   });
@@ -1030,13 +1030,13 @@ async function main() {
       issueDescription: "Battery charging port corrosion, reduced charge rate.",
       odometerReading: 41000,
       measuredSohPct: 58,
-      chargerType: "EV CRM OEM Charger",
+      chargerType: "VoltOs OEM Charger",
       serviceRecordsComplete: true,
       claimAmount: 8000,
       status: "REJECTED",
       voidReason: "Outside time term: 62 months since registration vs. a 48-month cover.",
       rejectionReason: "Outside warranty term.",
-      adjudicationNotes: "Outside time term: 62 months since registration vs. a 48-month cover. Within distance term: 41000 of 80000km. Measured SoH 58% is below the 70% floor — capacity claim valid. Charger \"EV CRM OEM Charger\" is an approved accessory. Service records complete. No open duplicate claim for this component.",
+      adjudicationNotes: "Outside time term: 62 months since registration vs. a 48-month cover. Within distance term: 41000 of 80000km. Measured SoH 58% is below the 70% floor — capacity claim valid. Charger \"VoltOs OEM Charger\" is an approved accessory. Service records complete. No open duplicate claim for this component.",
       submittedAt: daysFromNow(-3),
       resolvedAt: daysFromNow(-3),
     },
@@ -1101,7 +1101,7 @@ async function main() {
       issueDescription: "Battery pack showed a one-time fault code, cleared itself — customer requested inspection.",
       odometerReading: 4100,
       measuredSohPct: 97,
-      chargerType: "EV CRM OEM Charger",
+      chargerType: "VoltOs OEM Charger",
       serviceRecordsComplete: true,
       claimAmount: 3500,
       approvedAmount: 3500,

@@ -4,7 +4,7 @@ import LanguageSwitcher from "@/components/auth/LanguageSwitcher";
 import LoginForm from "@/components/auth/LoginForm";
 
 export const metadata: Metadata = {
-  title: "Sign in — EV CRM",
+  title: "Sign in — VoltOs",
 };
 
 const STATS = [
@@ -20,8 +20,11 @@ export default function LoginPage() {
       <div className="relative hidden overflow-hidden lg:flex lg:w-1/2 lg:flex-col lg:justify-between lg:p-14" style={{ backgroundColor: "var(--accent)" }}>
         <WaveBackdrop />
 
-        <div className="relative z-10 inline-flex w-fit items-center gap-2 rounded-md px-3 py-1.5" style={{ backgroundColor: "var(--primary)" }}>
-          <span className="text-sm font-bold italic text-primary-foreground">Innovun</span>
+        <div className="relative z-10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/innovun-dark.png" alt="Innovun" className="h-8 w-auto dark:hidden" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/innovun-light.png" alt="Innovun" className="hidden h-8 w-auto dark:block" />
         </div>
 
         <div className="relative z-10 max-w-lg">
@@ -69,10 +72,11 @@ export default function LoginPage() {
 
         <div className="flex flex-1 items-center justify-center px-6 pb-16">
           <div className="w-full max-w-[380px]">
-            <div className="mb-8 flex items-center gap-2 lg:hidden">
-              <span className="inline-flex items-center rounded-md px-2.5 py-1" style={{ backgroundColor: "var(--primary)" }}>
-                <span className="text-xs font-bold italic text-primary-foreground">Innovun</span>
-              </span>
+            <div className="mb-8 lg:hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/innovun-dark.png" alt="Innovun" className="h-7 w-auto dark:hidden" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/innovun-light.png" alt="Innovun" className="hidden h-7 w-auto dark:block" />
             </div>
 
             <div className="mb-8">

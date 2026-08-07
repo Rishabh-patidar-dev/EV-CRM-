@@ -1,4 +1,4 @@
-# EV CRM — module guide
+# VoltOs — module guide
 
 One page per submodule, answering the same three questions for each:
 
