@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Cheap, edge-safe gate: only checks the session cookie is present, not that
-// it's still valid — that real verification happens server-side, in
-// auth.controller.ts#me, against JWT_SECRET. A stale/expired cookie gets
-// past this redirect but every data fetch behind it will 401 from the API.
-const SESSION_COOKIE = "crm_session";
+// NOTE: the real session cookie (crm_session) is set by the API on a
+// different domain (onrender.com) — the browser never attaches it to
+// requests made to this app's own domain, so middleware can't read it
+// directly here. This checks a lightweight marker cookie set on THIS
+// domain by LoginForm.tsx after a successful login instead. Real
+// verification of crm_session still happens server-side, in
+// auth.controller.ts#me.
+const SESSION_COOKIE = "has_session";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

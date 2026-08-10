@@ -60,6 +60,11 @@ export default function TopBar() {
     try {
       await apiClient.post("/api/v1/auth/logout");
     } finally {
+      // Clear the frontend-domain marker cookie middleware.ts checks — the
+      // real crm_session cookie is cleared server-side by the API call
+      // above, but that lives on a different domain (onrender.com) so this
+      // domain's own middleware needs its own cookie cleared too.
+      document.cookie = "has_session=; path=/; max-age=0";
       window.location.href = "/login";
     }
   }

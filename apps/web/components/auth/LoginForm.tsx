@@ -29,6 +29,10 @@ export default function LoginForm() {
         setSubmitting(false);
         return;
       }
+      // Real session lives in crm_session (httpOnly, set by the API on its
+      // own domain). This marker cookie lives on THIS domain purely so
+      // middleware.ts has something to check — it carries no auth data.
+      document.cookie = `has_session=1; path=/; max-age=${remember ? 30 * 24 * 60 * 60 : 60 * 60 * 12}`;
       // Full navigation, not router.push — the (dashboard) layout and every
       // page under it read session state fresh on load; a client-side
       // transition would carry over the pre-login render.
