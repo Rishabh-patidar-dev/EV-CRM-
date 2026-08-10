@@ -13,10 +13,10 @@
     "studio": "prisma studio"
   },
   "dependencies": {
-    "@prisma/client": "6.19.3"
+    "@prisma/client": "6.19.3",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
-    "prisma": "6.19.3",
-    "tsx": "^4.19.2"
+    "prisma": "6.19.3"
   }
 }
