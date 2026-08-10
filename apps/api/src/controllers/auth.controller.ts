@@ -39,10 +39,14 @@ function signSession(user: { id: number; username: string | null; role: string }
 }
 
 function setSessionCookie(res: Response, token: string, remember: boolean) {
+  const isProd = process.env.NODE_ENV === "production";
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    // "none" is required for cross-site cookies (Vercel frontend +
+    // Render backend are different domains). Browsers require secure:true
+    // whenever sameSite is "none", so both must flip together.
+    sameSite: isProd ? "none" : "lax",
+    secure: isProd,
     // Omitting maxAge makes it a session cookie (cleared when the browser
     // closes) — that's the "don't remember me" path.
     ...(remember ? { maxAge: LONG_TTL_MS } : {}),

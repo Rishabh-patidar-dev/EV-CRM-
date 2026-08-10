@@ -15,7 +15,10 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
 // (:3000, crm_session) and the landing page's dealer portal (:3001,
 // dealer_session) both call this API cross-origin even though everything's
 // on localhost.
-const ALLOWED_ORIGINS = [process.env.WEB_ORIGIN || "http://localhost:3000", process.env.LANDING_ORIGIN || "http://localhost:3001"];
+const ALLOWED_ORIGINS = [
+  process.env.WEB_ORIGIN || "http://localhost:3000",
+  process.env.LANDING_ORIGIN || "http://localhost:3001",
+].filter(Boolean);
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(cookieParser());
 app.use(
