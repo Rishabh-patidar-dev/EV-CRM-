@@ -10,6 +10,21 @@ import { handleError } from "../utils/errorHandler.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const COOKIE_NAME = "crm_session";
+
+// Hardcoded demo fallback — for showing the CRM in a demo even if the
+// database is paused/unreachable (e.g. a paused Supabase free-tier
+// project). Checked before any DB call in both login() and me(), so the
+// login screen and the signed-in shell stay usable without the DB. Data
+// panels that query the DB directly still won't populate — this only
+// keeps the login wall and session check from blocking on it.
+const DEMO_FALLBACK = {
+  id: 0,
+  username: "Admin",
+  password: "Admin@123",
+  firstName: "Admin",
+  lastName: "User",
+  role: "SYSTEM_ADMIN",
+};
 // "Keep me signed in" trades a short session for a long one — it's a real
 // switch, not a decorative checkbox: unchecked, the cookie dies with the
 // browser session; checked, it survives 30 days.
@@ -42,6 +57,22 @@ export class AuthController {
       const { username, password, remember } = req.body ?? {};
       if (!username || !password) {
         return res.status(400).json({ success: false, message: "Username and password are required" });
+      }
+
+      if (String(username).trim() === DEMO_FALLBACK.username && password === DEMO_FALLBACK.password) {
+        const ttlMs = remember ? LONG_TTL_MS : SHORT_TTL_MS;
+        const token = signSession({ id: DEMO_FALLBACK.id, username: DEMO_FALLBACK.username, role: DEMO_FALLBACK.role }, ttlMs);
+        setSessionCookie(res, token, Boolean(remember));
+        return res.json({
+          success: true,
+          user: {
+            id: DEMO_FALLBACK.id,
+            username: DEMO_FALLBACK.username,
+            firstName: DEMO_FALLBACK.firstName,
+            lastName: DEMO_FALLBACK.lastName,
+            role: DEMO_FALLBACK.role,
+          },
+        });
       }
 
       const user = await prisma.user.findUnique({ where: { username: String(username).trim() } });
@@ -86,6 +117,20 @@ export class AuthController {
         payload = jwt.verify(token, JWT_SECRET) as unknown as { sub: number };
       } catch {
         return res.status(401).json({ success: false, message: "Session expired" });
+      }
+
+      if (payload.sub === DEMO_FALLBACK.id) {
+        return res.json({
+          success: true,
+          user: {
+            id: DEMO_FALLBACK.id,
+            username: DEMO_FALLBACK.username,
+            firstName: DEMO_FALLBACK.firstName,
+            lastName: DEMO_FALLBACK.lastName,
+            role: DEMO_FALLBACK.role,
+            email: null,
+          },
+        });
       }
 
       const user = await prisma.user.findUnique({
