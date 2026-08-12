@@ -12,34 +12,55 @@ export default function LoginForm() {
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  async function attemptLogin() {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/v1/auth/login`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: username.trim(), password, remember }),
+    });
+    // A cold-starting free-tier backend can hand back a gateway/boot HTML
+    // page instead of JSON for the first request or two — res.json() would
+    // throw on that, which handleSubmit's retry loop treats the same as a
+    // network failure and retries rather than showing a scary error.
+    const data = await res.json();
+    return { res, data };
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/v1/auth/login`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password, remember }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setError(data.message || "Something went wrong. Try again.");
-        setSubmitting(false);
+
+    const attempts = 3;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        if (i > 0) setNotice("Waking up the server — this can take up to a minute on the first try…");
+        const { res, data } = await attemptLogin();
+        setNotice(null);
+        if (!res.ok || !data.success) {
+          setError(data.message || "Something went wrong. Try again.");
+          setSubmitting(false);
+          return;
+        }
+        // Real session lives in crm_session (httpOnly, set by the API on its
+        // own domain). This marker cookie lives on THIS domain purely so
+        // middleware.ts has something to check — it carries no auth data.
+        document.cookie = `has_session=1; path=/; max-age=${remember ? 30 * 24 * 60 * 60 : 60 * 60 * 12}`;
+        // Full navigation, not router.push — the (dashboard) layout and every
+        // page under it read session state fresh on load; a client-side
+        // transition would carry over the pre-login render.
+        window.location.href = "/";
         return;
+      } catch {
+        if (i === attempts - 1) {
+          setNotice(null);
+          setError("Can't reach the server. Check your connection and try again.");
+          setSubmitting(false);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 4000));
       }
-      // Real session lives in crm_session (httpOnly, set by the API on its
-      // own domain). This marker cookie lives on THIS domain purely so
-      // middleware.ts has something to check — it carries no auth data.
-      document.cookie = `has_session=1; path=/; max-age=${remember ? 30 * 24 * 60 * 60 : 60 * 60 * 12}`;
-      // Full navigation, not router.push — the (dashboard) layout and every
-      // page under it read session state fresh on load; a client-side
-      // transition would carry over the pre-login render.
-      window.location.href = "/";
-    } catch {
-      setError("Can't reach the server. Check your connection and try again.");
-      setSubmitting(false);
     }
   }
 

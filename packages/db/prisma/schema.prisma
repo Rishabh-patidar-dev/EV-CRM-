@@ -833,14 +833,27 @@ model StockTransferRequest {
 enum VehiclePurchaseOrderStatus {
   ORDERED
   IN_TRANSIT
+  PARTIALLY_RECEIVED
   RECEIVED
   CANCELLED
+}
+
+enum PurchasePaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
 }
 
 model VehiclePurchaseOrder {
   id           Int    @id @default(autoincrement())
   poNumber     String @unique @map("po_number")
+  // Denormalized display copy of vendor.name at order time — kept even
+  // though vendorId is now the real link, so historic POs from before the
+  // Vendor master existed (free-text supplier, vendorId null) still render.
   supplierName String @map("supplier_name")
+
+  vendorId Int?    @map("vendor_id")
+  vendor   Vendor? @relation(fields: [vendorId], references: [id])
 
   model    String
   segment  VehicleSegment
@@ -848,6 +861,12 @@ model VehiclePurchaseOrder {
   unitCost Decimal @map("unit_cost")
 
   status VehiclePurchaseOrderStatus @default(ORDERED)
+
+  // 3-way-match-lite: payment is tracked against the PO directly (no
+  // separate vendor invoice/ledger model) — amountPaid vs quantity*unitCost
+  // derives paymentStatus. See purchaseManagement.controller.ts#recordPayment.
+  paymentStatus PurchasePaymentStatus @default(UNPAID) @map("payment_status")
+  amountPaid    Decimal              @default(0) @map("amount_paid")
 
   orderedAt  DateTime  @default(now()) @map("ordered_at")
   expectedAt DateTime? @map("expected_at")
@@ -857,9 +876,87 @@ model VehiclePurchaseOrder {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  goodsReceipts GoodsReceiptNote[]
+
   @@index([status])
   @@index([model])
+  @@index([vendorId])
   @@map("vehicle_purchase_orders")
+}
+
+enum VendorCategory {
+  BATTERY_PACK
+  BMS
+  MOTOR
+  CONTROLLER
+  CHASSIS
+  BODY
+  ELECTRICAL
+  TYRES
+  MISC
+}
+
+enum VendorStatus {
+  ACTIVE
+  BLACKLISTED
+}
+
+// Approved Vendor List (AVL) — quality rating starts at 5 and moves with
+// each GRN's quality_result (see recordReceipt()). Blacklisted vendors
+// can't receive new POs (enforced in createOrder()).
+model Vendor {
+  id        Int            @id @default(autoincrement())
+  name      String
+  gstNumber String?        @map("gst_number")
+  panNumber String?        @map("pan_number")
+  isMsme    Boolean        @default(false) @map("is_msme")
+  contactName String?      @map("contact_name")
+  phone     String?
+  email     String?
+  address   String?
+  category  VendorCategory @default(MISC)
+
+  qualityRating   Int          @default(5) @map("quality_rating")
+  status          VendorStatus @default(ACTIVE)
+  blacklistReason String?      @map("blacklist_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  purchaseOrders VehiclePurchaseOrder[]
+
+  @@index([category])
+  @@index([status])
+  @@map("vendors")
+}
+
+enum GrnQualityResult {
+  PASS
+  PARTIAL_ACCEPT
+  REJECT
+}
+
+// Partial-delivery tracking — multiple GRNs can land against one PO;
+// PO.status derives from sum(quantityReceived) vs PO.quantity (see
+// recordReceipt()). A PASS/PARTIAL_ACCEPT GRN creates real VehicleUnit
+// rows (IN_STOCK) for the accepted quantity — the actual inventory update
+// the spec calls for, not a separate invented stock ledger.
+model GoodsReceiptNote {
+  id              Int                  @id @default(autoincrement())
+  grnNumber       String               @unique @map("grn_number")
+  purchaseOrderId Int                  @map("purchase_order_id")
+  purchaseOrder   VehiclePurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  quantityReceived Int              @map("quantity_received")
+  qualityResult    GrnQualityResult @default(PASS) @map("quality_result")
+  rejectionReason  String?          @map("rejection_reason")
+  notes            String?
+
+  receivedAt DateTime @default(now()) @map("received_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([purchaseOrderId])
+  @@map("goods_receipt_notes")
 }
 
 // =============================================================================
