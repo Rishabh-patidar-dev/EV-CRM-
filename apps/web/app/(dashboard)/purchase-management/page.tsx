@@ -34,6 +34,7 @@ interface Analytics {
   importedByModel: { label: string; value: number }[];
   soldByModel: { label: string; value: number }[];
   poStatusBreakdown: { label: string; value: number }[];
+  paymentStatusBreakdown: { label: string; value: number }[];
 }
 
 interface Vendor {
@@ -198,6 +199,13 @@ export default function PurchaseManagementPage() {
         <ChartCard title="Purchase order status" subtitle="Where every PO currently sits">
           {analytics && analytics.poStatusBreakdown.length > 0 ? (
             <DonutChart data={analytics.poStatusBreakdown} centerLabel="orders" />
+          ) : (
+            <p className="py-8 text-center text-xs text-muted-foreground">No purchase orders yet.</p>
+          )}
+        </ChartCard>
+        <ChartCard title="Payment status" subtitle="Non-cancelled purchase orders, by payment state">
+          {analytics && analytics.paymentStatusBreakdown.length > 0 ? (
+            <DonutChart data={analytics.paymentStatusBreakdown} centerLabel="orders" />
           ) : (
             <p className="py-8 text-center text-xs text-muted-foreground">No purchase orders yet.</p>
           )}

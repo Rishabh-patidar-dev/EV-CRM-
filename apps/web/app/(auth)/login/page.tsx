@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import WaveBackdrop from "@/components/auth/WaveBackdrop";
 import LanguageSwitcher from "@/components/auth/LanguageSwitcher";
 import LoginForm from "@/components/auth/LoginForm";
+import { AccentStat } from "@/components/ui/StatCard";
 
 export const metadata: Metadata = {
   title: "Sign in — VoltOs",
@@ -48,10 +49,7 @@ export default function LoginPage() {
 
           <div className="mt-10 flex flex-wrap gap-3">
             {STATS.map((s) => (
-              <div key={s.label} className="rounded-md border bg-card px-4 py-2.5" style={{ borderColor: "var(--border)" }}>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
-                <p className="mt-0.5 text-base font-bold text-foreground">{s.value}</p>
-              </div>
+              <AccentStat key={s.label} label={s.label} value={s.value} />
             ))}
           </div>
         </div>

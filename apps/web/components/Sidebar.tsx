@@ -110,7 +110,7 @@ export default function Sidebar() {
         </div>
         <div className="min-w-0">
           <div className="truncate text-[15px] font-bold leading-none tracking-tight">VoltOs</div>
-          <div className="sidebar-muted mt-1 truncate text-[11px] leading-none">Dealer &amp; Warranty CRM</div>
+          <div className="sidebar-muted mt-1 truncate text-[11px] leading-none"></div>
         </div>
       </div>
 

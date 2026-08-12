@@ -45,7 +45,15 @@
 	--card-foreground: #14201e;
 	--popover: #ffffff;
 	--popover-foreground: #14201e;
-	--primary: #0e7d70; /* teal — the one accent, used for actions and active states */
+	--primary: #0e7d70; /* teal — links, badges, most active/selected states app-wide */
+	/* Warm gold — a second, higher-emphasis accent for the handful of spots
+	   the reference mock uses to "pop" (sign-in button, sidebar active item,
+	   AI Copilot pill, hero stat-card accent bars): teal everywhere reads as
+	   flat/dull at that level of visual weight, so these specific elements
+	   get the bolder color instead of a second global primary. Contrast-
+	   checked with validate_palette.js's contrast(): ink-on-gold 10.18:1. */
+	--accent-warm: #f5b400;
+	--accent-warm-foreground: #161200;
 	/* muted semantic tones for status badges */
 	--zira-approved: #1f7a52; /* Approved / valid / delivered */
 	--zira-pending: #a86518; /* Pending / expiring / in review */
@@ -87,18 +95,20 @@
 	--viz-text-secondary: #52514e;
 	--radius: 0.4rem;
 	--navbar: #ffffff;
-	/* Sidebar — light theme: soft mint-green rail (contrast-checked with
-	   validate_palette.js's contrast(): foreground 14.15:1, muted-foreground
-	   ~5.96:1, primary-foreground-on-primary 4.87:1 — all clear AA). Dark
-	   theme keeps its own near-black rail below, untouched. */
-	--sidebar: #eaf5ec;
-	--sidebar-foreground: #14261f;
-	--sidebar-primary: #0e7d55;
-	--sidebar-primary-foreground: #f2fbf5;
-	--sidebar-accent: #d9edda;
-	--sidebar-accent-foreground: #0e7d55;
-	--sidebar-border: #cfe6d4;
-	--sidebar-ring: #0e7d55;
+	/* Sidebar — light theme: clean white rail matching the reference mock —
+	   near-black text, and the active item is a solid GOLD pill (the
+	   reference's actual highlight color for "Overview"), not another teal
+	   fill — teal-on-teal everywhere read as flat. Contrast-checked: ink on
+	   white 15.3:1, accent-warm-foreground on accent-warm 10.18:1. Dark
+	   theme keeps its own solid near-black rail below, untouched. */
+	--sidebar: #ffffff;
+	--sidebar-foreground: #14201e;
+	--sidebar-primary: var(--accent-warm);
+	--sidebar-primary-foreground: var(--accent-warm-foreground);
+	--sidebar-accent: #f2f4f3;
+	--sidebar-accent-foreground: #14201e;
+	--sidebar-border: #e7ebea;
+	--sidebar-ring: var(--accent-warm);
 }
 
 .dark {
@@ -110,6 +120,8 @@
 	--popover-foreground: #eef1f0;
 	--primary: #35b5a3; /* brighter teal on dark */
 	--primary-foreground: #08201c;
+	--accent-warm: #e5a600;
+	--accent-warm-foreground: #161200;
 	/* brighter than the light-mode values so badge text keeps AA contrast on a dark card */
 	--zira-approved: #4fb884;
 	--zira-pending: #d1a24c;
@@ -173,6 +185,8 @@
 	--color-muted-foreground: var(--muted-foreground);
 	--color-accent: var(--accent);
 	--color-accent-foreground: var(--accent-foreground);
+	--color-accent-warm: var(--accent-warm);
+	--color-accent-warm-foreground: var(--accent-warm-foreground);
 	--color-destructive: var(--destructive);
 	--color-destructive-foreground: var(--destructive-foreground);
 	--color-border: var(--border);
@@ -234,14 +248,13 @@
    renamed for a one-word class nobody else reads.
    ------------------------------------------------------------------------- */
 .synkro-sidebar {
-	background-color: var(--sidebar);
+	background: var(--sidebar);
 	color: var(--sidebar-foreground);
 	border-color: var(--sidebar-border) !important;
-	/* Light theme puts a light rail next to a light page — the old
-	   near-black-vs-light contrast used to separate them for free, so this
-	   picks up that job now (reuses the app's existing --shadow-card tone,
-	   just cast rightward instead of downward). */
-	box-shadow: 1px 0 0 var(--sidebar-border), 3px 0 12px -4px rgba(20, 32, 30, 0.06);
+	/* Clean white rail next to a white/near-white page needs a hairline +
+	   a very soft shadow to read as a separate surface, matching the
+	   reference mock's flat, professional look — not glass, not tinted. */
+	box-shadow: 1px 0 0 var(--sidebar-border), 2px 0 8px -4px rgba(20, 32, 30, 0.05);
 }
 .synkro-sidebar a,
 .synkro-sidebar button,

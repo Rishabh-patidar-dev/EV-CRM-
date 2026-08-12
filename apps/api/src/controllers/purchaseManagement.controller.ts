@@ -338,6 +338,7 @@ export class PurchaseManagementController {
       const importedByModel: Record<string, number> = {};
       const soldByModel: Record<string, number> = {};
       const poStatusBreakdown: Record<string, number> = {};
+      const paymentStatusBreakdown: Record<string, number> = {};
       let totalOrderedQty = 0;
       let totalReceivedQty = 0;
       let totalSpend = 0;
@@ -355,6 +356,7 @@ export class PurchaseManagementController {
         if (o.status !== "CANCELLED") {
           totalPayable += o.quantity * Number(o.unitCost);
           totalPaid += Number(o.amountPaid);
+          paymentStatusBreakdown[o.paymentStatus] = (paymentStatusBreakdown[o.paymentStatus] ?? 0) + 1;
         }
       }
       for (const u of soldUnits) {
@@ -377,6 +379,7 @@ export class PurchaseManagementController {
         importedByModel: toSeries(importedByModel),
         soldByModel: toSeries(soldByModel),
         poStatusBreakdown: toSeries(poStatusBreakdown),
+        paymentStatusBreakdown: toSeries(paymentStatusBreakdown),
       });
     } catch (error) {
       handleError(error, res, "Purchase management analytics");

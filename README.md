@@ -153,7 +153,7 @@ palette and dark-mode variants.
 ## Part 0c — VoltOs: rebrand + Warranty Management centrepiece + BI dashboard
 
 This round did four things, grounded in `DMS-and-Warranty-Research.pdf`
-(Dealer & Warranty Management — the two modules that document names the
+(y Management — the two modules that document names the
 project's centrepiece) and your direct asks:
 
 ### 1. Rebrand: VoltOs

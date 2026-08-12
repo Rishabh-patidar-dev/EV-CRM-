@@ -151,12 +151,12 @@ export default function DashboardPage() {
       </header>
 
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-6">
-        <StatCard icon={<Users2 className="h-3.5 w-3.5" />} label="Leads" value={leadStats?.total ?? "—"} />
-        <StatCard icon={<ClipboardList className="h-3.5 w-3.5" />} label="Unassigned leads" value={leadStats?.unassigned ?? "—"} />
-        <StatCard icon={<Building2 className="h-3.5 w-3.5" />} label="Active dealers" value={dealerStats?.totalDealers ?? "—"} />
-        <StatCard icon={<MapPin className="h-3.5 w-3.5" />} label="Cities covered" value={dealerStats?.citiesCovered ?? "—"} />
-        <StatCard icon={<Workflow className="h-3.5 w-3.5" />} label="Applications in pipeline" value={onboardingTotal ?? "—"} />
-        <StatCard icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Compliance alerts" value={complianceAlerts ?? "—"} />
+        <StatCard tone="blue" icon={<Users2 className="h-3.5 w-3.5" />} label="Leads" value={leadStats?.total ?? "—"} />
+        <StatCard tone="amber" icon={<ClipboardList className="h-3.5 w-3.5" />} label="Unassigned leads" value={leadStats?.unassigned ?? "—"} />
+        <StatCard tone="green" icon={<Building2 className="h-3.5 w-3.5" />} label="Active dealers" value={dealerStats?.totalDealers ?? "—"} />
+        <StatCard tone="purple" icon={<MapPin className="h-3.5 w-3.5" />} label="Cities covered" value={dealerStats?.citiesCovered ?? "—"} />
+        <StatCard tone="blue" icon={<Workflow className="h-3.5 w-3.5" />} label="Applications in pipeline" value={onboardingTotal ?? "—"} />
+        <StatCard tone="red" icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Compliance alerts" value={complianceAlerts ?? "—"} />
       </section>
 
       {/* ---- lead volume trend + AI insights ---- */}

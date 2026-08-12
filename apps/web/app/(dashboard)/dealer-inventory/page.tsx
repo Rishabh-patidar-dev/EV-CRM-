@@ -168,6 +168,15 @@ function DealerInventoryInner() {
           and stock-transfer requests already in the tables below. */}
       <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+          <h2 className="mb-3 text-sm font-semibold">Stock by status</h2>
+          {Object.values(byStatus).some((v) => v > 0) ? (
+            <DonutChart data={UNIT_STATUSES.map((s) => ({ label: s.replace("_", " "), value: byStatus[s] ?? 0 }))} centerLabel="units" />
+          ) : (
+            <p className="py-8 text-center text-xs text-muted-foreground">No units on record yet.</p>
+          )}
+        </div>
+
+        <div className="rounded-[var(--radius)] border border-border bg-card p-4">
           <h2 className="mb-3 text-sm font-semibold">Live stock by model</h2>
           {analytics && analytics.stockByModel.length > 0 ? (
             <DonutChart data={analytics.stockByModel} centerLabel="in network" />

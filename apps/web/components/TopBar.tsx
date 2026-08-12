@@ -92,7 +92,7 @@ export default function TopBar() {
         <Link
           href="/ai-insights"
           className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90 sm:flex"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--accent-warm)", color: "var(--accent-warm-foreground)" }}
         >
           <Sparkles className="h-3.5 w-3.5" />
           AI Copilot
