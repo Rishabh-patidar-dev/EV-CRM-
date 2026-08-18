@@ -12,9 +12,13 @@ import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   ShieldPlus, Search, Plus, Loader2, CheckCircle2, XCircle,
-  Battery,
+  Battery, IndianRupee, Undo2, FileBarChart,
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { StatCard } from "@/components/ui/StatCard";
+import ChartCard from "@/components/charts/ChartCard";
+import DonutChart from "@/components/charts/DonutChart";
+import BarChart from "@/components/charts/BarChart";
 
 const COMPONENT_TYPES = ["BATTERY", "MOTOR", "CONTROLLER", "CHARGER", "CHASSIS", "BRAKES"];
 const CLAIM_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "INFO_REQUESTED", "APPROVED", "IN_REPAIR", "REIMBURSED", "RECOVERY", "REJECTED", "CLOSED"];
@@ -45,7 +49,7 @@ function WarrantyInner() {
   const searchParams = useSearchParams();
   const dealerIdParam = searchParams.get("dealerId") ?? "";
 
-  const [tab, setTab] = useState<"coverage" | "claims" | "plans" | "recovery">("claims");
+  const [tab, setTab] = useState<"coverage" | "claims" | "plans" | "recovery" | "cost">("claims");
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [pipeline, setPipeline] = useState<Record<string, number>>({});
 
@@ -84,12 +88,14 @@ function WarrantyInner() {
         <TabButton active={tab === "coverage"} onClick={() => setTab("coverage")}>Coverage Check</TabButton>
         <TabButton active={tab === "plans"} onClick={() => setTab("plans")}>Warranty Plans</TabButton>
         <TabButton active={tab === "recovery"} onClick={() => setTab("recovery")}>Supplier Recovery</TabButton>
+        <TabButton active={tab === "cost"} onClick={() => setTab("cost")}>Cost Analysis</TabButton>
       </div>
 
       {tab === "claims" && <ClaimsTab dealers={dealers} onChanged={loadPipeline} initialDealerId={dealerIdParam} />}
       {tab === "coverage" && <CoverageTab />}
       {tab === "plans" && <PlansTab />}
       {tab === "recovery" && <RecoveryTab />}
+      {tab === "cost" && <CostAnalysisTab />}
     </div>
   );
 }
@@ -562,6 +568,50 @@ function RecoveryTab() {
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cost analysis — §12.3 "cost by component, by supplier, by model", used to
+// drive quality improvement and supplier negotiations.
+// ---------------------------------------------------------------------------
+function CostAnalysisTab() {
+  const [data, setData] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiClient.get("/api/v1/warranty-claims/analytics/cost").then((r) => setData(r.data)).finally(() => setLoading(false));
+  }, []);
+
+  const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+
+  if (loading) {
+    return <div className="py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></div>;
+  }
+  if (!data || data.claimCount === 0) {
+    return <p className="py-10 text-center text-sm text-muted-foreground">No approved claims yet — cost analysis fills in once claims are approved.</p>;
+  }
+
+  return (
+    <div>
+      <section className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatCard icon={<IndianRupee className="h-3.5 w-3.5" />} label="Total approved cost" value={inr(data.totalApprovedCost)} tone="blue" />
+        <StatCard icon={<Undo2 className="h-3.5 w-3.5" />} label="Recovered from suppliers" value={inr(data.totalRecovered)} tone="green" />
+        <StatCard icon={<ShieldPlus className="h-3.5 w-3.5" />} label="Net warranty cost" value={inr(data.netCost)} tone="amber" />
+        <StatCard icon={<FileBarChart className="h-3.5 w-3.5" />} label="Approved claims" value={data.claimCount} tone="purple" />
+      </section>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ChartCard title="Cost by component" subtitle="Approved amount, summed by component type">
+          <DonutChart data={data.costByComponent} />
+        </ChartCard>
+        <ChartCard title="Cost by supplier" subtitle="Approved amount, summed by component supplier">
+          <BarChart data={data.costBySupplier} />
+        </ChartCard>
+        <ChartCard title="Cost by vehicle model" subtitle="Approved amount, summed by model">
+          <BarChart data={data.costByModel} color="var(--viz-2)" />
+        </ChartCard>
+      </div>
     </div>
   );
 }

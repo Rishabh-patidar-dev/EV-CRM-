@@ -1,6 +1,7 @@
 import { Router } from "express";
 import authRoutes from "./auth.routes.js";
 import dealerAuthRoutes from "./dealerAuth.routes.js";
+import dealerPortalRoutes from "./dealerPortal.routes.js";
 import ingestRoutes from "./ingest.routes.js";
 import onboardingRoutes from "./onboarding.routes.js";
 import dealerRoutes from "./dealer.routes.js";
@@ -22,6 +23,10 @@ router.use("/auth", authRoutes);
 // Dealer self-service portal login (landing page /login, /dashboard) —
 // separate trust domain from CRM staff auth above.
 router.use("/dealer-auth", dealerAuthRoutes);
+
+// DMS operational portal — same dealer_session cookie, gated one step further
+// (must be a promoted, operational Dealer, not just an onboarding applicant).
+router.use("/dealer-portal", dealerPortalRoutes);
 
 // Public dual-intent ingestion webhook (landing page portal)
 router.use("/ingest", ingestRoutes);

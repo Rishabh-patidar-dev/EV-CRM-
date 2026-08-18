@@ -14,8 +14,7 @@
 import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
-import { generateSequenceNumber } from "../services/dealerManagement.service.js";
-import { adjudicateClaim } from "../services/warrantyAdjudication.service.js";
+import { adjudicateClaim, submitWarrantyClaim } from "../services/warrantyAdjudication.service.js";
 
 // -----------------------------------------------------------------------------
 export class WarrantyPlanController {
@@ -142,6 +141,27 @@ export class ComponentUnitController {
     } catch (error: any) {
       if (error.code === "P2002") return handleValidationError(res, "A component with this serial number is already registered", "serialNumber", "Register component unit");
       handleError(error, res, "Register component unit");
+    }
+  }
+
+  // PATCH /api/v1/component-units/:id — correct a real serial in over an
+  // auto-generated placeholder (see componentRegistration.service.ts), or
+  // update supplier/batch/status.
+  async update(req: Request, res: Response) {
+    try {
+      const id = parseInt(req.params.id as string);
+      if (!id) return handleValidationError(res, "Component unit ID is required", "id", "Update component unit");
+      const b = req.body ?? {};
+      const data: any = {};
+      for (const f of ["serialNumber", "supplierName", "batchNumber", "status"]) {
+        if (b[f] !== undefined) data[f] = b[f];
+      }
+      const unit = await prisma.componentUnit.update({ where: { id }, data });
+      res.json(unit);
+    } catch (error: any) {
+      if (error.code === "P2002") return handleValidationError(res, "A component with this serial number is already registered", "serialNumber", "Update component unit");
+      if (error.code === "P2025") return handleNotFoundError(res, "Component unit", "Update component unit");
+      handleError(error, res, "Update component unit");
     }
   }
 
@@ -297,6 +317,61 @@ export class WarrantyClaimController {
     }
   }
 
+  // GET /api/v1/warranty-claims/analytics/cost — §12.3 "cost by component, by
+  // supplier, by model". Must stay mounted before GET /:id (see routes file).
+  async costAnalytics(_req: Request, res: Response) {
+    try {
+      const claims = await prisma.warrantyClaim.findMany({
+        where: { approvedAmount: { not: null } },
+        select: {
+          approvedAmount: true,
+          componentUnit: { select: { componentType: true, supplierName: true } },
+          vehicleUnit: { select: { model: true } },
+          plan: { select: { componentType: true } },
+        },
+      });
+
+      const byComponent: Record<string, number> = {};
+      const bySupplier: Record<string, number> = {};
+      const byModel: Record<string, number> = {};
+      let totalApproved = 0;
+
+      for (const c of claims) {
+        const amt = Number(c.approvedAmount ?? 0);
+        totalApproved += amt;
+        const component = c.componentUnit?.componentType ?? c.plan?.componentType ?? "UNKNOWN";
+        byComponent[component] = (byComponent[component] ?? 0) + amt;
+        const supplier = c.componentUnit?.supplierName ?? "Unknown supplier";
+        bySupplier[supplier] = (bySupplier[supplier] ?? 0) + amt;
+        const model = c.vehicleUnit?.model ?? "Unknown model";
+        byModel[model] = (byModel[model] ?? 0) + amt;
+      }
+
+      const toSeries = (rec: Record<string, number>) =>
+        Object.entries(rec)
+          .map(([label, value]) => ({ label, value: Math.round(value) }))
+          .sort((a, b) => b.value - a.value);
+
+      const recoveries = await prisma.supplierRecovery.findMany({
+        where: { status: "RECOVERED" },
+        select: { amount: true },
+      });
+      const totalRecovered = recoveries.reduce((s, r) => s + Number(r.amount), 0);
+
+      res.json({
+        totalApprovedCost: Math.round(totalApproved),
+        totalRecovered: Math.round(totalRecovered),
+        netCost: Math.round(totalApproved - totalRecovered),
+        claimCount: claims.length,
+        costByComponent: toSeries(byComponent),
+        costBySupplier: toSeries(bySupplier),
+        costByModel: toSeries(byModel),
+      });
+    } catch (error) {
+      handleError(error, res, "Warranty cost analytics");
+    }
+  }
+
   // POST /api/v1/warranty-claims — dealer-raised intake, auto-adjudicated on arrival
   async create(req: Request, res: Response) {
     try {
@@ -305,76 +380,20 @@ export class WarrantyClaimController {
         return handleValidationError(res, "dealerId, customerName and issueDescription are required", "body", "Create warranty claim");
       }
 
-      const componentUnit = b.componentUnitId
-        ? await prisma.componentUnit.findUnique({ where: { id: parseInt(b.componentUnitId) }, include: { plan: true } })
-        : null;
-
-      const hasOpenDuplicateClaim = componentUnit
-        ? (await prisma.warrantyClaim.count({
-            where: {
-              componentUnitId: componentUnit.id,
-              status: { in: ["SUBMITTED", "UNDER_REVIEW", "INFO_REQUESTED", "APPROVED", "IN_REPAIR"] },
-            },
-          })) > 0
-        : false;
-
-      const adjudication = adjudicateClaim({
-        plan: componentUnit?.plan
-          ? {
-              termMonths: componentUnit.plan.termMonths,
-              termKm: componentUnit.plan.termKm,
-              sohFloorPct: componentUnit.plan.sohFloorPct,
-              approvedChargers: componentUnit.plan.approvedChargers,
-            }
-          : null,
-        componentRegisteredAt: componentUnit?.registeredAt ?? null,
-        claim: {
-          odometerReading: b.odometerReading ?? null,
-          measuredSohPct: b.measuredSohPct ?? null,
-          chargerType: b.chargerType ?? null,
-          serviceRecordsComplete: b.serviceRecordsComplete !== false,
-        },
-        hasOpenDuplicateClaim,
-      });
-
-      const initialStatus = adjudication.decision === "AUTO_APPROVE" ? "APPROVED" : adjudication.decision === "VOID" ? "REJECTED" : "UNDER_REVIEW";
-
-      const claimNumber = await generateSequenceNumber("WC", () => prisma.warrantyClaim.count());
-      const actorId = (req as any).user?.id ?? null;
-
-      const claim = await prisma.$transaction(async (tx) => {
-        const created = await tx.warrantyClaim.create({
-          data: {
-            claimNumber,
-            dealerId: parseInt(b.dealerId),
-            vehicleUnitId: b.vehicleUnitId ? parseInt(b.vehicleUnitId) : componentUnit?.vehicleUnitId ?? null,
-            componentUnitId: componentUnit?.id ?? null,
-            planId: componentUnit?.planId ?? null,
-            chassisNumber: b.chassisNumber ?? null,
-            customerName: b.customerName,
-            customerPhone: b.customerPhone ?? null,
-            issueDescription: b.issueDescription,
-            odometerReading: b.odometerReading ?? null,
-            measuredSohPct: b.measuredSohPct ?? null,
-            chargerType: b.chargerType ?? null,
-            serviceRecordsComplete: b.serviceRecordsComplete !== false,
-            claimAmount: b.claimAmount ?? null,
-            approvedAmount: initialStatus === "APPROVED" ? b.claimAmount ?? null : null,
-            status: initialStatus,
-            voidReason: adjudication.decision === "VOID" ? adjudication.reasons.join(" ") : null,
-            adjudicationNotes: adjudication.reasons.join(" "),
-          },
-        });
-        await tx.warrantyClaimEvent.create({
-          data: {
-            claimId: created.id,
-            fromStatus: null,
-            toStatus: initialStatus,
-            note: `Auto-adjudication: ${adjudication.decision}. ${adjudication.reasons.join(" ")}`,
-            actorId,
-          },
-        });
-        return created;
+      const { claim, adjudication } = await submitWarrantyClaim({
+        dealerId: parseInt(b.dealerId),
+        vehicleUnitId: b.vehicleUnitId ? parseInt(b.vehicleUnitId) : null,
+        componentUnitId: b.componentUnitId ? parseInt(b.componentUnitId) : null,
+        chassisNumber: b.chassisNumber ?? null,
+        customerName: b.customerName,
+        customerPhone: b.customerPhone ?? null,
+        issueDescription: b.issueDescription,
+        odometerReading: b.odometerReading ?? null,
+        measuredSohPct: b.measuredSohPct ?? null,
+        chargerType: b.chargerType ?? null,
+        serviceRecordsComplete: b.serviceRecordsComplete !== false,
+        claimAmount: b.claimAmount ?? null,
+        actorId: (req as any).user?.id ?? null,
       });
 
       res.status(201).json({ ...claim, adjudication });

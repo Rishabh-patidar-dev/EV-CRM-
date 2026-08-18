@@ -12,12 +12,14 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
 
 // `credentials: true` + specific origins (not "*") so the browser will both
 // send and accept session cookies on cross-port XHR — the CRM web app
-// (:3000, crm_session) and the landing page's dealer portal (:3001,
-// dealer_session) both call this API cross-origin even though everything's
+// (:3000, crm_session), the landing page's onboarding dashboard (:3001,
+// dealer_session), and the DMS operational portal (:3002, same
+// dealer_session) all call this API cross-origin even though everything's
 // on localhost.
 const ALLOWED_ORIGINS = [
   process.env.WEB_ORIGIN || "http://localhost:3000",
   process.env.LANDING_ORIGIN || "http://localhost:3001",
+  process.env.DMS_ORIGIN || "http://localhost:3002",
 ].filter(Boolean);
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(cookieParser());

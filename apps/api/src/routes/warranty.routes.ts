@@ -44,12 +44,14 @@ componentUnitRouter.use(requireAuth);
 componentUnitRouter.get("/coverage/:identifier", requireRole(ADMINS), componentUnits.coverage.bind(componentUnits));
 componentUnitRouter.get("/", requireRole(ADMINS), componentUnits.list.bind(componentUnits));
 componentUnitRouter.post("/", requireRole(ADMINS), componentUnits.create.bind(componentUnits));
+componentUnitRouter.patch("/:id", requireRole(ADMINS), componentUnits.update.bind(componentUnits));
 
 // ---- /api/v1/warranty-claims ----
 const claimRouter = Router();
 claimRouter.use(requireAuth);
 claimRouter.get("/", requireRole(ADMINS), claims.list.bind(claims));
 claimRouter.post("/", requireRole(ADMINS), claims.create.bind(claims));
+claimRouter.get("/analytics/cost", requireRole(ADMINS), claims.costAnalytics.bind(claims));
 claimRouter.get("/:id", requireRole(ADMINS), claims.getById.bind(claims));
 claimRouter.post("/:id/documents", requireRole(ADMINS), claimUpload.array("files", 5), claims.uploadDocuments.bind(claims));
 claimRouter.post("/:id/status", requireRole(ADMINS), claims.setStatus.bind(claims));

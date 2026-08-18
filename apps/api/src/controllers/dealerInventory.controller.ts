@@ -11,6 +11,7 @@ import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber } from "../services/dealerManagement.service.js";
+import { registerComponentsForSale } from "../services/componentRegistration.service.js";
 
 export class VehicleUnitController {
   // GET /api/v1/vehicle-units  (?dealerId=&status=&segment=&model=&search=&page=&limit=)
@@ -161,11 +162,19 @@ export class VehicleUnitController {
   }
 
   // PATCH /api/v1/vehicle-units/:id — move stock, mark sold/demo/service hold, etc.
+  // A genuine OPEN->SOLD transition auto-registers ComponentUnit rows for the
+  // model's warranty plans (see componentRegistration.service.ts) — the
+  // vehicle-sale-to-warranty sync gap. Guarded on the *previous* status so
+  // repeat PATCHes to an already-sold unit (e.g. editing notes) don't
+  // re-register components.
   async update(req: Request, res: Response) {
     try {
       const id = parseInt(req.params.id as string);
       if (!id) return handleValidationError(res, "Unit ID is required", "id", "Update vehicle unit");
       const b = req.body ?? {};
+
+      const current = await prisma.vehicleUnit.findUnique({ where: { id } });
+      if (!current) return handleNotFoundError(res, "Vehicle unit", "Update vehicle unit");
 
       const data: any = {};
       for (const f of ["color", "status", "isDemoUnit", "batteryHealthPct", "notes", "invoiceNumber", "buyerName"]) {
@@ -175,9 +184,17 @@ export class VehicleUnitController {
         data.dealerId = b.dealerId;
         if (b.dealerId) data.allocatedAt = new Date();
       }
-      if (b.status === "SOLD") data.soldAt = new Date();
+      const becomingSold = b.status === "SOLD" && current.status !== "SOLD";
+      if (becomingSold) data.soldAt = new Date();
 
-      const unit = await prisma.vehicleUnit.update({ where: { id }, data });
+      const unit = await prisma.$transaction(
+        async (tx) => {
+          const updated = await tx.vehicleUnit.update({ where: { id }, data });
+          if (becomingSold) await registerComponentsForSale(tx, updated);
+          return updated;
+        },
+        { timeout: 15000 }
+      );
       res.json(unit);
     } catch (error: any) {
       if (error.code === "P2025") return handleNotFoundError(res, "Vehicle unit", "Update vehicle unit");
