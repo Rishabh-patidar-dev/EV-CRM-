@@ -11,9 +11,9 @@
 // trend, fulfillment rate, and a filterable combined order list with the
 // same inline status-advance actions.
 // ============================================================================
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus } from "lucide-react";
+import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus, MapPin, Bell } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
@@ -57,6 +57,7 @@ interface OrderRow {
 
 export default function OrderManagementPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [zoneCards, setZoneCards] = useState<{ zone: string; openOrders: number; newFromDms: number }[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -64,11 +65,22 @@ export default function OrderManagementPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const listRef = useRef<HTMLElement>(null);
 
   const loadAnalytics = useCallback(async () => {
     const { data } = await apiClient.get("/api/v1/order-management/analytics");
     setAnalytics(data);
   }, []);
+
+  const loadZones = useCallback(async () => {
+    const { data } = await apiClient.get("/api/v1/order-management/zones");
+    setZoneCards(data.zones ?? []);
+  }, []);
+
+  const selectZone = (zone: string) => {
+    setZoneFilter((current) => (current === zone ? "" : zone));
+    listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const loadOrders = useCallback(async () => {
     const params: Record<string, string> = { limit: "100" };
@@ -82,11 +94,11 @@ export default function OrderManagementPage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadAnalytics(), loadOrders()]);
+      await Promise.all([loadAnalytics(), loadZones(), loadOrders()]);
     } finally {
       setLoading(false);
     }
-  }, [loadAnalytics, loadOrders]);
+  }, [loadAnalytics, loadZones, loadOrders]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -213,8 +225,44 @@ export default function OrderManagementPage() {
         </div>
       </section>
 
+      {/* Orders by zone — click a card to filter the list below to that zone.
+          The bell badge is a live count of REQUESTED-status orders a dealer
+          placed through the DMS portal that staff hasn't actioned yet; it
+          clears itself the moment the order moves past REQUESTED. */}
+      <section className="mb-6">
+        <h2 className="mb-3 text-sm font-semibold">Orders by zone</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          {zoneCards.length === 0 ? (
+            <p className="col-span-full py-4 text-center text-xs text-muted-foreground">No zone data yet.</p>
+          ) : (
+            zoneCards.map((z) => {
+              const active = zoneFilter === z.zone;
+              return (
+                <button
+                  key={z.zone}
+                  onClick={() => selectZone(z.zone)}
+                  className={`relative rounded-[var(--radius)] border p-3 text-left transition-colors ${active ? "border-primary bg-accent" : "border-border bg-card hover:bg-accent/50"}`}
+                >
+                  {z.newFromDms > 0 && (
+                    <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center gap-0.5 rounded-full bg-[color:var(--zira-rejected)] px-1 text-[10px] font-semibold text-white">
+                      <Bell className="h-2.5 w-2.5" />
+                      {z.newFromDms}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <MapPin className="h-3 w-3" /> {z.zone}
+                  </div>
+                  <div className="mt-1 text-xl font-semibold tabular-nums">{z.openOrders}</div>
+                  <div className="text-[11px] text-muted-foreground">open order{z.openOrders === 1 ? "" : "s"}</div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </section>
+
       {/* filters */}
-      <section className="mb-4 flex flex-wrap items-center gap-2">
+      <section ref={listRef} className="mb-4 flex flex-wrap items-center gap-2">
         <select value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)} className="rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm">
           <option value="">All zones</option>
           {zones.map((z) => <option key={z} value={z}>{z}</option>)}

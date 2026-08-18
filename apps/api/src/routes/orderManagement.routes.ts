@@ -10,5 +10,6 @@ const router = Router();
 router.use(requireAuth);
 router.get("/orders", requireRole(ADMINS), controller.list.bind(controller));
 router.get("/analytics", requireRole(ADMINS), controller.analytics.bind(controller));
+router.get("/zones", requireRole(ADMINS), controller.zones.bind(controller));
 
 export default router;

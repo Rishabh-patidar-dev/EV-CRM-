@@ -19,20 +19,40 @@ import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber } from "../services/dealerManagement.service.js";
 import { submitWarrantyClaim } from "../services/warrantyAdjudication.service.js";
+import { segmentWhere } from "./campaignManagement.controller.js";
 
 export class DealerPortalController {
   // GET /api/v1/dealer-portal/overview
   async overview(req: Request, res: Response) {
     try {
       const { dealerId, dealerCode, legalName, status } = req.dealerPortal!;
-      const [vehicleCount, openTransfers, openSpareParts, openTickets, openClaims, openLeads] = await Promise.all([
+      const [
+        vehicleCount, openTransfers, openSpareParts, openTickets, openClaims, openLeads,
+        vehiclesByStatusRaw, leadsByStatusRaw, transferStatusRaw, sparePartStatusRaw, claimsByStatusRaw,
+      ] = await Promise.all([
         prisma.vehicleUnit.count({ where: { dealerId } }),
         prisma.stockTransferRequest.count({ where: { dealerId, status: { in: ["REQUESTED", "APPROVED", "DISPATCHED"] } } }),
         prisma.sparePartRequest.count({ where: { dealerId, status: { in: ["REQUESTED", "APPROVED", "DISPATCHED"] } } }),
         prisma.serviceTicket.count({ where: { dealerId, status: { in: ["OPEN", "IN_PROGRESS", "AWAITING_PARTS"] } } }),
         prisma.warrantyClaim.count({ where: { dealerId, status: { in: ["SUBMITTED", "UNDER_REVIEW", "INFO_REQUESTED", "APPROVED", "IN_REPAIR"] } } }),
         prisma.dealerLeadAssignment.count({ where: { dealerId, status: { in: ["ASSIGNED", "ACCEPTED", "CONTACTED"] } } }),
+        prisma.vehicleUnit.groupBy({ by: ["status"], where: { dealerId }, _count: true }),
+        prisma.dealerLeadAssignment.groupBy({ by: ["status"], where: { dealerId }, _count: true }),
+        prisma.stockTransferRequest.groupBy({ by: ["status"], where: { dealerId }, _count: true }),
+        prisma.sparePartRequest.groupBy({ by: ["status"], where: { dealerId }, _count: true }),
+        prisma.warrantyClaim.groupBy({ by: ["status"], where: { dealerId }, _count: true }),
       ]);
+
+      const toSeries = (rows: { status: string; _count: number }[]) =>
+        rows.map((r) => ({ label: r.status.replace(/_/g, " "), value: r._count })).sort((a, b) => b.value - a.value);
+
+      // Orders combines both order types into one status breakdown, same
+      // "orders by status" shape the CRM's own Order Management page charts.
+      const orderStatusCombined: Record<string, number> = {};
+      for (const r of [...transferStatusRaw, ...sparePartStatusRaw]) {
+        orderStatusCombined[r.status] = (orderStatusCombined[r.status] ?? 0) + r._count;
+      }
+
       res.json({
         dealer: { id: dealerId, dealerCode, legalName, status },
         vehicleCount,
@@ -41,6 +61,10 @@ export class DealerPortalController {
         openTickets,
         openClaims,
         openLeads,
+        vehiclesByStatus: toSeries(vehiclesByStatusRaw as any),
+        leadsByStatus: toSeries(leadsByStatusRaw as any),
+        ordersByStatus: Object.entries(orderStatusCombined).map(([label, value]) => ({ label: label.replace(/_/g, " "), value })).sort((a, b) => b.value - a.value),
+        claimsByStatus: toSeries(claimsByStatusRaw as any),
       });
     } catch (error) {
       handleError(error, res, "Dealer portal overview");
@@ -57,11 +81,13 @@ export class DealerPortalController {
       const where: any = { dealerId };
       if (status) where.status = status;
 
-      const [units, total] = await Promise.all([
+      const [units, total, byStatusRaw] = await Promise.all([
         prisma.vehicleUnit.findMany({ where, orderBy: { createdAt: "desc" }, skip: (pageNum - 1) * limitNum, take: limitNum }),
         prisma.vehicleUnit.count({ where }),
+        prisma.vehicleUnit.groupBy({ by: ["status"], where: { dealerId }, _count: true }),
       ]);
-      res.json({ units, pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) } });
+      const byStatus = byStatusRaw.map((r) => ({ label: r.status.replace(/_/g, " "), value: r._count })).sort((a, b) => b.value - a.value);
+      res.json({ units, byStatus, pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) } });
     } catch (error) {
       handleError(error, res, "List dealer vehicle units");
     }
@@ -95,6 +121,7 @@ export class DealerPortalController {
           segment: b.segment,
           quantity: b.quantity ? parseInt(b.quantity) : 1,
           notes: b.notes ?? null,
+          placedVia: "DMS",
         },
       });
       res.status(201).json(transfer);
@@ -130,6 +157,7 @@ export class DealerPortalController {
           partName: b.partName,
           partCode: b.partCode ?? null,
           quantity: b.quantity ? parseInt(b.quantity) : 1,
+          placedVia: "DMS",
         },
       });
       res.status(201).json(sparePart);
@@ -280,18 +308,28 @@ export class DealerPortalController {
   // leads.controller.ts.
   // -------------------------------------------------------------------------
 
-  // GET /api/v1/dealer-portal/leads
+  // GET /api/v1/dealer-portal/leads  (?status=&search=)
   async listLeads(req: Request, res: Response) {
     try {
       const { dealerId } = req.dealerPortal!;
-      const { status } = req.query;
+      const { status, search } = req.query;
       const assignmentWhere: any = { dealerId };
       if (status && status !== "ALL") assignmentWhere.status = status;
+      if (search) {
+        assignmentWhere.lead = {
+          OR: [
+            { firstName: { contains: search as string } },
+            { lastName: { contains: search as string } },
+            { email: { contains: search as string } },
+            { phone: { contains: search as string } },
+          ],
+        };
+      }
 
       const assignments = await prisma.dealerLeadAssignment.findMany({
         where: assignmentWhere,
         include: {
-          lead: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, source: true, status: true, createdAt: true } },
+          lead: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, source: true, status: true, score: true, createdAt: true } },
         },
         orderBy: { assignedAt: "desc" },
         take: 200,
@@ -406,6 +444,138 @@ export class DealerPortalController {
       res.status(201).json(remark);
     } catch (error) {
       handleError(error, res, "Add lead remark");
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Campaign Management — same feature set as the staff side
+  // (campaignManagement.controller.ts: Segments + Email/WhatsApp Campaigns),
+  // ported as asked. The safety boundary isn't in the UI, it's in
+  // segmentWhere(): every dealer-owned segment's membership query is always
+  // additionally intersected with that dealer's own DealerLeadAssignment
+  // leads, so a dealer can build/send against their own pool only, never the
+  // network's — same principle as every other dealer-portal endpoint here.
+  // -------------------------------------------------------------------------
+
+  // GET /api/v1/dealer-portal/segments
+  async listSegments(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const segments = await prisma.segment.findMany({ where: { dealerId }, orderBy: { createdAt: "desc" } });
+      const withCounts = await Promise.all(
+        segments.map(async (s) => ({ ...s, memberCount: await prisma.lead.count({ where: segmentWhere(s) }) }))
+      );
+      res.json({ segments: withCounts });
+    } catch (error) {
+      handleError(error, res, "List dealer segments");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/segments
+  async createSegment(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const b = req.body ?? {};
+      if (!b.name) return handleValidationError(res, "name is required", "name", "Create segment");
+      const segment = await prisma.segment.create({
+        data: {
+          name: b.name,
+          description: b.description ?? null,
+          statusFilter: b.statusFilter || null,
+          sourceFilter: b.sourceFilter || null,
+          stateFilter: b.stateFilter || null,
+          dealerId,
+        },
+      });
+      const memberCount = await prisma.lead.count({ where: segmentWhere(segment) });
+      res.status(201).json({ ...segment, memberCount });
+    } catch (error) {
+      handleError(error, res, "Create dealer segment");
+    }
+  }
+
+  // DELETE /api/v1/dealer-portal/segments/:id
+  async deleteSegment(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const segment = await prisma.segment.findFirst({ where: { id, dealerId } });
+      if (!segment) return handleNotFoundError(res, "Segment", "Delete dealer segment");
+      await prisma.segment.delete({ where: { id } });
+      res.status(204).send();
+    } catch (error) {
+      handleError(error, res, "Delete dealer segment");
+    }
+  }
+
+  // GET /api/v1/dealer-portal/campaigns  (?channel=EMAIL|WHATSAPP&status=)
+  async listCampaigns(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const { channel, status } = req.query;
+      const where: any = { dealerId };
+      if (channel) where.channel = channel;
+      if (status) where.status = status;
+      const campaigns = await prisma.marketingCampaign.findMany({
+        where,
+        include: { segment: { select: { id: true, name: true } } },
+        orderBy: { createdAt: "desc" },
+      });
+      res.json({ campaigns });
+    } catch (error) {
+      handleError(error, res, "List dealer campaigns");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/campaigns
+  async createCampaign(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const b = req.body ?? {};
+      if (!b.name || !b.channel || !b.message) {
+        return handleValidationError(res, "name, channel and message are required", "body", "Create campaign");
+      }
+      if (b.segmentId) {
+        const owned = await prisma.segment.findFirst({ where: { id: parseInt(b.segmentId), dealerId } });
+        if (!owned) return handleValidationError(res, "That segment isn't one of yours", "segmentId", "Create campaign");
+      }
+      const campaign = await prisma.marketingCampaign.create({
+        data: {
+          name: b.name,
+          channel: b.channel,
+          subject: b.channel === "EMAIL" ? (b.subject ?? null) : null,
+          message: b.message,
+          segmentId: b.segmentId ? parseInt(b.segmentId) : null,
+          scheduledAt: b.scheduledAt ? new Date(b.scheduledAt) : null,
+          dealerId,
+        },
+      });
+      res.status(201).json(campaign);
+    } catch (error) {
+      handleError(error, res, "Create dealer campaign");
+    }
+  }
+
+  // PATCH /api/v1/dealer-portal/campaigns/:id — body: { status }
+  async updateCampaign(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const status = req.body?.status;
+      if (!status) return handleValidationError(res, "status is required", "status", "Update campaign");
+
+      const campaign = await prisma.marketingCampaign.findFirst({ where: { id, dealerId }, include: { segment: true } });
+      if (!campaign) return handleNotFoundError(res, "Campaign", "Update campaign");
+
+      const data: any = { status };
+      if (status === "SENT") {
+        data.sentAt = new Date();
+        data.audienceCount = campaign.segment ? await prisma.lead.count({ where: segmentWhere(campaign.segment) }) : 0;
+      }
+      const updated = await prisma.marketingCampaign.update({ where: { id }, data });
+      res.json(updated);
+    } catch (error) {
+      handleError(error, res, "Update dealer campaign");
     }
   }
 }

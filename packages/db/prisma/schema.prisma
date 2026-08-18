@@ -262,12 +262,21 @@ model Segment {
   statusFilter  LeadStatus? @map("status_filter")
   sourceFilter  LeadSource? @map("source_filter")
   stateFilter   String?     @map("state_filter")
+  // Null = a staff-created, network-wide segment (Campaign Management as
+  // staff already had it). Set = a dealer created this from the DMS portal —
+  // its live membership query is *always* additionally intersected with
+  // that dealer's own DealerLeadAssignment leads, so a dealer segment can
+  // never actually resolve to another dealer's contacts even though the
+  // create/list/delete UI is the same component.
+  dealerId Int?    @map("dealer_id")
+  dealer   Dealer? @relation(fields: [dealerId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   campaigns MarketingCampaign[]
 
+  @@index([dealerId])
   @@map("segments")
 }
 
@@ -291,6 +300,12 @@ model MarketingCampaign {
 
   segmentId Int?     @map("segment_id")
   segment   Segment? @relation(fields: [segmentId], references: [id])
+
+  // Same convention as Segment.dealerId — null is a staff campaign, set is a
+  // dealer-portal one. A dealer campaign's segmentId (if any) must itself be
+  // a segment owned by that same dealer, enforced in the controller.
+  dealerId Int?    @map("dealer_id")
+  dealer   Dealer? @relation(fields: [dealerId], references: [id], onDelete: Cascade)
 
   status      MarketingCampaignStatus @default(DRAFT)
   scheduledAt DateTime?               @map("scheduled_at")
@@ -535,6 +550,11 @@ enum SparePartRequestStatus {
   CANCELLED
 }
 
+enum OrderChannel {
+  STAFF
+  DMS
+}
+
 model Dealer {
   id       Int    @id @default(autoincrement())
   publicId String @unique @default(cuid()) @map("public_id")
@@ -592,6 +612,8 @@ model Dealer {
   complianceRecords     DealerComplianceRecord[]
   warrantyClaims        WarrantyClaim[]
   leadRemarks           LeadRemark[]
+  leadSegments          Segment[]
+  campaigns             MarketingCampaign[]
 
   @@index([state])
   @@index([status])
@@ -726,6 +748,10 @@ model SparePartRequest {
   partCode      String?                @map("part_code")
   quantity      Int                    @default(1)
   status        SparePartRequestStatus @default(REQUESTED)
+  // Which side placed this order — drives the "new order from DMS" zone
+  // notification badge in Order Management (self-clears once status moves
+  // past REQUESTED, i.e. once staff has actually looked at it).
+  placedVia     OrderChannel           @default(STAFF) @map("placed_via")
   dispatchedAt  DateTime?              @map("dispatched_at")
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -810,6 +836,7 @@ model StockTransferRequest {
   segment  VehicleSegment
   quantity Int    @default(1)
   status   StockTransferStatus @default(REQUESTED)
+  placedVia OrderChannel @default(STAFF) @map("placed_via")
 
   requestedById Int? @map("requested_by_id")
   dispatchedAt  DateTime? @map("dispatched_at")

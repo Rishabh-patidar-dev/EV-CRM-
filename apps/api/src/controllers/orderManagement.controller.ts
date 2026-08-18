@@ -39,6 +39,40 @@ function dealerLabel(d: { tradeName: string | null; legalName: string } | null) 
 }
 
 export class OrderManagementController {
+  // GET /api/v1/order-management/zones — one card per dealer state with an
+  // open-order count and a "new from DMS" count (REQUESTED-status orders
+  // the dealer placed themselves via the portal, not yet actioned by
+  // staff — the badge self-clears the moment staff advances the status).
+  async zones(_req: Request, res: Response) {
+    try {
+      const [transfers, spares] = await Promise.all([
+        prisma.stockTransferRequest.findMany({
+          select: { status: true, placedVia: true, dealer: { select: { state: true } } },
+        }),
+        prisma.sparePartRequest.findMany({
+          select: { status: true, placedVia: true, dealer: { select: { state: true } } },
+        }),
+      ]);
+      const all = [...transfers, ...spares];
+
+      const zoneMap: Record<string, { openOrders: number; newFromDms: number }> = {};
+      for (const o of all) {
+        const zone = o.dealer?.state ?? "Unknown";
+        zoneMap[zone] = zoneMap[zone] ?? { openOrders: 0, newFromDms: 0 };
+        if (OPEN_STATUSES.has(o.status)) zoneMap[zone].openOrders++;
+        if (o.status === "REQUESTED" && o.placedVia === "DMS") zoneMap[zone].newFromDms++;
+      }
+
+      const zones = Object.entries(zoneMap)
+        .map(([zone, counts]) => ({ zone, ...counts }))
+        .sort((a, b) => b.newFromDms - a.newFromDms || b.openOrders - a.openOrders);
+
+      res.json({ zones });
+    } catch (error) {
+      handleError(error, res, "Order management zones");
+    }
+  }
+
   // GET /api/v1/order-management/orders
   //   ?zone=&status=&type=VEHICLE|SPARE_PART&dealerId=&page=&limit=
   async list(req: Request, res: Response) {

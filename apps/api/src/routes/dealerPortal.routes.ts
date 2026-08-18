@@ -29,4 +29,12 @@ router.get("/leads/:id", portal.getLead.bind(portal));
 router.patch("/leads/:id", portal.updateLeadAssignment.bind(portal));
 router.post("/leads/:id/remarks", portal.addLeadRemark.bind(portal));
 
+router.get("/segments", portal.listSegments.bind(portal));
+router.post("/segments", portal.createSegment.bind(portal));
+router.delete("/segments/:id", portal.deleteSegment.bind(portal));
+
+router.get("/campaigns", portal.listCampaigns.bind(portal));
+router.post("/campaigns", portal.createCampaign.bind(portal));
+router.patch("/campaigns/:id", portal.updateCampaign.bind(portal));
+
 export default router;

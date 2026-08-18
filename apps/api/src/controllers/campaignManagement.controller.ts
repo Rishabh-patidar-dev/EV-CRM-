@@ -15,11 +15,19 @@ import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 
-function segmentWhere(s: { statusFilter: string | null; sourceFilter: string | null; stateFilter: string | null }) {
+// Exported so the dealer-portal Campaign Management endpoints
+// (dealerPortal.controller.ts) build member-count queries with the exact
+// same logic — a dealer-owned segment (dealerId set) always gets an
+// additional hard intersection with that dealer's own assigned leads via the
+// DealerLeadAssignment join, so its live membership can never actually
+// resolve to another dealer's contacts no matter what status/source/state
+// filters are set on it.
+export function segmentWhere(s: { statusFilter: string | null; sourceFilter: string | null; stateFilter: string | null; dealerId?: number | null }) {
   const where: any = { deletedAt: null };
   if (s.statusFilter) where.status = s.statusFilter;
   if (s.sourceFilter) where.source = s.sourceFilter;
   if (s.stateFilter) where.state = s.stateFilter;
+  if (s.dealerId) where.dealerAssignment = { dealerId: s.dealerId };
   return where;
 }
 
