@@ -159,12 +159,17 @@ model Lead {
 model LeadRemark {
   id        Int      @id @default(autoincrement())
   leadId    Int      @map("lead_id")
-  userId    Int      @map("user_id")
+  // Exactly one of userId (CRM staff) / dealerId (DMS dealer portal) is set,
+  // depending on who authored the remark — a dealer following up on their
+  // own assigned lead has no User row, only a Dealer one.
+  userId    Int?     @map("user_id")
+  dealerId  Int?     @map("dealer_id")
   remark    String
   createdAt DateTime @default(now()) @map("created_at")
 
-  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id])
+  lead   Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id])
+  dealer Dealer? @relation(fields: [dealerId], references: [id])
 
   @@index([leadId])
   @@map("lead_remarks")
@@ -586,6 +591,7 @@ model Dealer {
   stockTransferRequests StockTransferRequest[]
   complianceRecords     DealerComplianceRecord[]
   warrantyClaims        WarrantyClaim[]
+  leadRemarks           LeadRemark[]
 
   @@index([state])
   @@index([status])

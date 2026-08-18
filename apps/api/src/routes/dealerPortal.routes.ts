@@ -23,4 +23,10 @@ router.get("/warranty-claims", portal.listWarrantyClaims.bind(portal));
 router.post("/warranty-claims", portal.createWarrantyClaim.bind(portal));
 router.get("/warranty-coverage/:identifier", portal.checkWarrantyCoverage.bind(portal));
 
+router.get("/leads", portal.listLeads.bind(portal));
+router.post("/leads", portal.createLead.bind(portal));
+router.get("/leads/:id", portal.getLead.bind(portal));
+router.patch("/leads/:id", portal.updateLeadAssignment.bind(portal));
+router.post("/leads/:id/remarks", portal.addLeadRemark.bind(portal));
+
 export default router;

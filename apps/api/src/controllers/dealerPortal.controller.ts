@@ -25,12 +25,13 @@ export class DealerPortalController {
   async overview(req: Request, res: Response) {
     try {
       const { dealerId, dealerCode, legalName, status } = req.dealerPortal!;
-      const [vehicleCount, openTransfers, openSpareParts, openTickets, openClaims] = await Promise.all([
+      const [vehicleCount, openTransfers, openSpareParts, openTickets, openClaims, openLeads] = await Promise.all([
         prisma.vehicleUnit.count({ where: { dealerId } }),
         prisma.stockTransferRequest.count({ where: { dealerId, status: { in: ["REQUESTED", "APPROVED", "DISPATCHED"] } } }),
         prisma.sparePartRequest.count({ where: { dealerId, status: { in: ["REQUESTED", "APPROVED", "DISPATCHED"] } } }),
         prisma.serviceTicket.count({ where: { dealerId, status: { in: ["OPEN", "IN_PROGRESS", "AWAITING_PARTS"] } } }),
         prisma.warrantyClaim.count({ where: { dealerId, status: { in: ["SUBMITTED", "UNDER_REVIEW", "INFO_REQUESTED", "APPROVED", "IN_REPAIR"] } } }),
+        prisma.dealerLeadAssignment.count({ where: { dealerId, status: { in: ["ASSIGNED", "ACCEPTED", "CONTACTED"] } } }),
       ]);
       res.json({
         dealer: { id: dealerId, dealerCode, legalName, status },
@@ -39,6 +40,7 @@ export class DealerPortalController {
         openSpareParts,
         openTickets,
         openClaims,
+        openLeads,
       });
     } catch (error) {
       handleError(error, res, "Dealer portal overview");
@@ -267,6 +269,143 @@ export class DealerPortalController {
       res.status(201).json({ ...claim, adjudication });
     } catch (error) {
       handleError(error, res, "Raise warranty claim");
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Leads & Enquiry (DMS Module D3) — a Lead has no dealerId of its own;
+  // "assigned to this dealer" is the DealerLeadAssignment join row. Scoping
+  // every query through that join is what keeps one dealer from ever seeing
+  // another's leads, same as SALES-role scoping does for staff in
+  // leads.controller.ts.
+  // -------------------------------------------------------------------------
+
+  // GET /api/v1/dealer-portal/leads
+  async listLeads(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const { status } = req.query;
+      const assignmentWhere: any = { dealerId };
+      if (status && status !== "ALL") assignmentWhere.status = status;
+
+      const assignments = await prisma.dealerLeadAssignment.findMany({
+        where: assignmentWhere,
+        include: {
+          lead: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, source: true, status: true, createdAt: true } },
+        },
+        orderBy: { assignedAt: "desc" },
+        take: 200,
+      });
+      res.json({ leads: assignments.map((a) => ({ ...a.lead, assignment: { id: a.id, status: a.status, assignedAt: a.assignedAt, outcome: a.outcome } })) });
+    } catch (error) {
+      handleError(error, res, "List dealer leads");
+    }
+  }
+
+  // GET /api/v1/dealer-portal/leads/:id
+  async getLead(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const leadId = parseInt(req.params.id as string);
+      const assignment = await prisma.dealerLeadAssignment.findFirst({
+        where: { leadId, dealerId },
+        include: {
+          lead: {
+            include: {
+              remarks: { orderBy: { createdAt: "desc" }, include: { user: { select: { id: true, firstName: true, lastName: true } } } },
+            },
+          },
+        },
+      });
+      if (!assignment) return handleNotFoundError(res, "Lead", "Get dealer lead");
+      res.json({ ...assignment.lead, assignment: { id: assignment.id, status: assignment.status, assignedAt: assignment.assignedAt, outcome: assignment.outcome } });
+    } catch (error) {
+      handleError(error, res, "Get dealer lead");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/leads — walk-in enquiry logged directly by the dealer
+  async createLead(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const b = req.body ?? {};
+      if (!b.firstName || !b.email) {
+        return handleValidationError(res, "firstName and email are required", "body", "Log walk-in lead");
+      }
+
+      const { lead } = await prisma.$transaction(async (tx) => {
+        const created = await tx.lead.create({
+          data: {
+            firstName: b.firstName,
+            lastName: b.lastName ?? null,
+            email: b.email,
+            phone: b.phone ?? null,
+            city: b.city ?? null,
+            state: b.state ?? null,
+            source: "MANUAL",
+            status: "OPEN",
+          },
+        });
+        await tx.dealerLeadAssignment.create({
+          data: { leadId: created.id, dealerId, status: "ACCEPTED", routedBy: "MANUAL", respondedAt: new Date() },
+        });
+        return { lead: created };
+      });
+
+      res.status(201).json(lead);
+    } catch (error) {
+      handleError(error, res, "Log walk-in lead");
+    }
+  }
+
+  // PATCH /api/v1/dealer-portal/leads/:id — body: { status?, outcome? }
+  // status here is the DealerLeadAssignment's own routing status (follow-up
+  // progress), not the network-wide Lead.status a staff manager controls —
+  // a dealer can mark their own assignment CONTACTED/CONVERTED/LOST with a
+  // reason, per the SRS's "close with reason, never delete."
+  async updateLeadAssignment(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const leadId = parseInt(req.params.id as string);
+      const b = req.body ?? {};
+
+      const assignment = await prisma.dealerLeadAssignment.findFirst({ where: { leadId, dealerId } });
+      if (!assignment) return handleNotFoundError(res, "Lead", "Update dealer lead");
+
+      const data: any = {};
+      if (b.status !== undefined) {
+        data.status = b.status;
+        if (!assignment.respondedAt) data.respondedAt = new Date();
+      }
+      if (b.outcome !== undefined) data.outcome = b.outcome;
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const next = await tx.dealerLeadAssignment.update({ where: { id: assignment.id }, data });
+        if (b.status === "CONVERTED") await tx.lead.update({ where: { id: leadId }, data: { status: "CONVERTED" } });
+        return next;
+      });
+
+      res.json(updated);
+    } catch (error) {
+      handleError(error, res, "Update dealer lead");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/leads/:id/remarks — body: { remark }
+  async addLeadRemark(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const leadId = parseInt(req.params.id as string);
+      const remarkText = (req.body?.remark ?? "").toString().trim();
+      if (!remarkText) return handleValidationError(res, "remark is required", "remark", "Add lead remark");
+
+      const assignment = await prisma.dealerLeadAssignment.findFirst({ where: { leadId, dealerId } });
+      if (!assignment) return handleNotFoundError(res, "Lead", "Add lead remark");
+
+      const remark = await prisma.leadRemark.create({ data: { leadId, dealerId, remark: remarkText } });
+      res.status(201).json(remark);
+    } catch (error) {
+      handleError(error, res, "Add lead remark");
     }
   }
 }
