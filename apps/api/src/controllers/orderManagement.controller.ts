@@ -23,6 +23,7 @@
 import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
+import { generateSequenceNumber } from "../services/dealerManagement.service.js";
 
 type OrderRow = {
   id: number;
@@ -108,6 +109,46 @@ function groupKey(type: OrderKind, order: any): string {
   return type === "VEHICLE"
     ? `VEHICLE:${order.model}:${order.segment}`
     : `SPARE_PART:${String(order.partCode || order.partName).toLowerCase()}`;
+}
+
+// The document Order Management actually hands the dealer, following the
+// OEM's own flow chart: CONFIRMATION when stock covers the order (issued the
+// moment Check Inventory / a recheck approves it), OUT_OF_STOCK or PARTIAL
+// when staff send a Disputed Orders notice (see sendNotice below). Always
+// called inside the same transaction as the status change it documents —
+// `tx` must be the active transaction client, never the bare `prisma`.
+async function issueInvoice(
+  tx: any,
+  params: {
+    type: OrderKind;
+    orderId: number;
+    dealerId: number;
+    item: string;
+    invoiceType: "CONFIRMATION" | "OUT_OF_STOCK" | "PARTIAL";
+    requestedQuantity: number;
+    fulfilledQuantity: number;
+    expectedRestockDate?: Date | null;
+    message?: string | null;
+    issuedById: number | null;
+  }
+) {
+  const invoiceNumber = await generateSequenceNumber("INV", () => tx.invoice.count());
+  return tx.invoice.create({
+    data: {
+      invoiceNumber,
+      orderKind: params.type,
+      stockTransferRequestId: params.type === "VEHICLE" ? params.orderId : null,
+      sparePartRequestId: params.type === "SPARE_PART" ? params.orderId : null,
+      dealerId: params.dealerId,
+      type: params.invoiceType,
+      item: params.item,
+      requestedQuantity: params.requestedQuantity,
+      fulfilledQuantity: params.fulfilledQuantity,
+      expectedRestockDate: params.expectedRestockDate ?? null,
+      message: params.message ?? null,
+      issuedById: params.issuedById,
+    },
+  });
 }
 
 export class OrderManagementController {
@@ -385,7 +426,12 @@ export class OrderManagementController {
           const updated = type === "VEHICLE"
             ? await tx.stockTransferRequest.update({ where: { id }, data: { status: "APPROVED" } })
             : await tx.sparePartRequest.update({ where: { id }, data: { status: "APPROVED" } });
-          return { order: updated, notice: null };
+          const invoice = await issueInvoice(tx, {
+            type, orderId: id, dealerId: order.dealerId, item: itemLabel(type, order),
+            invoiceType: "CONFIRMATION", requestedQuantity, fulfilledQuantity: requestedQuantity,
+            issuedById: actingUserId(req),
+          });
+          return { order: updated, notice: null, invoice };
         }
 
         const updated = type === "VEHICLE"
@@ -522,20 +568,34 @@ export class OrderManagementController {
         }
       }
 
-      const notice = await prisma.orderStockNotice.update({
-        where: { id: order.stockNotice.id },
-        data: {
-          message: b.message ?? null,
-          expectedRestockDate: b.expectedRestockDate ? new Date(b.expectedRestockDate) : null,
-          offeredQuantity,
-          dealerResponse: "PENDING",
-          respondedAt: null,
-          status: "SENT",
-          sentById: actingUserId(req),
-          sentAt: new Date(),
-        },
+      const expectedRestockDate = b.expectedRestockDate ? new Date(b.expectedRestockDate) : null;
+      const message = b.message ?? null;
+      const issuedById = actingUserId(req);
+
+      const { notice, invoice } = await prisma.$transaction(async (tx) => {
+        const notice = await tx.orderStockNotice.update({
+          where: { id: order.stockNotice.id },
+          data: {
+            message,
+            expectedRestockDate,
+            offeredQuantity,
+            dealerResponse: "PENDING",
+            respondedAt: null,
+            status: "SENT",
+            sentById: issuedById,
+            sentAt: new Date(),
+          },
+        });
+        const invoice = await issueInvoice(tx, {
+          type, orderId: id, dealerId: order.dealerId, item: itemLabel(type, order),
+          invoiceType: offeredQuantity != null ? "PARTIAL" : "OUT_OF_STOCK",
+          requestedQuantity: order.quantity, fulfilledQuantity: offeredQuantity ?? 0,
+          expectedRestockDate, message, issuedById,
+        });
+        return { notice, invoice };
       });
-      res.json(notice);
+
+      res.json({ ...notice, invoice });
     } catch (error) {
       handleError(error, res, "Send out-of-stock notice");
     }
@@ -569,19 +629,57 @@ export class OrderManagementController {
         return res.json({ sufficient: false, availableQuantity, requestedQuantity, notice });
       }
 
-      const [updatedOrder, notice] = await prisma.$transaction([
-        type === "VEHICLE"
-          ? prisma.stockTransferRequest.update({ where: { id }, data: { status: "APPROVED" } })
-          : prisma.sparePartRequest.update({ where: { id }, data: { status: "APPROVED" } }),
-        prisma.orderStockNotice.update({
+      const issuedById = actingUserId(req);
+      const { updatedOrder, notice, invoice } = await prisma.$transaction(async (tx) => {
+        const updatedOrder = type === "VEHICLE"
+          ? await tx.stockTransferRequest.update({ where: { id }, data: { status: "APPROVED" } })
+          : await tx.sparePartRequest.update({ where: { id }, data: { status: "APPROVED" } });
+        const notice = await tx.orderStockNotice.update({
           where: { id: order.stockNotice.id },
-          data: { availableQuantity, status: "RESOLVED", resolvedById: actingUserId(req), resolvedAt: new Date() },
-        }),
-      ]);
+          data: { availableQuantity, status: "RESOLVED", resolvedById: issuedById, resolvedAt: new Date() },
+        });
+        const invoice = await issueInvoice(tx, {
+          type, orderId: id, dealerId: order.dealerId, item: itemLabel(type, order),
+          invoiceType: "CONFIRMATION", requestedQuantity, fulfilledQuantity: requestedQuantity,
+          issuedById,
+        });
+        return { updatedOrder, notice, invoice };
+      });
 
-      res.json({ sufficient: true, availableQuantity, requestedQuantity, order: updatedOrder, notice });
+      res.json({ sufficient: true, availableQuantity, requestedQuantity, order: updatedOrder, notice, invoice });
     } catch (error) {
       handleError(error, res, "Resolve dispute");
+    }
+  }
+
+  // GET /api/v1/order-management/invoices — the Invoices sub-module: every
+  // CONFIRMATION / OUT_OF_STOCK / PARTIAL invoice Order Management has ever
+  // issued, newest first. (?dealerId=&type=&orderType=VEHICLE|SPARE_PART)
+  async listInvoices(req: Request, res: Response) {
+    try {
+      const { dealerId, type, orderType, page = "1", limit = "50" } = req.query;
+      const pageNum = Math.max(1, parseInt(page as string) || 1);
+      const limitNum = Math.min(200, Math.max(1, parseInt(limit as string) || 50));
+
+      const where: any = {};
+      if (dealerId) where.dealerId = parseInt(dealerId as string);
+      if (type) where.type = type;
+      if (orderType) where.orderKind = orderType;
+
+      const [invoices, total] = await Promise.all([
+        prisma.invoice.findMany({
+          where,
+          include: { dealer: { select: DEALER_SELECT } },
+          orderBy: { issuedAt: "desc" },
+          skip: (pageNum - 1) * limitNum,
+          take: limitNum,
+        }),
+        prisma.invoice.count({ where }),
+      ]);
+
+      res.json({ invoices, pagination: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) } });
+    } catch (error) {
+      handleError(error, res, "List invoices");
     }
   }
 }

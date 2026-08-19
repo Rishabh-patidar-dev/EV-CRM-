@@ -166,6 +166,18 @@ export class DealerPortalController {
     }
   }
 
+  // GET /api/v1/dealer-portal/invoices — every CONFIRMATION / OUT_OF_STOCK /
+  // PARTIAL invoice Order Management has issued this dealer, newest first.
+  async listInvoices(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const invoices = await prisma.invoice.findMany({ where: { dealerId }, orderBy: { issuedAt: "desc" }, take: 100 });
+      res.json({ invoices });
+    } catch (error) {
+      handleError(error, res, "List dealer invoices");
+    }
+  }
+
   // POST /api/v1/dealer-portal/stock-transfers/:id/notice-response
   // POST /api/v1/dealer-portal/spare-parts/:id/notice-response
   //   body: { response: "ACCEPTED" | "DECLINED" }

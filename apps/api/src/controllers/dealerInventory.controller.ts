@@ -83,11 +83,15 @@ export class VehicleUnitController {
   // on VehicleUnit / StockTransferRequest.
   async analytics(_req: Request, res: Response) {
     try {
-      const [units, transfers] = await Promise.all([
+      const [units, transfers, oemInStockRaw] = await Promise.all([
         prisma.vehicleUnit.findMany({ select: { model: true, status: true } }),
         prisma.stockTransferRequest.findMany({
           select: { model: true, quantity: true, dealer: { select: { state: true } } },
         }),
+        // OEM warehouse stock actually available right now (dealerId = null,
+        // IN_STOCK) — same definition Check Inventory uses — grouped by
+        // model+segment for the image-gallery view on the inventory page.
+        prisma.vehicleUnit.groupBy({ by: ["model", "segment"], where: { dealerId: null, status: "IN_STOCK" }, _count: true }),
       ]);
 
       const stockByStatus: Record<string, number> = {};
@@ -118,12 +122,17 @@ export class VehicleUnitController {
       const toSeries = (rec: Record<string, number>) =>
         Object.entries(rec).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
 
+      const oemAvailableByModel = oemInStockRaw
+        .map((r) => ({ model: r.model, segment: r.segment, quantity: r._count }))
+        .sort((a, b) => b.quantity - a.quantity);
+
       res.json({
         stockByStatus,
         stockByModel: toSeries(stockByModel),
         ordersByZone: toSeries(ordersByZone),
         ordersByModel: toSeries(ordersByModel),
         topModelByZone,
+        oemAvailableByModel,
         totalActiveStock: units.filter((u) => u.status !== "SOLD").length,
         totalUnits: units.length,
       });

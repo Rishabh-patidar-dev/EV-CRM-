@@ -32,25 +32,25 @@ export type VehicleSegment = (typeof VEHICLE_SEGMENTS)[number];
 
 export const PRODUCT_CATALOG: Record<VehicleSegment, { model: string; application: string }[]> = {
   L5: [
-    { model: "Vikas Lifter", application: "Heavy cargo / logistics" },
-    { model: "Vikas Spark", application: "Premium city passenger" },
-    { model: "Vikas Speedo", application: "Goods delivery / e-commerce" },
-    { model: "Vikas Soorma", application: "Shared mobility / premium" },
-    { model: "Vikas Nirmal", application: "Municipal waste / garbage" },
+    { model: "LX Lifter", application: "Heavy cargo / logistics" },
+    { model: "LX Spark", application: "Premium city passenger" },
+    { model: "LX Speedo", application: "Goods delivery / e-commerce" },
+    { model: "LX Soorma", application: "Shared mobility / premium" },
+    { model: "LX Nirmal", application: "Municipal waste / garbage" },
   ],
   L3: [
-    { model: "Vikas Rani", application: "Daily commute passenger" },
-    { model: "Vikas Loader", application: "Smart cargo loader" },
-    { model: "Vikas Carry", application: "Closed-body delivery" },
+    { model: "Queen EV", application: "Daily commute passenger" },
+    { model: "LX DV", application: "Smart cargo loader" },
+    { model: "LX EV Cargo", application: "Closed-body delivery" },
     { model: "Vikas Swachh", application: "Urban sanitation (tipper)" },
   ],
   CUSTOMISED: [
-    { model: "Vikas Foodcart", application: "Street food & beverages" },
-    { model: "Vikas Nursery", application: "Mobile garden centre" },
-    { model: "Vikas Dairy", application: "Cold / dairy transport" },
-    { model: "Vikas Gas", application: "LPG cylinder distribution" },
-    { model: "Vikas Mandi", application: "Mobile mandi" },
-    { model: "Vikas Poultry", application: "Poultry transport" },
+    { model: "LX Foodcart", application: "Street food & beverages" },
+    { model: "LX Nursery", application: "Mobile garden centre" },
+    { model: "Milk Van", application: "Cold / dairy transport" },
+    { model: "Cylinder Van", application: "LPG cylinder distribution" },
+    { model: "Vegetable Cart", application: "Mobile mandi" },
+    { model: "Chicken Van", application: "Poultry transport" },
   ],
 };
 
@@ -202,7 +202,7 @@ export async function generateDealerCode(state?: string | null): Promise<string>
 
 /** Generic prefixed sequential number, e.g. SVC-2026-000123 / STR-2026-000045. */
 export async function generateSequenceNumber(
-  prefix: "SVC" | "SPR" | "STR" | "WC",
+  prefix: "SVC" | "SPR" | "STR" | "WC" | "INV",
   countFn: () => Promise<number>
 ): Promise<string> {
   const year = new Date().getFullYear();

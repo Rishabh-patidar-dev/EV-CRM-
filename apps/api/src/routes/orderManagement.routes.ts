@@ -17,6 +17,7 @@ router.use(requireAuth);
 router.get("/orders", requireRole(ORDER_DESK), controller.list.bind(controller));
 router.get("/analytics", requireRole(ORDER_DESK), controller.analytics.bind(controller));
 router.get("/zones", requireRole(ORDER_DESK), controller.zones.bind(controller));
+router.get("/invoices", requireRole(ORDER_DESK), controller.listInvoices.bind(controller));
 
 // Check Inventory + Disputed Orders — Warehouse's stage of the order flow.
 router.get("/orders/:type/:id/check-inventory", requireRole(WAREHOUSE_STAFF), controller.getInventoryCheck.bind(controller));

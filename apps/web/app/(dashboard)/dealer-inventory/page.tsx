@@ -10,10 +10,11 @@
 // ============================================================================
 import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Warehouse, Plus, Search, Truck, Loader2, MapPin, TrendingUp } from "lucide-react";
+import { Warehouse, Plus, Search, Truck, Loader2, MapPin, TrendingUp, PackageSearch } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
+import { VEHICLE_IMAGES } from "@/lib/vehicleCatalog";
 
 const UNIT_STATUSES = ["IN_TRANSIT", "IN_STOCK", "ALLOCATED", "DEMO", "SOLD", "SERVICE_HOLD", "DAMAGED"];
 const TRANSFER_STATUSES = ["REQUESTED", "APPROVED", "DISPATCHED", "DELIVERED", "REJECTED", "CANCELLED"];
@@ -64,9 +65,11 @@ function DealerInventoryInner() {
     ordersByZone: { label: string; value: number }[];
     ordersByModel: { label: string; value: number }[];
     topModelByZone: { zone: string; topModel: string; quantity: number; totalOrders: number }[];
+    oemAvailableByModel: { model: string; segment: string; quantity: number }[];
     totalActiveStock: number;
     totalUnits: number;
   } | null>(null);
+  const [spareParts, setSpareParts] = useState<{ id: number; partName: string; partCode: string | null; quantityOnHand: number }[]>([]);
 
   const [dealerFilter, setDealerFilter] = useState(dealerIdParam);
   const [statusFilter, setStatusFilter] = useState("");
@@ -101,14 +104,19 @@ function DealerInventoryInner() {
     setAnalytics(data);
   }, []);
 
+  const loadSpareParts = useCallback(async () => {
+    const { data } = await apiClient.get("/api/v1/spare-part-inventory");
+    setSpareParts(data.items ?? []);
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadUnits(), loadTransfers(), loadAnalytics()]);
+      await Promise.all([loadUnits(), loadTransfers(), loadAnalytics(), loadSpareParts()]);
     } finally {
       setLoading(false);
     }
-  }, [loadUnits, loadTransfers, loadAnalytics]);
+  }, [loadUnits, loadTransfers, loadAnalytics, loadSpareParts]);
 
   useEffect(() => {
     loadDealers();
@@ -153,6 +161,53 @@ function DealerInventoryInner() {
           </button>
         </div>
       </header>
+
+      {/* Gallery — how much of each vehicle is actually left at the OEM
+          warehouse right now (dealerId = null, IN_STOCK), the same number
+          Check Inventory compares against. Photo + count only, no card
+          chrome, so it reads as a catalog rather than another data table. */}
+      {analytics && analytics.oemAvailableByModel.some((m) => VEHICLE_IMAGES[m.model]) && (
+        <section className="mb-8">
+          <h2 className="mb-4 text-sm font-semibold text-muted-foreground">Manufacturer stock on hand</h2>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-5">
+            {analytics.oemAvailableByModel
+              .filter((m) => VEHICLE_IMAGES[m.model])
+              .map((m) => (
+                <div key={`${m.model}-${m.segment}`} className="flex flex-col items-center text-center">
+                  <img
+                    src={VEHICLE_IMAGES[m.model]}
+                    alt={m.model}
+                    className="h-32 w-full object-contain drop-shadow-sm transition-transform hover:scale-105 sm:h-36"
+                  />
+                  <div className="mt-3 text-sm font-medium">{m.model}</div>
+                  <div className="text-[11px] text-muted-foreground">{m.segment}</div>
+                  <div className="mt-1 text-2xl font-semibold tabular-nums">{m.quantity}</div>
+                  <div className="text-[11px] text-muted-foreground">in stock</div>
+                </div>
+              ))}
+          </div>
+
+          {spareParts.length > 0 && (
+            <div className="mt-8 border-t border-border pt-6">
+              <h3 className="mb-4 flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
+                <PackageSearch className="h-4 w-4" /> Spare parts on hand
+              </h3>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4 lg:grid-cols-6">
+                {spareParts.map((p) => (
+                  <div key={p.id} className="flex flex-col items-center text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent/60">
+                      <PackageSearch className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <div className="mt-2 text-xs font-medium">{p.partName}</div>
+                    <div className="mt-1 text-xl font-semibold tabular-nums">{p.quantityOnHand}</div>
+                    <div className="text-[11px] text-muted-foreground">in stock</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* KPI row */}
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">

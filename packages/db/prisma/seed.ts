@@ -735,7 +735,7 @@ async function main() {
     const attributedCampaign = l.source === "LANDING_PAGE" ? (l.dealerCode ? campaign : retailCampaign) : null;
     if (l.source === "LANDING_PAGE") {
       await prisma.enquiry.create({
-        data: { leadId: lead.id, landingPageCampaignId: attributedCampaign?.id ?? null, status: "UNRESOLVED", customFields: { vehicleInterest: "Vikas Lifter" } },
+        data: { leadId: lead.id, landingPageCampaignId: attributedCampaign?.id ?? null, status: "UNRESOLVED", customFields: { vehicleInterest: "LX Lifter" } },
       });
       await prisma.formSubmission.create({
         data: { leadId: lead.id, formData: { source: "seed", utm: { utm_source: "seed" } } },
@@ -750,9 +750,9 @@ async function main() {
 
   await prisma.leadRemark.createMany({
     data: [
-      { leadId: leadIds["anita.rao@example.com"]!, userId: rohit.id, remark: "Called — interested in Vikas Lifter for her delivery fleet. Sending finance options.", createdAt: daysFromNow(-3) },
+      { leadId: leadIds["anita.rao@example.com"]!, userId: rohit.id, remark: "Called — interested in LX Lifter for her delivery fleet. Sending finance options.", createdAt: daysFromNow(-3) },
       { leadId: leadIds["anita.rao@example.com"]!, userId: rohit.id, remark: "Test drive booked for this weekend at Bilaspur EV Hub.", createdAt: daysFromNow(-1) },
-      { leadId: leadIds["vikas.kumar@example.com"]!, userId: ananya.id, remark: "Converted — purchased Vikas Rani, invoice INV-2026-000091.", createdAt: daysFromNow(-5) },
+      { leadId: leadIds["vikas.kumar@example.com"]!, userId: ananya.id, remark: "Converted — purchased Queen EV, invoice INV-2026-000091.", createdAt: daysFromNow(-5) },
       { leadId: leadIds["deepika.menon@example.com"]!, userId: rohit.id, remark: "Not ready to buy yet — revisiting after Q2 budget approval. Added to nurture list.", createdAt: daysFromNow(-2) },
       { leadId: leadIds["yusuf.khan@example.com"]!, userId: karan.id, remark: "Runs a 12-vehicle courier fleet — asked about becoming a dealer for Surat, not just a buyer. Worth converting.", createdAt: daysFromNow(-1) },
     ],
@@ -761,29 +761,29 @@ async function main() {
   console.log("Seeding finance cases…");
   await prisma.financeCase.createMany({
     data: [
-      { dealerId: dealers["EVV-CG-001"]!.id, buyerName: "Anita Rao", buyerPhone: "9812345678", vehicleModel: "Vikas Lifter", loanAmount: 650000, financierName: "Shriram Finance", status: "SUBMITTED" },
-      { dealerId: dealers["EVV-MP-001"]!.id, buyerName: "Vikas Kumar", buyerPhone: "9812345679", vehicleModel: "Vikas Rani", loanAmount: 320000, financierName: "L&T Finance", status: "APPROVED" },
-      { dealerId: dealers["EVV-DL-001"]!.id, buyerName: "Rahul Gupta", buyerPhone: "9812345681", vehicleModel: "Vikas Spark", loanAmount: 480000, status: "DOCS_PENDING" },
-      { dealerId: dealers["EVV-RJ-001"]!.id, buyerName: "Farah Sheikh", buyerPhone: "9812345680", vehicleModel: "Vikas Loader", loanAmount: 280000, financierName: "Shriram Finance", status: "DISBURSED" },
-      { dealerId: dealers["EVV-KA-001"]!.id, buyerName: "Karthik Iyer", buyerPhone: "9812345687", vehicleModel: "Vikas Lifter", loanAmount: 610000, financierName: "L&T Finance", status: "APPROVED" },
-      { dealerId: dealers["EVV-GJ-001"]!.id, buyerName: "Rajiv Solanki", buyerPhone: "9812345689", vehicleModel: "Vikas Foodcart", loanAmount: 390000, financierName: "Shriram Finance", status: "DISBURSED" },
-      { dealerId: dealers["EVV-PB-001"]!.id, buyerName: "Gurpreet Kaur", buyerPhone: "9812345691", vehicleModel: "Vikas Rani", loanAmount: 300000, status: "SUBMITTED" },
-      { dealerId: dealers["EVV-KL-001"]!.id, buyerName: "Meera Pillai", buyerPhone: "9812345690", vehicleModel: "Vikas Loader", loanAmount: 260000, status: "REJECTED" },
+      { dealerId: dealers["EVV-CG-001"]!.id, buyerName: "Anita Rao", buyerPhone: "9812345678", vehicleModel: "LX Lifter", loanAmount: 650000, financierName: "Shriram Finance", status: "SUBMITTED" },
+      { dealerId: dealers["EVV-MP-001"]!.id, buyerName: "Vikas Kumar", buyerPhone: "9812345679", vehicleModel: "Queen EV", loanAmount: 320000, financierName: "L&T Finance", status: "APPROVED" },
+      { dealerId: dealers["EVV-DL-001"]!.id, buyerName: "Rahul Gupta", buyerPhone: "9812345681", vehicleModel: "LX Spark", loanAmount: 480000, status: "DOCS_PENDING" },
+      { dealerId: dealers["EVV-RJ-001"]!.id, buyerName: "Farah Sheikh", buyerPhone: "9812345680", vehicleModel: "LX DV", loanAmount: 280000, financierName: "Shriram Finance", status: "DISBURSED" },
+      { dealerId: dealers["EVV-KA-001"]!.id, buyerName: "Karthik Iyer", buyerPhone: "9812345687", vehicleModel: "LX Lifter", loanAmount: 610000, financierName: "L&T Finance", status: "APPROVED" },
+      { dealerId: dealers["EVV-GJ-001"]!.id, buyerName: "Rajiv Solanki", buyerPhone: "9812345689", vehicleModel: "LX Foodcart", loanAmount: 390000, financierName: "Shriram Finance", status: "DISBURSED" },
+      { dealerId: dealers["EVV-PB-001"]!.id, buyerName: "Gurpreet Kaur", buyerPhone: "9812345691", vehicleModel: "Queen EV", loanAmount: 300000, status: "SUBMITTED" },
+      { dealerId: dealers["EVV-KL-001"]!.id, buyerName: "Meera Pillai", buyerPhone: "9812345690", vehicleModel: "LX DV", loanAmount: 260000, status: "REJECTED" },
     ],
   });
 
   console.log("Seeding service tickets & spare parts…");
   await prisma.serviceTicket.createMany({
     data: [
-      { ticketNumber: "SVC-2026-000001", dealerId: dealers["EVV-CG-001"]!.id, customerName: "Ramesh Yadav", vehicleModel: "Vikas Lifter", chassisNumber: "EVV5X0001", issue: "Battery not charging fully", priority: "HIGH", status: "IN_PROGRESS" },
-      { ticketNumber: "SVC-2026-000002", dealerId: dealers["EVV-MP-001"]!.id, customerName: "Sunita Devi", vehicleModel: "Vikas Rani", chassisNumber: "EVV3X0002", issue: "Brake noise", priority: "NORMAL", status: "OPEN" },
-      { ticketNumber: "SVC-2026-000003", dealerId: dealers["EVV-DL-001"]!.id, customerName: "Imran Khan", vehicleModel: "Vikas Spark", chassisNumber: "EVV5X0003", issue: "Display flickering", priority: "LOW", status: "RESOLVED", resolvedAt: daysFromNow(-2) },
-      { ticketNumber: "SVC-2026-000004", dealerId: dealers["EVV-RJ-001"]!.id, customerName: "Geeta Sharma", vehicleModel: "Vikas Loader", chassisNumber: "EVV3X0004", issue: "Motor overheating on incline", priority: "URGENT", status: "AWAITING_PARTS" },
-      { ticketNumber: "SVC-2026-000005", dealerId: dealers["EVV-CG-001"]!.id, customerName: "Om Prakash", vehicleModel: "Vikas Nirmal", chassisNumber: "EVV5X0005", issue: "Routine 5000km service", priority: "LOW", status: "CLOSED", resolvedAt: daysFromNow(-15) },
-      { ticketNumber: "SVC-2026-000006", dealerId: dealers["EVV-KA-001"]!.id, customerName: "Karthik Iyer", vehicleModel: "Vikas Lifter", chassisNumber: "EVV5X0011", issue: "Charging port loose", priority: "HIGH", status: "OPEN" },
-      { ticketNumber: "SVC-2026-000007", dealerId: dealers["EVV-GJ-001"]!.id, customerName: "Rajiv Solanki", vehicleModel: "Vikas Foodcart", chassisNumber: "EVV5X0012", issue: "Cargo box latch broken", priority: "NORMAL", status: "IN_PROGRESS" },
-      { ticketNumber: "SVC-2026-000008", dealerId: dealers["EVV-PB-001"]!.id, customerName: "Gurpreet Kaur", vehicleModel: "Vikas Rani", chassisNumber: "EVV3X0013", issue: "Odometer not updating", priority: "LOW", status: "RESOLVED", resolvedAt: daysFromNow(-4) },
-      { ticketNumber: "SVC-2026-000009", dealerId: dealers["EVV-KL-001"]!.id, customerName: "Meera Pillai", vehicleModel: "Vikas Loader", chassisNumber: "EVV3X0014", issue: "Water ingress after monsoon test", priority: "URGENT", status: "AWAITING_PARTS" },
+      { ticketNumber: "SVC-2026-000001", dealerId: dealers["EVV-CG-001"]!.id, customerName: "Ramesh Yadav", vehicleModel: "LX Lifter", chassisNumber: "EVV5X0001", issue: "Battery not charging fully", priority: "HIGH", status: "IN_PROGRESS" },
+      { ticketNumber: "SVC-2026-000002", dealerId: dealers["EVV-MP-001"]!.id, customerName: "Sunita Devi", vehicleModel: "Queen EV", chassisNumber: "EVV3X0002", issue: "Brake noise", priority: "NORMAL", status: "OPEN" },
+      { ticketNumber: "SVC-2026-000003", dealerId: dealers["EVV-DL-001"]!.id, customerName: "Imran Khan", vehicleModel: "LX Spark", chassisNumber: "EVV5X0003", issue: "Display flickering", priority: "LOW", status: "RESOLVED", resolvedAt: daysFromNow(-2) },
+      { ticketNumber: "SVC-2026-000004", dealerId: dealers["EVV-RJ-001"]!.id, customerName: "Geeta Sharma", vehicleModel: "LX DV", chassisNumber: "EVV3X0004", issue: "Motor overheating on incline", priority: "URGENT", status: "AWAITING_PARTS" },
+      { ticketNumber: "SVC-2026-000005", dealerId: dealers["EVV-CG-001"]!.id, customerName: "Om Prakash", vehicleModel: "LX Nirmal", chassisNumber: "EVV5X0005", issue: "Routine 5000km service", priority: "LOW", status: "CLOSED", resolvedAt: daysFromNow(-15) },
+      { ticketNumber: "SVC-2026-000006", dealerId: dealers["EVV-KA-001"]!.id, customerName: "Karthik Iyer", vehicleModel: "LX Lifter", chassisNumber: "EVV5X0011", issue: "Charging port loose", priority: "HIGH", status: "OPEN" },
+      { ticketNumber: "SVC-2026-000007", dealerId: dealers["EVV-GJ-001"]!.id, customerName: "Rajiv Solanki", vehicleModel: "LX Foodcart", chassisNumber: "EVV5X0012", issue: "Cargo box latch broken", priority: "NORMAL", status: "IN_PROGRESS" },
+      { ticketNumber: "SVC-2026-000008", dealerId: dealers["EVV-PB-001"]!.id, customerName: "Gurpreet Kaur", vehicleModel: "Queen EV", chassisNumber: "EVV3X0013", issue: "Odometer not updating", priority: "LOW", status: "RESOLVED", resolvedAt: daysFromNow(-4) },
+      { ticketNumber: "SVC-2026-000009", dealerId: dealers["EVV-KL-001"]!.id, customerName: "Meera Pillai", vehicleModel: "LX DV", chassisNumber: "EVV3X0014", issue: "Water ingress after monsoon test", priority: "URGENT", status: "AWAITING_PARTS" },
     ],
   });
   await prisma.sparePartRequest.createMany({
@@ -804,26 +804,26 @@ async function main() {
   console.log("Seeding vehicle inventory & stock transfers…");
   const vinPrefix = "MA3EVVKS26";
   const units = [
-    { vin: `${vinPrefix}000001`, model: "Vikas Lifter", segment: "L5" as const, dealerId: null, status: "IN_STOCK" as const },
-    { vin: `${vinPrefix}000002`, model: "Vikas Lifter", segment: "L5" as const, dealerId: dealers["EVV-CG-001"]!.id, status: "ALLOCATED" as const, allocatedAt: daysFromNow(-10) },
-    { vin: `${vinPrefix}000003`, model: "Vikas Rani", segment: "L3" as const, dealerId: dealers["EVV-MP-001"]!.id, status: "IN_STOCK" as const, allocatedAt: daysFromNow(-20) },
-    { vin: `${vinPrefix}000004`, model: "Vikas Rani", segment: "L3" as const, dealerId: dealers["EVV-MP-001"]!.id, status: "SOLD" as const, allocatedAt: daysFromNow(-40), soldAt: daysFromNow(-5), buyerName: "Vikas Kumar", invoiceNumber: "INV-2026-000091" },
-    { vin: `${vinPrefix}000005`, model: "Vikas Spark", segment: "L5" as const, dealerId: dealers["EVV-DL-001"]!.id, status: "DEMO" as const, isDemoUnit: true, batteryHealthPct: 92, allocatedAt: daysFromNow(-90) },
-    { vin: `${vinPrefix}000006`, model: "Vikas Loader", segment: "L3" as const, dealerId: dealers["EVV-RJ-001"]!.id, status: "SOLD" as const, allocatedAt: daysFromNow(-500), soldAt: daysFromNow(-480), buyerName: "Farah Sheikh", invoiceNumber: "INV-2026-000077" },
-    { vin: `${vinPrefix}000007`, model: "Vikas Foodcart", segment: "CUSTOMISED" as const, dealerId: dealers["EVV-CG-001"]!.id, status: "IN_STOCK" as const, allocatedAt: daysFromNow(-3) },
-    { vin: `${vinPrefix}000008`, model: "Vikas Lifter", segment: "L5" as const, dealerId: null, status: "IN_TRANSIT" as const },
-    { vin: `${vinPrefix}000009`, model: "Vikas Soorma", segment: "L5" as const, dealerId: dealers["EVV-DL-001"]!.id, status: "SERVICE_HOLD" as const, allocatedAt: daysFromNow(-50) },
-    { vin: `${vinPrefix}000010`, model: "Vikas Carry", segment: "L3" as const, dealerId: null, status: "IN_STOCK" as const },
-    { vin: `${vinPrefix}000011`, model: "Vikas Lifter", segment: "L5" as const, dealerId: dealers["EVV-KA-001"]!.id, status: "ALLOCATED" as const, allocatedAt: daysFromNow(-14) },
-    { vin: `${vinPrefix}000012`, model: "Vikas Foodcart", segment: "CUSTOMISED" as const, dealerId: dealers["EVV-GJ-001"]!.id, status: "SOLD" as const, allocatedAt: daysFromNow(-60), soldAt: daysFromNow(-12), buyerName: "Rajiv Solanki", invoiceNumber: "INV-2026-000102" },
-    { vin: `${vinPrefix}000013`, model: "Vikas Rani", segment: "L3" as const, dealerId: dealers["EVV-PB-001"]!.id, status: "ALLOCATED" as const, allocatedAt: daysFromNow(-25) },
-    { vin: `${vinPrefix}000014`, model: "Vikas Loader", segment: "L3" as const, dealerId: dealers["EVV-KL-001"]!.id, status: "SERVICE_HOLD" as const, allocatedAt: daysFromNow(-30) },
-    { vin: `${vinPrefix}000015`, model: "Vikas Lifter", segment: "L5" as const, dealerId: dealers["EVV-KA-001"]!.id, status: "IN_STOCK" as const, allocatedAt: daysFromNow(-7) },
-    { vin: `${vinPrefix}000016`, model: "Vikas Spark", segment: "L5" as const, dealerId: null, status: "IN_STOCK" as const },
-    { vin: `${vinPrefix}000017`, model: "Vikas Spark", segment: "L5" as const, dealerId: dealers["EVV-GJ-001"]!.id, status: "DEMO" as const, isDemoUnit: true, batteryHealthPct: 96, allocatedAt: daysFromNow(-30) },
-    { vin: `${vinPrefix}000018`, model: "Vikas Rani", segment: "L3" as const, dealerId: null, status: "IN_TRANSIT" as const },
-    { vin: `${vinPrefix}000019`, model: "Vikas Nirmal", segment: "L5" as const, dealerId: dealers["EVV-PB-001"]!.id, status: "SOLD" as const, allocatedAt: daysFromNow(-90), soldAt: daysFromNow(-30), buyerName: "Gurpreet Kaur", invoiceNumber: "INV-2026-000108" },
-    { vin: `${vinPrefix}000020`, model: "Vikas Carry", segment: "L3" as const, dealerId: dealers["EVV-KL-001"]!.id, status: "IN_STOCK" as const, allocatedAt: daysFromNow(-6) },
+    { vin: `${vinPrefix}000001`, model: "LX Lifter", segment: "L5" as const, dealerId: null, status: "IN_STOCK" as const },
+    { vin: `${vinPrefix}000002`, model: "LX Lifter", segment: "L5" as const, dealerId: dealers["EVV-CG-001"]!.id, status: "ALLOCATED" as const, allocatedAt: daysFromNow(-10) },
+    { vin: `${vinPrefix}000003`, model: "Queen EV", segment: "L3" as const, dealerId: dealers["EVV-MP-001"]!.id, status: "IN_STOCK" as const, allocatedAt: daysFromNow(-20) },
+    { vin: `${vinPrefix}000004`, model: "Queen EV", segment: "L3" as const, dealerId: dealers["EVV-MP-001"]!.id, status: "SOLD" as const, allocatedAt: daysFromNow(-40), soldAt: daysFromNow(-5), buyerName: "Vikas Kumar", invoiceNumber: "INV-2026-000091" },
+    { vin: `${vinPrefix}000005`, model: "LX Spark", segment: "L5" as const, dealerId: dealers["EVV-DL-001"]!.id, status: "DEMO" as const, isDemoUnit: true, batteryHealthPct: 92, allocatedAt: daysFromNow(-90) },
+    { vin: `${vinPrefix}000006`, model: "LX DV", segment: "L3" as const, dealerId: dealers["EVV-RJ-001"]!.id, status: "SOLD" as const, allocatedAt: daysFromNow(-500), soldAt: daysFromNow(-480), buyerName: "Farah Sheikh", invoiceNumber: "INV-2026-000077" },
+    { vin: `${vinPrefix}000007`, model: "LX Foodcart", segment: "CUSTOMISED" as const, dealerId: dealers["EVV-CG-001"]!.id, status: "IN_STOCK" as const, allocatedAt: daysFromNow(-3) },
+    { vin: `${vinPrefix}000008`, model: "LX Lifter", segment: "L5" as const, dealerId: null, status: "IN_TRANSIT" as const },
+    { vin: `${vinPrefix}000009`, model: "LX Soorma", segment: "L5" as const, dealerId: dealers["EVV-DL-001"]!.id, status: "SERVICE_HOLD" as const, allocatedAt: daysFromNow(-50) },
+    { vin: `${vinPrefix}000010`, model: "LX EV Cargo", segment: "L3" as const, dealerId: null, status: "IN_STOCK" as const },
+    { vin: `${vinPrefix}000011`, model: "LX Lifter", segment: "L5" as const, dealerId: dealers["EVV-KA-001"]!.id, status: "ALLOCATED" as const, allocatedAt: daysFromNow(-14) },
+    { vin: `${vinPrefix}000012`, model: "LX Foodcart", segment: "CUSTOMISED" as const, dealerId: dealers["EVV-GJ-001"]!.id, status: "SOLD" as const, allocatedAt: daysFromNow(-60), soldAt: daysFromNow(-12), buyerName: "Rajiv Solanki", invoiceNumber: "INV-2026-000102" },
+    { vin: `${vinPrefix}000013`, model: "Queen EV", segment: "L3" as const, dealerId: dealers["EVV-PB-001"]!.id, status: "ALLOCATED" as const, allocatedAt: daysFromNow(-25) },
+    { vin: `${vinPrefix}000014`, model: "LX DV", segment: "L3" as const, dealerId: dealers["EVV-KL-001"]!.id, status: "SERVICE_HOLD" as const, allocatedAt: daysFromNow(-30) },
+    { vin: `${vinPrefix}000015`, model: "LX Lifter", segment: "L5" as const, dealerId: dealers["EVV-KA-001"]!.id, status: "IN_STOCK" as const, allocatedAt: daysFromNow(-7) },
+    { vin: `${vinPrefix}000016`, model: "LX Spark", segment: "L5" as const, dealerId: null, status: "IN_STOCK" as const },
+    { vin: `${vinPrefix}000017`, model: "LX Spark", segment: "L5" as const, dealerId: dealers["EVV-GJ-001"]!.id, status: "DEMO" as const, isDemoUnit: true, batteryHealthPct: 96, allocatedAt: daysFromNow(-30) },
+    { vin: `${vinPrefix}000018`, model: "Queen EV", segment: "L3" as const, dealerId: null, status: "IN_TRANSIT" as const },
+    { vin: `${vinPrefix}000019`, model: "LX Nirmal", segment: "L5" as const, dealerId: dealers["EVV-PB-001"]!.id, status: "SOLD" as const, allocatedAt: daysFromNow(-90), soldAt: daysFromNow(-30), buyerName: "Gurpreet Kaur", invoiceNumber: "INV-2026-000108" },
+    { vin: `${vinPrefix}000020`, model: "LX EV Cargo", segment: "L3" as const, dealerId: dealers["EVV-KL-001"]!.id, status: "IN_STOCK" as const, allocatedAt: daysFromNow(-6) },
   ];
   const createdUnits: Record<string, Awaited<ReturnType<typeof prisma.vehicleUnit.create>>> = {};
   for (const u of units) {
@@ -833,33 +833,33 @@ async function main() {
 
   await prisma.stockTransferRequest.createMany({
     data: [
-      { requestNumber: "STR-2026-000001", dealerId: dealers["EVV-RJ-001"]!.id, model: "Vikas Lifter", segment: "L5", quantity: 2, status: "REQUESTED" },
-      { requestNumber: "STR-2026-000002", dealerId: dealers["EVV-MP-001"]!.id, model: "Vikas Rani", segment: "L3", quantity: 3, status: "APPROVED" },
-      { requestNumber: "STR-2026-000003", dealerId: dealers["EVV-CG-001"]!.id, model: "Vikas Spark", segment: "L5", quantity: 1, status: "DISPATCHED", dispatchedAt: daysFromNow(-2) },
-      { requestNumber: "STR-2026-000004", dealerId: dealers["EVV-KA-001"]!.id, model: "Vikas Lifter", segment: "L5", quantity: 4, status: "DELIVERED", dispatchedAt: daysFromNow(-8), deliveredAt: daysFromNow(-3) },
-      { requestNumber: "STR-2026-000005", dealerId: dealers["EVV-KA-001"]!.id, model: "Vikas Spark", segment: "L5", quantity: 2, status: "REQUESTED" },
-      { requestNumber: "STR-2026-000006", dealerId: dealers["EVV-GJ-001"]!.id, model: "Vikas Foodcart", segment: "CUSTOMISED", quantity: 2, status: "APPROVED" },
-      { requestNumber: "STR-2026-000007", dealerId: dealers["EVV-GJ-001"]!.id, model: "Vikas Rani", segment: "L3", quantity: 1, status: "REJECTED" },
-      { requestNumber: "STR-2026-000008", dealerId: dealers["EVV-PB-001"]!.id, model: "Vikas Rani", segment: "L3", quantity: 3, status: "DISPATCHED", dispatchedAt: daysFromNow(-1) },
-      { requestNumber: "STR-2026-000009", dealerId: dealers["EVV-PB-001"]!.id, model: "Vikas Nirmal", segment: "L5", quantity: 1, status: "CANCELLED" },
-      { requestNumber: "STR-2026-000010", dealerId: dealers["EVV-KL-001"]!.id, model: "Vikas Carry", segment: "L3", quantity: 2, status: "REQUESTED" },
-      { requestNumber: "STR-2026-000011", dealerId: dealers["EVV-KL-001"]!.id, model: "Vikas Loader", segment: "L3", quantity: 1, status: "DELIVERED", dispatchedAt: daysFromNow(-20), deliveredAt: daysFromNow(-15) },
-      { requestNumber: "STR-2026-000012", dealerId: dealers["EVV-DL-001"]!.id, model: "Vikas Lifter", segment: "L5", quantity: 5, status: "APPROVED" },
+      { requestNumber: "STR-2026-000001", dealerId: dealers["EVV-RJ-001"]!.id, model: "LX Lifter", segment: "L5", quantity: 2, status: "REQUESTED" },
+      { requestNumber: "STR-2026-000002", dealerId: dealers["EVV-MP-001"]!.id, model: "Queen EV", segment: "L3", quantity: 3, status: "APPROVED" },
+      { requestNumber: "STR-2026-000003", dealerId: dealers["EVV-CG-001"]!.id, model: "LX Spark", segment: "L5", quantity: 1, status: "DISPATCHED", dispatchedAt: daysFromNow(-2) },
+      { requestNumber: "STR-2026-000004", dealerId: dealers["EVV-KA-001"]!.id, model: "LX Lifter", segment: "L5", quantity: 4, status: "DELIVERED", dispatchedAt: daysFromNow(-8), deliveredAt: daysFromNow(-3) },
+      { requestNumber: "STR-2026-000005", dealerId: dealers["EVV-KA-001"]!.id, model: "LX Spark", segment: "L5", quantity: 2, status: "REQUESTED" },
+      { requestNumber: "STR-2026-000006", dealerId: dealers["EVV-GJ-001"]!.id, model: "LX Foodcart", segment: "CUSTOMISED", quantity: 2, status: "APPROVED" },
+      { requestNumber: "STR-2026-000007", dealerId: dealers["EVV-GJ-001"]!.id, model: "Queen EV", segment: "L3", quantity: 1, status: "REJECTED" },
+      { requestNumber: "STR-2026-000008", dealerId: dealers["EVV-PB-001"]!.id, model: "Queen EV", segment: "L3", quantity: 3, status: "DISPATCHED", dispatchedAt: daysFromNow(-1) },
+      { requestNumber: "STR-2026-000009", dealerId: dealers["EVV-PB-001"]!.id, model: "LX Nirmal", segment: "L5", quantity: 1, status: "CANCELLED" },
+      { requestNumber: "STR-2026-000010", dealerId: dealers["EVV-KL-001"]!.id, model: "LX EV Cargo", segment: "L3", quantity: 2, status: "REQUESTED" },
+      { requestNumber: "STR-2026-000011", dealerId: dealers["EVV-KL-001"]!.id, model: "LX DV", segment: "L3", quantity: 1, status: "DELIVERED", dispatchedAt: daysFromNow(-20), deliveredAt: daysFromNow(-15) },
+      { requestNumber: "STR-2026-000012", dealerId: dealers["EVV-DL-001"]!.id, model: "LX Lifter", segment: "L5", quantity: 5, status: "APPROVED" },
     ],
   });
 
   console.log("Seeding purchase orders (manufacturer's own inbound stock)…");
   await prisma.vehiclePurchaseOrder.createMany({
     data: [
-      { poNumber: "PO-2026-000001", supplierName: "Luxus Green Manufacturing — Pune Plant", model: "Vikas Lifter", segment: "L5", quantity: 20, unitCost: 285000, status: "RECEIVED", orderedAt: daysFromNow(-60), expectedAt: daysFromNow(-45), receivedAt: daysFromNow(-42) },
-      { poNumber: "PO-2026-000002", supplierName: "Luxus Green Manufacturing — Pune Plant", model: "Vikas Rani", segment: "L3", quantity: 15, unitCost: 210000, status: "RECEIVED", orderedAt: daysFromNow(-50), expectedAt: daysFromNow(-35), receivedAt: daysFromNow(-33) },
-      { poNumber: "PO-2026-000003", supplierName: "Luxus Green Manufacturing — Chennai Plant", model: "Vikas Spark", segment: "L5", quantity: 10, unitCost: 310000, status: "RECEIVED", orderedAt: daysFromNow(-40), expectedAt: daysFromNow(-25), receivedAt: daysFromNow(-24) },
-      { poNumber: "PO-2026-000004", supplierName: "Luxus Green Manufacturing — Chennai Plant", model: "Vikas Loader", segment: "L3", quantity: 12, unitCost: 195000, status: "RECEIVED", orderedAt: daysFromNow(-35), expectedAt: daysFromNow(-20), receivedAt: daysFromNow(-18) },
-      { poNumber: "PO-2026-000005", supplierName: "Luxus Green Manufacturing — Pune Plant", model: "Vikas Lifter", segment: "L5", quantity: 18, unitCost: 288000, status: "IN_TRANSIT", orderedAt: daysFromNow(-14), expectedAt: daysFromNow(3) },
-      { poNumber: "PO-2026-000006", supplierName: "Imported — TorqueDrive Assembly (Thailand)", model: "Vikas Foodcart", segment: "CUSTOMISED", quantity: 6, unitCost: 340000, status: "IN_TRANSIT", orderedAt: daysFromNow(-10), expectedAt: daysFromNow(6) },
-      { poNumber: "PO-2026-000007", supplierName: "Luxus Green Manufacturing — Chennai Plant", model: "Vikas Rani", segment: "L3", quantity: 20, unitCost: 212000, status: "ORDERED", orderedAt: daysFromNow(-3), expectedAt: daysFromNow(20) },
-      { poNumber: "PO-2026-000008", supplierName: "Luxus Green Manufacturing — Pune Plant", model: "Vikas Nirmal", segment: "L5", quantity: 8, unitCost: 265000, status: "ORDERED", orderedAt: daysFromNow(-1), expectedAt: daysFromNow(25) },
-      { poNumber: "PO-2026-000009", supplierName: "Imported — TorqueDrive Assembly (Thailand)", model: "Vikas Soorma", segment: "L5", quantity: 5, unitCost: 355000, status: "CANCELLED", orderedAt: daysFromNow(-25), notes: "Supplier missed the committed window twice — reordering domestically instead." },
+      { poNumber: "PO-2026-000001", supplierName: "Luxus Green Manufacturing — Pune Plant", model: "LX Lifter", segment: "L5", quantity: 20, unitCost: 285000, status: "RECEIVED", orderedAt: daysFromNow(-60), expectedAt: daysFromNow(-45), receivedAt: daysFromNow(-42) },
+      { poNumber: "PO-2026-000002", supplierName: "Luxus Green Manufacturing — Pune Plant", model: "Queen EV", segment: "L3", quantity: 15, unitCost: 210000, status: "RECEIVED", orderedAt: daysFromNow(-50), expectedAt: daysFromNow(-35), receivedAt: daysFromNow(-33) },
+      { poNumber: "PO-2026-000003", supplierName: "Luxus Green Manufacturing — Chennai Plant", model: "LX Spark", segment: "L5", quantity: 10, unitCost: 310000, status: "RECEIVED", orderedAt: daysFromNow(-40), expectedAt: daysFromNow(-25), receivedAt: daysFromNow(-24) },
+      { poNumber: "PO-2026-000004", supplierName: "Luxus Green Manufacturing — Chennai Plant", model: "LX DV", segment: "L3", quantity: 12, unitCost: 195000, status: "RECEIVED", orderedAt: daysFromNow(-35), expectedAt: daysFromNow(-20), receivedAt: daysFromNow(-18) },
+      { poNumber: "PO-2026-000005", supplierName: "Luxus Green Manufacturing — Pune Plant", model: "LX Lifter", segment: "L5", quantity: 18, unitCost: 288000, status: "IN_TRANSIT", orderedAt: daysFromNow(-14), expectedAt: daysFromNow(3) },
+      { poNumber: "PO-2026-000006", supplierName: "Imported — TorqueDrive Assembly (Thailand)", model: "LX Foodcart", segment: "CUSTOMISED", quantity: 6, unitCost: 340000, status: "IN_TRANSIT", orderedAt: daysFromNow(-10), expectedAt: daysFromNow(6) },
+      { poNumber: "PO-2026-000007", supplierName: "Luxus Green Manufacturing — Chennai Plant", model: "Queen EV", segment: "L3", quantity: 20, unitCost: 212000, status: "ORDERED", orderedAt: daysFromNow(-3), expectedAt: daysFromNow(20) },
+      { poNumber: "PO-2026-000008", supplierName: "Luxus Green Manufacturing — Pune Plant", model: "LX Nirmal", segment: "L5", quantity: 8, unitCost: 265000, status: "ORDERED", orderedAt: daysFromNow(-1), expectedAt: daysFromNow(25) },
+      { poNumber: "PO-2026-000009", supplierName: "Imported — TorqueDrive Assembly (Thailand)", model: "LX Soorma", segment: "L5", quantity: 5, unitCost: 355000, status: "CANCELLED", orderedAt: daysFromNow(-25), notes: "Supplier missed the committed window twice — reordering domestically instead." },
     ],
   });
 
@@ -902,14 +902,14 @@ async function main() {
   // ---------------------------------------------------------------------
   console.log("Seeding warranty plans…");
   const planSeeds = [
-    { name: "Vikas Lifter — Battery", vehicleModel: "Vikas Lifter", componentType: "BATTERY" as const, termMonths: 60, termKm: 100000, sohFloorPct: 70, approvedChargers: "Luxus Green OEM Charger,Luxus Green Fast Charger" },
-    { name: "Vikas Lifter — Motor", vehicleModel: "Vikas Lifter", componentType: "MOTOR" as const, termMonths: 36, termKm: 60000, sohFloorPct: null, approvedChargers: null },
-    { name: "Vikas Lifter — Controller", vehicleModel: "Vikas Lifter", componentType: "CONTROLLER" as const, termMonths: 24, termKm: null, sohFloorPct: null, approvedChargers: null },
-    { name: "Vikas Rani — Battery", vehicleModel: "Vikas Rani", componentType: "BATTERY" as const, termMonths: 48, termKm: 80000, sohFloorPct: 70, approvedChargers: "Luxus Green OEM Charger" },
-    { name: "Vikas Rani — Motor", vehicleModel: "Vikas Rani", componentType: "MOTOR" as const, termMonths: 36, termKm: 50000, sohFloorPct: null, approvedChargers: null },
-    { name: "Vikas Loader — Motor", vehicleModel: "Vikas Loader", componentType: "MOTOR" as const, termMonths: 36, termKm: 50000, sohFloorPct: null, approvedChargers: null },
-    { name: "Vikas Loader — Controller", vehicleModel: "Vikas Loader", componentType: "CONTROLLER" as const, termMonths: 24, termKm: null, sohFloorPct: null, approvedChargers: null },
-    { name: "Vikas Spark — Battery", vehicleModel: "Vikas Spark", componentType: "BATTERY" as const, termMonths: 60, termKm: 100000, sohFloorPct: 70, approvedChargers: "Luxus Green OEM Charger,Luxus Green Fast Charger" },
+    { name: "LX Lifter — Battery", vehicleModel: "LX Lifter", componentType: "BATTERY" as const, termMonths: 60, termKm: 100000, sohFloorPct: 70, approvedChargers: "Luxus Green OEM Charger,Luxus Green Fast Charger" },
+    { name: "LX Lifter — Motor", vehicleModel: "LX Lifter", componentType: "MOTOR" as const, termMonths: 36, termKm: 60000, sohFloorPct: null, approvedChargers: null },
+    { name: "LX Lifter — Controller", vehicleModel: "LX Lifter", componentType: "CONTROLLER" as const, termMonths: 24, termKm: null, sohFloorPct: null, approvedChargers: null },
+    { name: "Queen EV — Battery", vehicleModel: "Queen EV", componentType: "BATTERY" as const, termMonths: 48, termKm: 80000, sohFloorPct: 70, approvedChargers: "Luxus Green OEM Charger" },
+    { name: "Queen EV — Motor", vehicleModel: "Queen EV", componentType: "MOTOR" as const, termMonths: 36, termKm: 50000, sohFloorPct: null, approvedChargers: null },
+    { name: "LX DV — Motor", vehicleModel: "LX DV", componentType: "MOTOR" as const, termMonths: 36, termKm: 50000, sohFloorPct: null, approvedChargers: null },
+    { name: "LX DV — Controller", vehicleModel: "LX DV", componentType: "CONTROLLER" as const, termMonths: 24, termKm: null, sohFloorPct: null, approvedChargers: null },
+    { name: "LX Spark — Battery", vehicleModel: "LX Spark", componentType: "BATTERY" as const, termMonths: 60, termKm: 100000, sohFloorPct: 70, approvedChargers: "Luxus Green OEM Charger,Luxus Green Fast Charger" },
   ];
   const plans: Record<string, Awaited<ReturnType<typeof prisma.warrantyPlan.create>>> = {};
   for (const p of planSeeds) {
@@ -932,13 +932,13 @@ async function main() {
     });
   }
 
-  const cu1 = await registerComponent("BATT-CG-0002-2024", "BATTERY", "Vikas Lifter", `${vinPrefix}000002`, "PowerCell Energy Pvt Ltd", "PC-2024-B117", 8);
-  await registerComponent("MTR-CG-0002-2024", "MOTOR", "Vikas Lifter", `${vinPrefix}000002`, "TorqueDrive Motors", "TD-2024-M045", 8);
-  const cu4 = await registerComponent("BATT-MP-0004-2020", "BATTERY", "Vikas Rani", `${vinPrefix}000004`, "PowerCell Energy Pvt Ltd", "PC-2020-B033", 62); // deliberately out of term
-  const cu6 = await registerComponent("MTR-RJ-0006-2025", "MOTOR", "Vikas Loader", `${vinPrefix}000006`, "TorqueDrive Motors", "TD-2025-M201", 20);
-  await registerComponent("BATT-DL-0005-2026", "BATTERY", "Vikas Spark", `${vinPrefix}000005`, "PowerCell Energy Pvt Ltd", "PC-2026-B301", 3);
-  const cu11 = await registerComponent("BATT-KA-0011-2025", "BATTERY", "Vikas Lifter", `${vinPrefix}000011`, "PowerCell Energy Pvt Ltd", "PC-2025-B210", 14);
-  const cu14 = await registerComponent("MTR-KL-0014-2024", "MOTOR", "Vikas Loader", `${vinPrefix}000014`, "TorqueDrive Motors", "TD-2024-M133", 26);
+  const cu1 = await registerComponent("BATT-CG-0002-2024", "BATTERY", "LX Lifter", `${vinPrefix}000002`, "PowerCell Energy Pvt Ltd", "PC-2024-B117", 8);
+  await registerComponent("MTR-CG-0002-2024", "MOTOR", "LX Lifter", `${vinPrefix}000002`, "TorqueDrive Motors", "TD-2024-M045", 8);
+  const cu4 = await registerComponent("BATT-MP-0004-2020", "BATTERY", "Queen EV", `${vinPrefix}000004`, "PowerCell Energy Pvt Ltd", "PC-2020-B033", 62); // deliberately out of term
+  const cu6 = await registerComponent("MTR-RJ-0006-2025", "MOTOR", "LX DV", `${vinPrefix}000006`, "TorqueDrive Motors", "TD-2025-M201", 20);
+  await registerComponent("BATT-DL-0005-2026", "BATTERY", "LX Spark", `${vinPrefix}000005`, "PowerCell Energy Pvt Ltd", "PC-2026-B301", 3);
+  const cu11 = await registerComponent("BATT-KA-0011-2025", "BATTERY", "LX Lifter", `${vinPrefix}000011`, "PowerCell Energy Pvt Ltd", "PC-2025-B210", 14);
+  const cu14 = await registerComponent("MTR-KL-0014-2024", "MOTOR", "LX DV", `${vinPrefix}000014`, "TorqueDrive Motors", "TD-2024-M133", 26);
 
   console.log("Seeding warranty claims & supplier recovery (the closed loop)…");
 
@@ -949,7 +949,7 @@ async function main() {
       dealerId: dealers["EVV-CG-001"]!.id,
       vehicleUnitId: createdUnits[`${vinPrefix}000002`]!.id,
       componentUnitId: cu1.id,
-      planId: plans["Vikas Lifter:BATTERY"]!.id,
+      planId: plans["LX Lifter:BATTERY"]!.id,
       chassisNumber: `${vinPrefix}000002`,
       customerName: "Ramesh Yadav",
       customerPhone: "9812399001",
@@ -979,7 +979,7 @@ async function main() {
       dealerId: dealers["EVV-RJ-001"]!.id,
       vehicleUnitId: createdUnits[`${vinPrefix}000006`]!.id,
       componentUnitId: cu6.id,
-      planId: plans["Vikas Loader:MOTOR"]!.id,
+      planId: plans["LX DV:MOTOR"]!.id,
       chassisNumber: `${vinPrefix}000006`,
       customerName: "Farah Sheikh",
       customerPhone: "9812345680",
@@ -1023,7 +1023,7 @@ async function main() {
       dealerId: dealers["EVV-MP-001"]!.id,
       vehicleUnitId: createdUnits[`${vinPrefix}000004`]!.id,
       componentUnitId: cu4.id,
-      planId: plans["Vikas Rani:BATTERY"]!.id,
+      planId: plans["Queen EV:BATTERY"]!.id,
       chassisNumber: `${vinPrefix}000004`,
       customerName: "Vikas Kumar",
       customerPhone: "9812345679",
@@ -1070,7 +1070,7 @@ async function main() {
       dealerId: dealers["EVV-KL-001"]!.id,
       vehicleUnitId: createdUnits[`${vinPrefix}000014`]!.id,
       componentUnitId: cu14.id,
-      planId: plans["Vikas Loader:MOTOR"]!.id,
+      planId: plans["LX DV:MOTOR"]!.id,
       chassisNumber: `${vinPrefix}000014`,
       customerName: "Meera Pillai",
       customerPhone: "9812345690",
@@ -1094,7 +1094,7 @@ async function main() {
       dealerId: dealers["EVV-KA-001"]!.id,
       vehicleUnitId: createdUnits[`${vinPrefix}000011`]!.id,
       componentUnitId: cu11.id,
-      planId: plans["Vikas Lifter:BATTERY"]!.id,
+      planId: plans["LX Lifter:BATTERY"]!.id,
       chassisNumber: `${vinPrefix}000011`,
       customerName: "Karthik Iyer",
       customerPhone: "9812345687",

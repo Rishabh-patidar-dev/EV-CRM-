@@ -41,6 +41,7 @@ flowchart TD
   DM --> DM3["Vehicle Inventory"]
   DM --> DM4["Order Management"]
   DM4 --> DM4a["Disputed Orders"]
+  DM4 --> DM4b["Invoices"]
   DM --> DM5["Purchase Management"]
   DM --> DM6["Compliance & Renewals"]
 
@@ -58,6 +59,7 @@ flowchart TD
   DD --> P4["WhatsApp Campaigns"]
   DD --> P5["My Inventory"]
   DD --> P6["Orders"]
+  DD --> P6b["Invoices"]
   DD --> P7["Warranty Claims"]
   DD --> P8["Service Tickets"]
   P6 -->|"order placed"| CRM["Lands in CRM → Order Management"]
@@ -107,6 +109,7 @@ flowchart TD
 
   D1 -->|"stock sufficient"| E1
   E1 -->|"yes"| G1
+  G1 -.->|"issues"| INV1["CONFIRMATION invoice"]
   E1 -->|"no — held"| F2["Sales resolves credit issue with dealer"]
   F2 --> E1
   G3 --> H1["Dealer receives stock — visible in DMS"]
@@ -114,6 +117,7 @@ flowchart TD
   D1 -->|"stock short"| F1["Disputed Orders queue<br/>(sub-module of Order Management)"]
   F1 --> F0{"Sort: best fit —<br/>rank competing orders by<br/>smallest shortfall, then quantity"}
   F0 --> F3["Sales sends out-of-stock notice<br/>+ expected restock date<br/>+ optional partial-fulfillment offer"]
+  F3 -.->|"issues"| INV2["OUT_OF_STOCK or<br/>PARTIAL invoice"]
 
   subgraph DLR2["Dealer (DMS)"]
     F6{"Dealer responds<br/>to partial offer"}
@@ -148,3 +152,15 @@ flowchart TD
 
 - **Sort: best fit** groups disputed orders competing for the same item (model+segment, or same spare part) and ranks them by ascending shortfall against *live* stock, tied-broken by largest quantity — the order closest to being fully fulfillable from what's on hand is flagged "Best fit."
 - Staff can send a notice with an **offered quantity** (e.g. "155 of 160 now"). The dealer sees this in DMS and can **Accept** (splits the order — offered quantity ships now as `APPROVED`, the remainder becomes a fresh `REQUESTED` backorder, `STR-2026-0000xx`, so demand is never silently lost) or **Decline** (order stays in Disputed Orders).
+
+## 6. Invoices
+
+Digitizes the OEM's own order-placement flow chart exactly — three document types, generated automatically (never a manual "create invoice" step) and viewable in **Order Management → Invoices** (CRM) and **Invoices** (DMS):
+
+| Trigger | Invoice type | Fulfilled qty |
+|---|---|---|
+| Check Inventory / recheck finds stock **available** | `CONFIRMATION` | = requested |
+| Disputed order, staff send notice with **no offer** ("completely out of stock") | `OUT_OF_STOCK` | 0 |
+| Disputed order, staff send notice **with an offer** ("order is close", e.g. 150 of 155) | `PARTIAL` | = offered |
+
+Each is a standalone, printable document (`invoiceNumber` sequence `INV-2026-000001…`) — an order can accumulate several over its life as its situation changes, unlike the single `OrderStockNotice` row that drives the accept/decline state machine underneath it.

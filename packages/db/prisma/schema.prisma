@@ -86,6 +86,7 @@ model User {
   // Order Management back-relations
   sentStockNotices     OrderStockNotice[] @relation("StockNoticeSender")
   resolvedStockNotices OrderStockNotice[] @relation("StockNoticeResolver")
+  issuedInvoices       Invoice[]          @relation("InvoiceIssuer")
 
   @@map("users")
 }
@@ -625,6 +626,7 @@ model Dealer {
   leadRemarks           LeadRemark[]
   leadSegments          Segment[]
   campaigns             MarketingCampaign[]
+  invoices              Invoice[]
 
   @@index([state])
   @@index([status])
@@ -771,6 +773,7 @@ model SparePartRequest {
 
   dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
   stockNotice OrderStockNotice?
+  invoices    Invoice[]
 
   @@index([dealerId])
   @@index([status])
@@ -848,6 +851,61 @@ model OrderStockNotice {
 
   @@index([status])
   @@map("order_stock_notices")
+}
+
+// =============================================================================
+// Invoices — the documents Order Management actually hands the dealer,
+// following the OEM's own order-placement flow chart exactly:
+//   1) available            -> CONFIRMATION invoice (sales team, sent immediately)
+//   2) completely out of stock -> OUT_OF_STOCK invoice (expected renewal date)
+//   3) order is close (stock < requested but > 0) -> PARTIAL invoice (limited
+//      stock the OEM can deliver now, e.g. 150 of 155 requested)
+// Unlike OrderStockNotice (one row per order, drives the accept/decline state
+// machine), an order can accumulate multiple Invoice rows over its life —
+// each one is a point-in-time document, same as a real business re-issuing
+// paperwork every time the situation changes.
+// =============================================================================
+
+enum InvoiceType {
+  CONFIRMATION
+  OUT_OF_STOCK
+  PARTIAL
+}
+
+model Invoice {
+  id            Int           @id @default(autoincrement())
+  invoiceNumber String        @unique @map("invoice_number")
+  orderKind     OrderItemKind @map("order_kind")
+
+  stockTransferRequestId Int?                  @map("stock_transfer_request_id")
+  stockTransferRequest   StockTransferRequest? @relation(fields: [stockTransferRequestId], references: [id], onDelete: Cascade)
+  sparePartRequestId     Int?                  @map("spare_part_request_id")
+  sparePartRequest       SparePartRequest?     @relation(fields: [sparePartRequestId], references: [id], onDelete: Cascade)
+
+  dealerId Int    @map("dealer_id")
+  dealer   Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  type InvoiceType
+
+  // Snapshot at issue time — an order's own fields can keep moving (a
+  // backorder split, a later recheck), so the invoice keeps its own record
+  // of what it actually promised.
+  item              String
+  requestedQuantity Int    @map("requested_quantity")
+  fulfilledQuantity Int    @map("fulfilled_quantity")
+
+  expectedRestockDate DateTime? @map("expected_restock_date")
+  message             String?
+
+  issuedById Int?     @map("issued_by_id")
+  issuedBy   User?    @relation("InvoiceIssuer", fields: [issuedById], references: [id])
+  issuedAt   DateTime @default(now()) @map("issued_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([dealerId])
+  @@index([type])
+  @@map("invoices")
 }
 
 // Spare parts have no VIN-level stock truth the way vehicles do (VehicleUnit)
@@ -949,6 +1007,7 @@ model StockTransferRequest {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   stockNotice OrderStockNotice?
+  invoices    Invoice[]
 
   @@index([dealerId])
   @@index([status])
