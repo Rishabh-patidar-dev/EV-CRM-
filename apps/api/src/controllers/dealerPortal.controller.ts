@@ -29,6 +29,7 @@ export class DealerPortalController {
       const [
         vehicleCount, openTransfers, openSpareParts, openTickets, openClaims, openLeads,
         vehiclesByStatusRaw, leadsByStatusRaw, transferStatusRaw, sparePartStatusRaw, claimsByStatusRaw,
+        soldUnits, invoicesByTypeRaw,
       ] = await Promise.all([
         prisma.vehicleUnit.count({ where: { dealerId } }),
         prisma.stockTransferRequest.count({ where: { dealerId, status: { in: ["REQUESTED", "APPROVED", "DISPATCHED"] } } }),
@@ -41,6 +42,11 @@ export class DealerPortalController {
         prisma.stockTransferRequest.groupBy({ by: ["status"], where: { dealerId }, _count: true }),
         prisma.sparePartRequest.groupBy({ by: ["status"], where: { dealerId }, _count: true }),
         prisma.warrantyClaim.groupBy({ by: ["status"], where: { dealerId }, _count: true }),
+        // Sales figures — no per-unit price is tracked anywhere in this
+        // system, so "sales" here means unit counts (trend + top models),
+        // not revenue.
+        prisma.vehicleUnit.findMany({ where: { dealerId, status: "SOLD" }, select: { model: true, soldAt: true } }),
+        prisma.invoice.groupBy({ by: ["type"], where: { dealerId }, _count: true }),
       ]);
 
       const toSeries = (rows: { status: string; _count: number }[]) =>
@@ -52,6 +58,27 @@ export class DealerPortalController {
       for (const r of [...transferStatusRaw, ...sparePartStatusRaw]) {
         orderStatusCombined[r.status] = (orderStatusCombined[r.status] ?? 0) + r._count;
       }
+
+      // Units sold per week, last 8 weeks — same weekly-trend pattern
+      // Order Management's own analytics uses.
+      const DAY_MS = 86_400_000;
+      const now = Date.now();
+      const salesTrend: { label: string; value: number }[] = [];
+      for (let i = 7; i >= 0; i--) {
+        const weekStart = new Date(now - i * 7 * DAY_MS);
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(+weekStart + 7 * DAY_MS);
+        const count = soldUnits.filter((u) => u.soldAt && +u.soldAt >= +weekStart && +u.soldAt < +weekEnd).length;
+        salesTrend.push({ label: `${weekStart.getMonth() + 1}/${weekStart.getDate()}`, value: count });
+      }
+
+      const modelCounts: Record<string, number> = {};
+      for (const u of soldUnits) modelCounts[u.model] = (modelCounts[u.model] ?? 0) + 1;
+      const topModelsSold = Object.entries(modelCounts).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 5);
+
+      const invoicesByType = (invoicesByTypeRaw as any[])
+        .map((r) => ({ label: r.type.replace(/_/g, " "), value: r._count }))
+        .sort((a, b) => b.value - a.value);
 
       res.json({
         dealer: { id: dealerId, dealerCode, legalName, status },
@@ -65,6 +92,9 @@ export class DealerPortalController {
         leadsByStatus: toSeries(leadsByStatusRaw as any),
         ordersByStatus: Object.entries(orderStatusCombined).map(([label, value]) => ({ label: label.replace(/_/g, " "), value })).sort((a, b) => b.value - a.value),
         claimsByStatus: toSeries(claimsByStatusRaw as any),
+        salesTrend,
+        topModelsSold,
+        invoicesByType,
       });
     } catch (error) {
       handleError(error, res, "Dealer portal overview");
