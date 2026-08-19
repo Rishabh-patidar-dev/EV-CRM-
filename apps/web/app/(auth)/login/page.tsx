@@ -5,7 +5,7 @@ import LoginForm from "@/components/auth/LoginForm";
 import { AccentStat } from "@/components/ui/StatCard";
 
 export const metadata: Metadata = {
-  title: "Sign in — VoltOs",
+  title: "Sign in — Luxus Green Mobility",
 };
 
 const STATS = [

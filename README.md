@@ -1,4 +1,4 @@
-# VoltOs — Dealer & Warranty Management CRM (integration bundle)
+﻿# Luxus Green Mobility — Dealer & Warranty Management CRM (integration bundle)
 
 This bundle does two things you asked for, against your actual `innocrm-staging`
 (a.k.a. **Synkro CRM**) codebase:
@@ -150,17 +150,17 @@ palette and dark-mode variants.
 
 ---
 
-## Part 0c — VoltOs: rebrand + Warranty Management centrepiece + BI dashboard
+## Part 0c — Luxus Green Mobility: rebrand + Warranty Management centrepiece + BI dashboard
 
 This round did four things, grounded in `DMS-and-Warranty-Research.pdf`
 (y Management — the two modules that document names the
 project's centrepiece) and your direct asks:
 
-### 1. Rebrand: VoltOs
+### 1. Rebrand: Luxus Green Mobility
 
 Every "Luxus Green" reference in the running app — page titles, the sidebar
 brand, dealer-code prefix (`LGM-` → `EVV-`), seed data, `<title>` metadata —
-is now **VoltOs**. The Postgres-flavoured bundle files at the repo root
+is now **Luxus Green Mobility**. The Postgres-flavoured bundle files at the repo root
 (`/theme`, `/prisma`, `/api`, `/web`) are untouched, per the standing note in
 Part 0 that those install into your real CRM as-is.
 

@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VoltOs",
-  description: "Dealer onboarding, dealer management, warranty management, and landing-page intake for the VoltOs dealer network.",
+  title: "Luxus Green Mobility",
+  description: "Dealer onboarding, dealer management, warranty management, and landing-page intake for the Luxus Green Mobility dealer network.",
 };
 
 // Runs before paint so the page never flashes light-then-dark (or vice
@@ -23,6 +23,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="h-full">
       <head>
+        {/* webp isn't a Next.js file-convention favicon extension (icon.ico/png/jpg/svg only) — linked manually instead */}
+        <link rel="icon" type="image/webp" href="/luxus-green-logo.webp" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="h-full">{children}</body>

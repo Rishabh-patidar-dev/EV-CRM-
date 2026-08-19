@@ -13,7 +13,7 @@
 // ============================================================================
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus, MapPin, Bell } from "lucide-react";
+import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus, MapPin, Bell, SearchCheck, AlertTriangle } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
@@ -22,8 +22,11 @@ import TargetBarChart from "@/components/charts/TargetBarChart";
 import { StatCard } from "@/components/ui/StatCard";
 import CreateOrderModal from "@/components/orders/CreateOrderModal";
 
-const FLOW: Record<string, string> = { REQUESTED: "APPROVED", APPROVED: "DISPATCHED", DISPATCHED: "DELIVERED" };
-const ORDER_STATUSES = ["REQUESTED", "APPROVED", "DISPATCHED", "DELIVERED", "REJECTED", "CANCELLED"];
+// REQUESTED isn't in this map — it doesn't advance via the generic PATCH
+// anymore, it goes through the Check Inventory flow (see the action cell
+// below), which is the only thing allowed to set APPROVED or DISPUTED.
+const FLOW: Record<string, string> = { APPROVED: "DISPATCHED", DISPATCHED: "DELIVERED" };
+const ORDER_STATUSES = ["REQUESTED", "APPROVED", "DISPATCHED", "DELIVERED", "REJECTED", "CANCELLED", "DISPUTED"];
 
 interface Analytics {
   totalOrders: number;
@@ -59,6 +62,7 @@ export default function OrderManagementPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [zoneCards, setZoneCards] = useState<{ zone: string; openOrders: number; newFromDms: number }[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [disputedCount, setDisputedCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [zoneFilter, setZoneFilter] = useState("");
@@ -75,6 +79,11 @@ export default function OrderManagementPage() {
   const loadZones = useCallback(async () => {
     const { data } = await apiClient.get("/api/v1/order-management/zones");
     setZoneCards(data.zones ?? []);
+  }, []);
+
+  const loadDisputedCount = useCallback(async () => {
+    const { data } = await apiClient.get("/api/v1/order-management/disputed");
+    setDisputedCount(data.total ?? 0);
   }, []);
 
   const selectZone = (zone: string) => {
@@ -94,11 +103,11 @@ export default function OrderManagementPage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadAnalytics(), loadZones(), loadOrders()]);
+      await Promise.all([loadAnalytics(), loadZones(), loadOrders(), loadDisputedCount()]);
     } finally {
       setLoading(false);
     }
-  }, [loadAnalytics, loadZones, loadOrders]);
+  }, [loadAnalytics, loadZones, loadOrders, loadDisputedCount]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -119,13 +128,28 @@ export default function OrderManagementPage() {
             The manufacturer's order desk — every vehicle-stock and spare-part order the dealer network has raised, by zone, by dealer, and how fast it's moving.
           </p>
         </div>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius)] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          <Plus className="h-4 w-4" />
-          Create order
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href="/order-management/disputed"
+            className="relative flex items-center gap-1.5 rounded-[var(--radius)] border px-4 py-2 text-sm font-semibold transition-colors hover:bg-accent"
+            style={{ borderColor: "var(--zira-rejected)", color: "var(--zira-rejected)" }}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            Disputed orders
+            {!!disputedCount && (
+              <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold text-white" style={{ background: "var(--zira-rejected)" }}>
+                {disputedCount}
+              </span>
+            )}
+          </Link>
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" />
+            Create order
+          </button>
+        </div>
       </header>
 
       <CreateOrderModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={refresh} />
@@ -315,10 +339,25 @@ export default function OrderManagementPage() {
                   <td className="px-4 py-3">{o.item} × {o.quantity}</td>
                   <td className="px-4 py-3"><OrderStatusBadge status={o.status} /></td>
                   <td className="px-4 py-3 text-right">
-                    {FLOW[o.status] && (
-                      <button onClick={() => advance(o, FLOW[o.status])} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
-                        Mark {FLOW[o.status].toLowerCase()}
-                      </button>
+                    {o.status === "REQUESTED" ? (
+                      <Link
+                        href={`/order-management/check/${o.type}/${o.id}`}
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium transition-colors hover:bg-accent"
+                        style={{ borderColor: "var(--primary)", color: "var(--primary)" }}
+                      >
+                        <SearchCheck className="h-3 w-3" />
+                        Check inventory
+                      </Link>
+                    ) : o.status === "DISPUTED" ? (
+                      <Link href={`/order-management/disputed`} className="text-xs hover:underline" style={{ color: "var(--zira-rejected)" }}>
+                        View dispute
+                      </Link>
+                    ) : (
+                      FLOW[o.status] && (
+                        <button onClick={() => advance(o, FLOW[o.status])} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                          Mark {FLOW[o.status].toLowerCase()}
+                        </button>
+                      )
                     )}
                   </td>
                 </tr>
@@ -347,6 +386,6 @@ function TopByZoneList({ rows, empty }: { rows: { zone: string; topItem: string;
 }
 
 function OrderStatusBadge({ status }: { status: string }) {
-  const style = status === "DELIVERED" ? "badge-approved" : status === "REJECTED" || status === "CANCELLED" ? "badge-rejected" : "badge-pending";
+  const style = status === "DELIVERED" ? "badge-approved" : status === "REJECTED" || status === "CANCELLED" || status === "DISPUTED" ? "badge-rejected" : "badge-pending";
   return <span className={`${style} shrink-0 rounded-full px-2 py-0.5 text-xs`}>{status.replace("_", " ")}</span>;
 }

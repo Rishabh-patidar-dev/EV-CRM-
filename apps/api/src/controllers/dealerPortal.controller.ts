@@ -97,7 +97,7 @@ export class DealerPortalController {
   async listStockTransfers(req: Request, res: Response) {
     try {
       const { dealerId } = req.dealerPortal!;
-      const transfers = await prisma.stockTransferRequest.findMany({ where: { dealerId }, orderBy: { createdAt: "desc" }, take: 100 });
+      const transfers = await prisma.stockTransferRequest.findMany({ where: { dealerId }, include: { stockNotice: true }, orderBy: { createdAt: "desc" }, take: 100 });
       res.json({ transfers });
     } catch (error) {
       handleError(error, res, "List dealer stock transfers");
@@ -134,7 +134,7 @@ export class DealerPortalController {
   async listSpareParts(req: Request, res: Response) {
     try {
       const { dealerId } = req.dealerPortal!;
-      const spareParts = await prisma.sparePartRequest.findMany({ where: { dealerId }, orderBy: { createdAt: "desc" }, take: 100 });
+      const spareParts = await prisma.sparePartRequest.findMany({ where: { dealerId }, include: { stockNotice: true }, orderBy: { createdAt: "desc" }, take: 100 });
       res.json({ spareParts });
     } catch (error) {
       handleError(error, res, "List dealer spare-part requests");
@@ -163,6 +163,110 @@ export class DealerPortalController {
       res.status(201).json(sparePart);
     } catch (error) {
       handleError(error, res, "Place spare-part order");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/stock-transfers/:id/notice-response
+  // POST /api/v1/dealer-portal/spare-parts/:id/notice-response
+  //   body: { response: "ACCEPTED" | "DECLINED" }
+  // Dealer's reply to a partial-fulfillment offer ("we can fulfil 155 of
+  // 160 now"). ACCEPTED splits the order: the original is cut down to the
+  // offered quantity and approved now, and a fresh REQUESTED backorder
+  // covers the remainder so that demand isn't silently lost. DECLINED just
+  // records the answer — the order stays DISPUTED for staff to reconsider.
+  async respondToStockTransferNotice(req: Request, res: Response) {
+    return this.respondToNotice(req, res, {
+      findOrder: (id) => prisma.stockTransferRequest.findUnique({ where: { id }, include: { stockNotice: true } }),
+      updateOrderQuantityAndApprove: (tx, id, quantity) => tx.stockTransferRequest.update({ where: { id }, data: { quantity, status: "APPROVED" } }),
+      createBackorder: (tx, order: any, quantity: number, requestNumber: string) =>
+        tx.stockTransferRequest.create({
+          data: {
+            requestNumber, dealerId: order.dealerId, model: order.model, segment: order.segment, quantity,
+            status: "REQUESTED", placedVia: "DMS",
+            notes: `Backorder split from ${order.requestNumber} — ${order.quantity - quantity}/${order.quantity} accepted now.`,
+          },
+        }),
+      sequencePrefix: "STR",
+      countBackorders: (tx) => tx.stockTransferRequest.count(),
+    });
+  }
+
+  async respondToSparePartNotice(req: Request, res: Response) {
+    return this.respondToNotice(req, res, {
+      findOrder: (id) => prisma.sparePartRequest.findUnique({ where: { id }, include: { stockNotice: true } }),
+      updateOrderQuantityAndApprove: (tx, id, quantity) => tx.sparePartRequest.update({ where: { id }, data: { quantity, status: "APPROVED" } }),
+      createBackorder: (tx, order: any, quantity: number, requestNumber: string) =>
+        tx.sparePartRequest.create({
+          data: {
+            requestNumber, dealerId: order.dealerId, partName: order.partName, partCode: order.partCode, quantity,
+            status: "REQUESTED", placedVia: "DMS",
+            notes: `Backorder split from ${order.requestNumber} — ${order.quantity - quantity}/${order.quantity} accepted now.`,
+          },
+        }),
+      sequencePrefix: "SPR",
+      countBackorders: (tx) => tx.sparePartRequest.count(),
+    });
+  }
+
+  // All three mutating ops below take `tx` (the active transaction client)
+  // explicitly — earlier drafts of this closed over the outer `prisma`
+  // instead, which silently ran the order-split outside the transaction
+  // that resolves the notice, breaking atomicity. Every write here must go
+  // through the same `tx`.
+  private async respondToNotice(
+    req: Request,
+    res: Response,
+    ops: {
+      findOrder: (id: number) => Promise<any>;
+      updateOrderQuantityAndApprove: (tx: any, id: number, quantity: number) => Promise<any>;
+      createBackorder: (tx: any, order: any, quantity: number, requestNumber: string) => Promise<any>;
+      sequencePrefix: "STR" | "SPR";
+      countBackorders: (tx: any) => Promise<number>;
+    }
+  ) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const response = String(req.body?.response ?? "").toUpperCase();
+      if (!id || (response !== "ACCEPTED" && response !== "DECLINED")) {
+        return handleValidationError(res, "response must be ACCEPTED or DECLINED", "response", "Respond to out-of-stock notice");
+      }
+
+      const order = await ops.findOrder(id);
+      if (!order || order.dealerId !== dealerId) return handleNotFoundError(res, "Order", "Respond to out-of-stock notice");
+      const notice = order.stockNotice;
+      if (order.status !== "DISPUTED" || !notice || notice.status !== "SENT" || notice.dealerResponse !== "PENDING" || notice.offeredQuantity == null) {
+        return handleValidationError(res, "This order has no pending partial-fulfillment offer to respond to", "status", "Respond to out-of-stock notice");
+      }
+
+      if (response === "DECLINED") {
+        const updatedNotice = await prisma.orderStockNotice.update({
+          where: { id: notice.id },
+          data: { dealerResponse: "DECLINED", respondedAt: new Date() },
+        });
+        return res.json({ order, notice: updatedNotice, backorder: null });
+      }
+
+      const offeredQuantity: number = notice.offeredQuantity;
+      const remaining = order.quantity - offeredQuantity;
+
+      const [updatedOrder, updatedNotice, backorder] = await prisma.$transaction(async (tx) => {
+        const nextOrder = await ops.updateOrderQuantityAndApprove(tx, id, offeredQuantity);
+        const nextNotice = await tx.orderStockNotice.update({
+          where: { id: notice.id },
+          data: { dealerResponse: "ACCEPTED", respondedAt: new Date(), status: "RESOLVED", resolvedAt: new Date() },
+        });
+        let nextBackorder = null;
+        if (remaining > 0) {
+          const requestNumber = await generateSequenceNumber(ops.sequencePrefix, () => ops.countBackorders(tx));
+          nextBackorder = await ops.createBackorder(tx, order, remaining, requestNumber);
+        }
+        return [nextOrder, nextNotice, nextBackorder];
+      });
+
+      res.json({ order: updatedOrder, notice: updatedNotice, backorder });
+    } catch (error) {
+      handleError(error, res, "Respond to out-of-stock notice");
     }
   }
 

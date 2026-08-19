@@ -1,5 +1,5 @@
 // =============================================================================
-// VoltOs — merged Prisma schema (runs against a real Supabase Postgres db)
+// Luxus Green Mobility — merged Prisma schema (runs against a real Supabase Postgres db)
 // -----------------------------------------------------------------------------
 // This is the RUNNABLE version of the schema fragments delivered in
 // /prisma/*.prisma at the repo root. Those files remain the canonical,
@@ -48,6 +48,12 @@ enum UserRole {
   RELATIONSHIP_MANAGER
   SALES
   SUPPORT
+  // OEM department roles for the order-fulfillment RBAC (see
+  // docs/ARCHITECTURE_AND_FLOWS.md §4) — additive alongside ADMIN/
+  // SYSTEM_ADMIN, which keep full access everywhere.
+  WAREHOUSE
+  FINANCE
+  MARKETING
 }
 
 model User {
@@ -76,6 +82,10 @@ model User {
   leadRemarks             LeadRemark[]
   landingPageCampaigns    LandingPageCampaign[]  @relation("LandingPageCampaignCreator")
   enquiriesResolved       Enquiry[]              @relation("EnquiryResolver")
+
+  // Order Management back-relations
+  sentStockNotices     OrderStockNotice[] @relation("StockNoticeSender")
+  resolvedStockNotices OrderStockNotice[] @relation("StockNoticeResolver")
 
   @@map("users")
 }
@@ -548,6 +558,7 @@ enum SparePartRequestStatus {
   DISPATCHED
   DELIVERED
   CANCELLED
+  DISPUTED
 }
 
 enum OrderChannel {
@@ -753,15 +764,105 @@ model SparePartRequest {
   // past REQUESTED, i.e. once staff has actually looked at it).
   placedVia     OrderChannel           @default(STAFF) @map("placed_via")
   dispatchedAt  DateTime?              @map("dispatched_at")
+  notes         String?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  stockNotice OrderStockNotice?
 
   @@index([dealerId])
   @@index([status])
   @@map("spare_part_requests")
+}
+
+// =============================================================================
+// SUBMODULE — Order Management: inventory check + Disputed Orders
+// -----------------------------------------------------------------------------
+// A dealer's REQUESTED order only ever becomes APPROVED (i.e. the dealer sees
+// an order-confirmation) after staff run a "Check Inventory" comparison
+// against manufacturer stock (VehicleUnit.dealerId = null for vehicles,
+// SparePartInventory.quantityOnHand for spare parts). If stock is short, the
+// order moves to DISPUTED and one OrderStockNotice row is created — the
+// dealer sees no confirmation until staff manually send that notice with an
+// expected restock date, which is the "out of stock invoice" the SRS asked
+// for. Resolving a dispute (stock back in, recheck passes) moves the order
+// on to APPROVED same as a normal sufficient-stock check would.
+// =============================================================================
+
+enum OrderItemKind {
+  VEHICLE
+  SPARE_PART
+}
+
+enum StockNoticeStatus {
+  OPEN
+  SENT
+  RESOLVED
+}
+
+// Dealer's response to a partial-fulfillment offer (offeredQuantity below).
+// PENDING until the dealer acts in DMS; ACCEPTED splits the order (see
+// dealerPortal.controller.ts's respondToStockNotice) into an APPROVED order
+// for offeredQuantity now plus a fresh REQUESTED backorder for the rest;
+// DECLINED leaves the order DISPUTED for staff to reconsider.
+enum DealerNoticeResponse {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model OrderStockNotice {
+  id        Int           @id @default(autoincrement())
+  orderKind OrderItemKind @map("order_kind")
+
+  stockTransferRequestId Int?                  @unique @map("stock_transfer_request_id")
+  stockTransferRequest   StockTransferRequest? @relation(fields: [stockTransferRequestId], references: [id], onDelete: Cascade)
+  sparePartRequestId     Int?                  @unique @map("spare_part_request_id")
+  sparePartRequest       SparePartRequest?     @relation(fields: [sparePartRequestId], references: [id], onDelete: Cascade)
+
+  requestedQuantity Int               @map("requested_quantity")
+  availableQuantity Int               @map("available_quantity")
+  status            StockNoticeStatus @default(OPEN)
+
+  expectedRestockDate DateTime? @map("expected_restock_date")
+  message             String?
+
+  // How much of the request the OEM is currently offering to fulfil now
+  // (<= availableQuantity) — the "we can fulfil 155 of 160" partial offer.
+  offeredQuantity Int?                 @map("offered_quantity")
+  dealerResponse  DealerNoticeResponse @default(PENDING) @map("dealer_response")
+  respondedAt     DateTime?            @map("responded_at")
+
+  sentById Int?      @map("sent_by_id")
+  sentBy   User?     @relation("StockNoticeSender", fields: [sentById], references: [id])
+  sentAt   DateTime? @map("sent_at")
+
+  resolvedById Int?      @map("resolved_by_id")
+  resolvedBy   User?     @relation("StockNoticeResolver", fields: [resolvedById], references: [id])
+  resolvedAt   DateTime? @map("resolved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("order_stock_notices")
+}
+
+// Spare parts have no VIN-level stock truth the way vehicles do (VehicleUnit)
+// — this is the minimal catalog needed to answer "how many does the
+// manufacturer have" for the Check Inventory comparison.
+model SparePartInventory {
+  id             Int      @id @default(autoincrement())
+  partCode       String?  @unique @map("part_code")
+  partName       String   @unique @map("part_name")
+  quantityOnHand Int      @default(0) @map("quantity_on_hand")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("spare_part_inventory")
 }
 
 // =============================================================================
@@ -790,6 +891,7 @@ enum StockTransferStatus {
   DELIVERED
   REJECTED
   CANCELLED
+  DISPUTED
 }
 
 model VehicleUnit {
@@ -845,6 +947,8 @@ model StockTransferRequest {
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+
+  stockNotice OrderStockNotice?
 
   @@index([dealerId])
   @@index([status])

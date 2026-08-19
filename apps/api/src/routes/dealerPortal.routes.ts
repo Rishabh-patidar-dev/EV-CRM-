@@ -16,6 +16,10 @@ router.post("/stock-transfers", portal.createStockTransfer.bind(portal));
 router.get("/spare-parts", portal.listSpareParts.bind(portal));
 router.post("/spare-parts", portal.createSparePart.bind(portal));
 
+// Dealer's response to an out-of-stock partial-fulfillment offer.
+router.post("/stock-transfers/:id/notice-response", portal.respondToStockTransferNotice.bind(portal));
+router.post("/spare-parts/:id/notice-response", portal.respondToSparePartNotice.bind(portal));
+
 router.get("/service-tickets", portal.listServiceTickets.bind(portal));
 router.post("/service-tickets", portal.createServiceTicket.bind(portal));
 

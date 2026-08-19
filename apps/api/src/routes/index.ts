@@ -45,6 +45,7 @@ router.use("/dealer-routing", dealerRoutes.routing);
 router.use("/finance-cases", dealerRoutes.finance);
 router.use("/service-tickets", dealerRoutes.service);
 router.use("/spare-parts", dealerRoutes.spares);
+router.use("/spare-part-inventory", dealerRoutes.sparePartInventory);
 
 // New submodules
 router.use("/vehicle-units", dealerInventoryRoutes.vehicleUnits);

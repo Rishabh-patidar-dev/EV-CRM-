@@ -1,7 +1,7 @@
 // ============================================================================
 // Dealer Management — finance facilitation + after-sales controllers
 // ============================================================================
-// Two of VoltOs's key dealer-retention pillars:
+// Two of Luxus Green Mobility's key dealer-retention pillars:
 //   - FinanceController: the NBFC/bank bridge (buyer finance pipeline)
 //   - AfterSalesController: service tickets + spare-part requests
 // Copied from the delivered bundle with no changes — no Postgres-specific
@@ -230,11 +230,30 @@ export class AfterSalesController {
   }
 
   // PATCH /api/v1/spare-parts/:id
+  //   REQUESTED -> APPROVED and any DISPUTED transition must go through
+  //   Order Management's Check Inventory / Disputed Orders endpoints
+  //   (orderManagement.controller.ts) so a spare-part order can't be
+  //   confirmed without a stock check ever running.
   async updateSparePart(req: Request, res: Response) {
     try {
       const id = parseInt(req.params.id as string);
       if (!id) return handleValidationError(res, "Request ID is required", "id", "Update spare request");
       const b = req.body ?? {};
+
+      if (b.status !== undefined) {
+        const current = await prisma.sparePartRequest.findUnique({ where: { id }, select: { status: true } });
+        if (!current) return handleNotFoundError(res, "Spare request", "Update spare request");
+        if (current.status === "REQUESTED" && b.status === "APPROVED") {
+          return handleValidationError(res, "Run Check Inventory before approving a requested order", "status", "Update spare request");
+        }
+        if (b.status === "DISPUTED") {
+          return handleValidationError(res, "Disputed status is only set by Check Inventory", "status", "Update spare request");
+        }
+        if (current.status === "DISPUTED") {
+          return handleValidationError(res, "This order is disputed — use the Disputed Orders actions", "status", "Update spare request");
+        }
+      }
+
       const data: any = {};
       for (const f of ["status", "quantity", "partCode"]) if (b[f] !== undefined) data[f] = b[f];
       if (b.status === "DISPATCHED") data.dispatchedAt = new Date();
@@ -243,6 +262,57 @@ export class AfterSalesController {
     } catch (error: any) {
       if (error.code === "P2025") return handleNotFoundError(res, "Spare request", "Update spare request");
       handleError(error, res, "Update spare request");
+    }
+  }
+}
+
+// --------------------------- SPARE PART INVENTORY ---------------------------
+// Manufacturer stock-on-hand catalog, used by Order Management's Check
+// Inventory comparison for spare-part orders (vehicles already have VIN-level
+// truth via VehicleUnit; spare parts had none until this).
+export class SparePartInventoryController {
+  // GET /api/v1/spare-part-inventory (?search=)
+  async list(req: Request, res: Response) {
+    try {
+      const { search } = req.query;
+      const where: any = search
+        ? { OR: [{ partName: { contains: search as string, mode: "insensitive" } }, { partCode: { contains: search as string, mode: "insensitive" } }] }
+        : {};
+      const items = await prisma.sparePartInventory.findMany({ where, orderBy: { partName: "asc" } });
+      res.json({ items });
+    } catch (error) {
+      handleError(error, res, "List spare part inventory");
+    }
+  }
+
+  // POST /api/v1/spare-part-inventory — catalog a part with its stock count
+  async create(req: Request, res: Response) {
+    try {
+      const b = req.body ?? {};
+      if (!b.partName) return handleValidationError(res, "partName is required", "partName", "Create spare part inventory");
+      const item = await prisma.sparePartInventory.create({
+        data: { partName: b.partName, partCode: b.partCode ?? null, quantityOnHand: b.quantityOnHand ? parseInt(b.quantityOnHand) : 0 },
+      });
+      res.status(201).json(item);
+    } catch (error) {
+      handleError(error, res, "Create spare part inventory");
+    }
+  }
+
+  // PATCH /api/v1/spare-part-inventory/:id — body: { quantityOnHand }
+  async update(req: Request, res: Response) {
+    try {
+      const id = parseInt(req.params.id as string);
+      if (!id) return handleValidationError(res, "Inventory ID is required", "id", "Update spare part inventory");
+      const b = req.body ?? {};
+      const data: any = {};
+      if (b.quantityOnHand !== undefined) data.quantityOnHand = parseInt(b.quantityOnHand);
+      if (b.partCode !== undefined) data.partCode = b.partCode;
+      const item = await prisma.sparePartInventory.update({ where: { id }, data });
+      res.json(item);
+    } catch (error: any) {
+      if (error.code === "P2025") return handleNotFoundError(res, "Spare part inventory", "Update spare part inventory");
+      handleError(error, res, "Update spare part inventory");
     }
   }
 }

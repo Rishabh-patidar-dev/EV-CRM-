@@ -2,7 +2,7 @@
   "name": "ev-crm",
   "private": true,
   "version": "0.1.0",
-  "description": "Luxus Green VoltOs — runnable local scaffold wiring the delivered bundle (theme, onboarding, dealer management) into a working Express + Next.js + Prisma app.",
+  "description": "Luxus Green Mobility — runnable local scaffold wiring the delivered bundle (theme, onboarding, dealer management) into a working Express + Next.js + Prisma app.",
   "workspaces": [
     "apps/*",
     "packages/*"

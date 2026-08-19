@@ -21,6 +21,7 @@ import {
   Mail,
   MessageCircle,
   CheckSquare,
+  AlertTriangle,
 } from "lucide-react";
 import Logo from "./Logo";
 
@@ -62,7 +63,8 @@ const NAV: NavEntry[] = [
       { href: "/dealer-onboarding", label: "Onboarding Pipeline", icon: Workflow },
       { href: "/dealer-management", label: "Dealer 360", icon: Building2 },
       { href: "/dealer-inventory", label: "Vehicle Inventory", icon: Warehouse },
-      { href: "/order-management", label: "Order Management", icon: ListChecks },
+      { href: "/order-management", label: "Order Management", icon: ListChecks, exactOnly: true },
+      { href: "/order-management/disputed", label: "Disputed Orders", icon: AlertTriangle },
       { href: "/purchase-management", label: "Purchase Management", icon: ShoppingCart, badge: "new" },
       { href: "/dealer-compliance", label: "Compliance & Renewals", icon: ShieldCheck },
     ],
@@ -102,15 +104,12 @@ export default function Sidebar() {
   return (
     <aside className="synkro-sidebar flex w-72 shrink-0 flex-col border-r">
       <div className="flex items-center gap-2.5 px-5 py-5 border-b" style={{ borderColor: "var(--sidebar-border)" }}>
-        <div
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
-          style={{ background: "var(--sidebar-primary)" }}
-        >
-          <Logo className="h-5 w-5" style={{ color: "var(--sidebar-primary-foreground)" }} />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white">
+          <Logo className="h-9 w-9" />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-bold leading-none tracking-tight">VoltOs</div>
-          <div className="sidebar-muted mt-1 truncate text-[11px] leading-none"></div>
+          <div className="truncate text-[15px] font-bold leading-none tracking-tight">Luxus Green</div>
+          <div className="sidebar-muted mt-1 truncate text-[11px] leading-none">Mobility</div>
         </div>
       </div>
 
@@ -144,7 +143,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t px-5 py-4" style={{ borderColor: "var(--sidebar-border)" }}>
-        <p className="sidebar-muted text-[11px]">© {new Date().getFullYear()} VoltOs</p>
+        <p className="sidebar-muted text-[11px]">© {new Date().getFullYear()} Luxus Green Mobility</p>
       </div>
     </aside>
   );

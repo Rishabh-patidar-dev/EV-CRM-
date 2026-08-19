@@ -7,14 +7,18 @@ import { UserRole } from "@repo/db";
 import { requireAuth, requireRole } from "../middleware/auth.middleware.js";
 import { DealerController } from "../controllers/dealer.controller.js";
 import { DealerLeadRoutingController } from "../controllers/dealerLeadRouting.controller.js";
-import { FinanceController, AfterSalesController } from "../controllers/dealerAfterSales.controller.js";
+import { FinanceController, AfterSalesController, SparePartInventoryController } from "../controllers/dealerAfterSales.controller.js";
 
 const ADMINS = [UserRole.ADMIN, UserRole.SYSTEM_ADMIN];
+// Department roles, additive to ADMINS — see docs/ARCHITECTURE_AND_FLOWS.md §4.
+const FINANCE_STAFF = [...ADMINS, UserRole.FINANCE];
+const WAREHOUSE_STAFF = [...ADMINS, UserRole.WAREHOUSE];
 
 const dealer = new DealerController();
 const routing = new DealerLeadRoutingController();
 const finance = new FinanceController();
 const afterSales = new AfterSalesController();
+const sparePartInventory = new SparePartInventoryController();
 
 // ---- /api/v1/dealers ----
 const dealers = Router();
@@ -39,9 +43,9 @@ routingRouter.patch("/:id", requireRole(ADMINS), routing.update.bind(routing));
 // ---- /api/v1/finance-cases ----
 const financeRouter = Router();
 financeRouter.use(requireAuth);
-financeRouter.get("/", requireRole(ADMINS), finance.list.bind(finance));
-financeRouter.post("/", requireRole(ADMINS), finance.create.bind(finance));
-financeRouter.patch("/:id", requireRole(ADMINS), finance.update.bind(finance));
+financeRouter.get("/", requireRole(FINANCE_STAFF), finance.list.bind(finance));
+financeRouter.post("/", requireRole(FINANCE_STAFF), finance.create.bind(finance));
+financeRouter.patch("/:id", requireRole(FINANCE_STAFF), finance.update.bind(finance));
 
 // ---- /api/v1/service-tickets ----
 const serviceRouter = Router();
@@ -57,10 +61,19 @@ sparesRouter.get("/", requireRole(ADMINS), afterSales.listSpareParts.bind(afterS
 sparesRouter.post("/", requireRole(ADMINS), afterSales.createSparePart.bind(afterSales));
 sparesRouter.patch("/:id", requireRole(ADMINS), afterSales.updateSparePart.bind(afterSales));
 
+// ---- /api/v1/spare-part-inventory ---- manufacturer stock-on-hand catalog,
+// read by Order Management's Check Inventory comparison for spare parts.
+const sparePartInventoryRouter = Router();
+sparePartInventoryRouter.use(requireAuth);
+sparePartInventoryRouter.get("/", requireRole(WAREHOUSE_STAFF), sparePartInventory.list.bind(sparePartInventory));
+sparePartInventoryRouter.post("/", requireRole(WAREHOUSE_STAFF), sparePartInventory.create.bind(sparePartInventory));
+sparePartInventoryRouter.patch("/:id", requireRole(WAREHOUSE_STAFF), sparePartInventory.update.bind(sparePartInventory));
+
 export default {
   dealers,
   routing: routingRouter,
   finance: financeRouter,
   service: serviceRouter,
   spares: sparesRouter,
+  sparePartInventory: sparePartInventoryRouter,
 };
