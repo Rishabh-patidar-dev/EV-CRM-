@@ -1,11 +1,11 @@
 "use client";
 
 // ============================================================================
-// Close Orders
+// Disputed Orders
 // ============================================================================
-// Route: /order-management/Close
+// Route: /order-management/disputed
 // Every order Check Inventory found short on manufacturer stock. The dealer
-// sees nothing beyond "Close" here until staff manually send an
+// sees nothing beyond "disputed" here until staff manually send an
 // out-of-stock notice (with an expected restock date, and optionally a
 // partial-fulfillment offer) — that notice is what the SRS calls the "out of
 // stock invoice." "Sort: best fit" ranks orders competing for the same item
@@ -50,7 +50,7 @@ interface Dispute {
 
 type SortMode = "recent" | "bestFit";
 
-export default function CloseOrdersPage() {
+export default function DisputedOrdersPage() {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortMode, setSortMode] = useState<SortMode>("recent");
@@ -60,7 +60,7 @@ export default function CloseOrdersPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await apiClient.get("/api/v1/order-management/Close");
+    const { data } = await apiClient.get("/api/v1/order-management/disputed");
     setDisputes(data.disputes ?? []);
     setLoading(false);
   }, []);
@@ -88,7 +88,7 @@ export default function CloseOrdersPage() {
     setResolvingId(d.id);
     setRecheckMsg((m) => ({ ...m, [d.id]: "" }));
     try {
-      const { data } = await apiClient.post(`/api/v1/order-management/Close/${d.type}/${d.id}/resolve`);
+      const { data } = await apiClient.post(`/api/v1/order-management/disputed/${d.type}/${d.id}/resolve`);
       if (data.sufficient) {
         setRecheckMsg((m) => ({ ...m, [d.id]: "Stock now sufficient — order approved." }));
         await load();
@@ -111,7 +111,7 @@ export default function CloseOrdersPage() {
         <div className="flex items-center gap-2.5">
           <AlertTriangle className="h-6 w-6" style={{ color: "var(--zira-rejected)" }} />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Close Orders</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Disputed Orders</h1>
             <p className="mt-1 text-sm text-muted-foreground">Orders short on manufacturer stock — the dealer gets no confirmation until you send them a notice.</p>
           </div>
         </div>
@@ -147,7 +147,7 @@ export default function CloseOrdersPage() {
             {loading ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
             ) : sorted.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No Close orders — everything's in stock.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No disputed orders — everything's in stock.</td></tr>
             ) : (
               sorted.map((d) => (
                 <tr
@@ -261,7 +261,7 @@ function SendNoticeModal({ dispute, onClose, onSent }: { dispute: Dispute | null
     setSubmitting(true);
     setError(null);
     try {
-      await apiClient.post(`/api/v1/order-management/Close/${dispute.type}/${dispute.id}/notice`, {
+      await apiClient.post(`/api/v1/order-management/disputed/${dispute.type}/${dispute.id}/notice`, {
         expectedRestockDate: expectedRestockDate || undefined,
         message: message || undefined,
         offeredQuantity: offerPartial ? offerNum : undefined,

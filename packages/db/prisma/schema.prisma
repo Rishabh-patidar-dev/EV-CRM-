@@ -559,7 +559,7 @@ enum SparePartRequestStatus {
   DISPATCHED
   DELIVERED
   CANCELLED
-  Close
+  DISPUTED
 }
 
 enum OrderChannel {
@@ -781,13 +781,13 @@ model SparePartRequest {
 }
 
 // =============================================================================
-// SUBMODULE — Order Management: inventory check + Close Orders
+// SUBMODULE — Order Management: inventory check + Disputed Orders
 // -----------------------------------------------------------------------------
 // A dealer's REQUESTED order only ever becomes APPROVED (i.e. the dealer sees
 // an order-confirmation) after staff run a "Check Inventory" comparison
 // against manufacturer stock (VehicleUnit.dealerId = null for vehicles,
 // SparePartInventory.quantityOnHand for spare parts). If stock is short, the
-// order moves to Close and one OrderStockNotice row is created — the
+// order moves to DISPUTED and one OrderStockNotice row is created — the
 // dealer sees no confirmation until staff manually send that notice with an
 // expected restock date, which is the "out of stock invoice" the SRS asked
 // for. Resolving a dispute (stock back in, recheck passes) moves the order
@@ -809,7 +809,7 @@ enum StockNoticeStatus {
 // PENDING until the dealer acts in DMS; ACCEPTED splits the order (see
 // dealerPortal.controller.ts's respondToStockNotice) into an APPROVED order
 // for offeredQuantity now plus a fresh REQUESTED backorder for the rest;
-// DECLINED leaves the order Close for staff to reconsider.
+// DECLINED leaves the order DISPUTED for staff to reconsider.
 enum DealerNoticeResponse {
   PENDING
   ACCEPTED
@@ -959,7 +959,7 @@ enum StockTransferStatus {
   DELIVERED
   REJECTED
   CANCELLED
-  Close
+  DISPUTED
 }
 
 model VehicleUnit {

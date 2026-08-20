@@ -13,10 +13,10 @@
 // keeping pace week over week, and how much of what's ordered actually gets
 // delivered (fulfillment) rather than rejected or cancelled.
 //
-// It also owns the Check Inventory / Close Orders workflow: a REQUESTED
+// It also owns the Check Inventory / Disputed Orders workflow: a REQUESTED
 // order only becomes APPROVED (the dealer's order-confirmation) once staff
-// run a stock comparison here. Short stock moves the order to Close and
-// creates one OrderStockNotice row; the dealer sees nothing beyond "Close"
+// run a stock comparison here. Short stock moves the order to DISPUTED and
+// creates one OrderStockNotice row; the dealer sees nothing beyond "disputed"
 // until staff manually send that notice with an expected restock date — that
 // notice is the "out of stock invoice" the dealer eventually receives.
 // ============================================================================
@@ -102,7 +102,7 @@ function itemLabel(type: OrderKind, order: any): string {
 }
 
 // Identifies "the same shared stock pool" — vehicles by model+segment, spare
-// parts by partCode (falling back to partName) — so Close Orders' best-fit
+// parts by partCode (falling back to partName) — so Disputed Orders' best-fit
 // sort only ever compares orders that are actually competing for the same
 // units, not unrelated items that happen to both be short.
 function groupKey(type: OrderKind, order: any): string {
@@ -114,7 +114,7 @@ function groupKey(type: OrderKind, order: any): string {
 // The document Order Management actually hands the dealer, following the
 // OEM's own flow chart: CONFIRMATION when stock covers the order (issued the
 // moment Check Inventory / a recheck approves it), OUT_OF_STOCK or PARTIAL
-// when staff send a Close Orders notice (see sendNotice below). Always
+// when staff send a Disputed Orders notice (see sendNotice below). Always
 // called inside the same transaction as the status change it documents —
 // `tx` must be the active transaction client, never the bare `prisma`.
 async function issueInvoice(
@@ -404,7 +404,7 @@ export class OrderManagementController {
   // POST /api/v1/order-management/orders/:type/:id/check-inventory — the
   // actual "Check Inventory" button action, only valid on a REQUESTED order.
   // Sufficient stock -> APPROVED (the order confirmation). Short stock ->
-  // Close + a new OrderStockNotice, routed into the Close Orders list.
+  // DISPUTED + a new OrderStockNotice, routed into the Disputed Orders list.
   async runInventoryCheck(req: Request, res: Response) {
     try {
       const type = normalizeType(req.params.type);
@@ -435,8 +435,8 @@ export class OrderManagementController {
         }
 
         const updated = type === "VEHICLE"
-          ? await tx.stockTransferRequest.update({ where: { id }, data: { status: "Close" } })
-          : await tx.sparePartRequest.update({ where: { id }, data: { status: "Close" } });
+          ? await tx.stockTransferRequest.update({ where: { id }, data: { status: "DISPUTED" } })
+          : await tx.sparePartRequest.update({ where: { id }, data: { status: "DISPUTED" } });
 
         const notice = await tx.orderStockNotice.create({
           data: {
@@ -457,8 +457,8 @@ export class OrderManagementController {
     }
   }
 
-  // GET /api/v1/order-management/Close — the Close Orders sub-module
-  // list: every VEHICLE + SPARE_PART order currently Close, merged same
+  // GET /api/v1/order-management/disputed — the Disputed Orders sub-module
+  // list: every VEHICLE + SPARE_PART order currently DISPUTED, merged same
   // as list(), with its stock notice attached, plus a "best fit" ranking:
   // orders competing for the same item (same model+segment, or same spare
   // part) are grouped and ranked by ascending shortfall against LIVE stock
@@ -466,7 +466,7 @@ export class OrderManagementController {
   // by largest quantity. Rank 0 in each group is what the "Sort: best fit"
   // button on the frontend surfaces first — the order closest to being fully
   // fulfillable from what's on hand right now.
-  async listClose(req: Request, res: Response) {
+  async listDisputed(req: Request, res: Response) {
     try {
       const { zone, type } = req.query;
       const dealerWhere: any = {};
@@ -475,12 +475,12 @@ export class OrderManagementController {
 
       const [transfers, spares] = await Promise.all([
         type === "SPARE_PART" ? [] : prisma.stockTransferRequest.findMany({
-          where: { status: "Close", dealer: dealerFilter },
+          where: { status: "DISPUTED", dealer: dealerFilter },
           include: { dealer: { select: DEALER_SELECT }, stockNotice: true },
           orderBy: { updatedAt: "desc" },
         }),
         type === "VEHICLE" ? [] : prisma.sparePartRequest.findMany({
-          where: { status: "Close", dealer: dealerFilter },
+          where: { status: "DISPUTED", dealer: dealerFilter },
           include: { dealer: { select: DEALER_SELECT }, stockNotice: true },
           orderBy: { updatedAt: "desc" },
         }),
@@ -536,11 +536,11 @@ export class OrderManagementController {
 
       res.json({ disputes, total: disputes.length });
     } catch (error) {
-      handleError(error, res, "List Close orders");
+      handleError(error, res, "List disputed orders");
     }
   }
 
-  // POST /api/v1/order-management/Close/:type/:id/notice
+  // POST /api/v1/order-management/disputed/:type/:id/notice
   // body: { expectedRestockDate?, message?, offeredQuantity? } — the
   // out-of-stock notice the dealer only sees once staff send it manually;
   // this is the "invoice" the dealer receives in place of an order
@@ -555,7 +555,7 @@ export class OrderManagementController {
 
       const order: any = await loadOrder(type, id);
       if (!order) return handleNotFoundError(res, "Order", "Send out-of-stock notice");
-      if (order.status !== "Close" || !order.stockNotice) {
+      if (order.status !== "DISPUTED" || !order.stockNotice) {
         return handleValidationError(res, "This order has no open dispute to send a notice for", "status", "Send out-of-stock notice");
       }
 
@@ -601,7 +601,7 @@ export class OrderManagementController {
     }
   }
 
-  // POST /api/v1/order-management/Close/:type/:id/resolve — re-runs the
+  // POST /api/v1/order-management/disputed/:type/:id/resolve — re-runs the
   // same comparison ("order renewal" recheck); sufficient stock now clears
   // the dispute back to APPROVED, otherwise the dispute stays open with a
   // refreshed available-quantity snapshot.
@@ -613,7 +613,7 @@ export class OrderManagementController {
 
       const order: any = await loadOrder(type, id);
       if (!order) return handleNotFoundError(res, "Order", "Resolve dispute");
-      if (order.status !== "Close" || !order.stockNotice) {
+      if (order.status !== "DISPUTED" || !order.stockNotice) {
         return handleValidationError(res, "This order has no open dispute", "status", "Resolve dispute");
       }
 

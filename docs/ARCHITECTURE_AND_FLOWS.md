@@ -40,7 +40,7 @@ flowchart TD
   DM --> DM2["Dealer 360"]
   DM --> DM3["Vehicle Inventory"]
   DM --> DM4["Order Management"]
-  DM4 --> DM4a["Close Orders"]
+  DM4 --> DM4a["Disputed Orders"]
   DM4 --> DM4b["Invoices"]
   DM --> DM5["Purchase Management"]
   DM --> DM6["Compliance & Renewals"]
@@ -114,7 +114,7 @@ flowchart TD
   F2 --> E1
   G3 --> H1["Dealer receives stock — visible in DMS"]
 
-  D1 -->|"stock short"| F1["Close Orders queue<br/>(sub-module of Order Management)"]
+  D1 -->|"stock short"| F1["Disputed Orders queue<br/>(sub-module of Order Management)"]
   F1 --> F0{"Sort: best fit —<br/>rank competing orders by<br/>smallest shortfall, then quantity"}
   F0 --> F3["Sales sends out-of-stock notice<br/>+ expected restock date<br/>+ optional partial-fulfillment offer"]
   F3 -.->|"issues"| INV2["OUT_OF_STOCK or<br/>PARTIAL invoice"]
@@ -139,19 +139,19 @@ flowchart TD
 | Department | Role | Owns in order lifecycle | System module |
 |---|---|---|---|
 | Sales / Order Desk | `SALES`, `RELATIONSHIP_MANAGER` *(existing)* | Receives order, dealer communication, sends notices | Order Management, Dealer 360 |
-| Warehouse / Inventory | `WAREHOUSE` *(new)* | Check Inventory, stock allocation, Close Orders queue | Vehicle Inventory, Order Management |
+| Warehouse / Inventory | `WAREHOUSE` *(new)* | Check Inventory, stock allocation, Disputed Orders queue | Vehicle Inventory, Order Management |
 | Finance | `FINANCE` *(new)* | Dealer credit-limit / payment-terms gate before dispatch | Finance Cases, Dealer 360 |
 | Warehouse / Logistics | `WAREHOUSE` or `LOGISTICS` *(new)* | Dispatch → Delivered, shipment tracking | Order Management |
 | Marketing | `MARKETING` *(new)* | Lead-gen & campaigns — upstream of orders only | Campaign Management |
 | Admin / System Admin | `ADMIN`, `SYSTEM_ADMIN` *(existing)* | Oversight across all departments | All modules |
 
-**Status:** `WAREHOUSE`, `FINANCE`, `MARKETING` now exist on `UserRole` and are wired **additively** into the routes in their row (Order Management + Check Inventory + Close Orders + Spare Part Inventory accept `WAREHOUSE`, Finance Cases accepts `FINANCE`, Campaign Management accepts `MARKETING` — always alongside `ADMIN`/`SYSTEM_ADMIN`, never instead of).
+**Status:** `WAREHOUSE`, `FINANCE`, `MARKETING` now exist on `UserRole` and are wired **additively** into the routes in their row (Order Management + Check Inventory + Disputed Orders + Spare Part Inventory accept `WAREHOUSE`, Finance Cases accepts `FINANCE`, Campaign Management accepts `MARKETING` — always alongside `ADMIN`/`SYSTEM_ADMIN`, never instead of).
 **Known gap:** `requireAuth` is still a dev-only stub (`apps/api/src/middleware/auth.middleware.ts`) that defaults every request to `SYSTEM_ADMIN` regardless of who's logged in — so today these roles don't yet *restrict* anyone in practice. Real enforcement needs `requireAuth` to resolve the logged-in user's actual role from their session, not the stub default — that's the next step, not a UI change.
 
-## 5. Close Orders — Best Fit & Partial Fulfillment
+## 5. Disputed Orders — Best Fit & Partial Fulfillment
 
-- **Sort: best fit** groups Close orders competing for the same item (model+segment, or same spare part) and ranks them by ascending shortfall against *live* stock, tied-broken by largest quantity — the order closest to being fully fulfillable from what's on hand is flagged "Best fit."
-- Staff can send a notice with an **offered quantity** (e.g. "155 of 160 now"). The dealer sees this in DMS and can **Accept** (splits the order — offered quantity ships now as `APPROVED`, the remainder becomes a fresh `REQUESTED` backorder, `STR-2026-0000xx`, so demand is never silently lost) or **Decline** (order stays in Close Orders).
+- **Sort: best fit** groups disputed orders competing for the same item (model+segment, or same spare part) and ranks them by ascending shortfall against *live* stock, tied-broken by largest quantity — the order closest to being fully fulfillable from what's on hand is flagged "Best fit."
+- Staff can send a notice with an **offered quantity** (e.g. "155 of 160 now"). The dealer sees this in DMS and can **Accept** (splits the order — offered quantity ships now as `APPROVED`, the remainder becomes a fresh `REQUESTED` backorder, `STR-2026-0000xx`, so demand is never silently lost) or **Decline** (order stays in Disputed Orders).
 
 ## 6. Invoices
 
@@ -160,8 +160,8 @@ Digitizes the OEM's own order-placement flow chart — three document types gene
 | Trigger | Invoice type | Fulfilled qty |
 |---|---|---|
 | Check Inventory / recheck finds stock **available** | `CONFIRMATION` | = requested |
-| Close order, staff send notice with **no offer** ("completely out of stock") | `OUT_OF_STOCK` | 0 |
-| Close order, staff send notice **with an offer** ("order is close", e.g. 150 of 155) | `PARTIAL` | = offered |
+| Disputed order, staff send notice with **no offer** ("completely out of stock") | `OUT_OF_STOCK` | 0 |
+| Disputed order, staff send notice **with an offer** ("order is close", e.g. 150 of 155) | `PARTIAL` | = offered |
 
 Each is a standalone, printable document (`invoiceNumber` sequence `INV-2026-000001…`) — an order can accumulate several over its life as its situation changes, unlike the single `OrderStockNotice` row that drives the accept/decline state machine underneath it.
 

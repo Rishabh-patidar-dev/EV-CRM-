@@ -8,7 +8,7 @@
 // confirmation: compares the requested quantity against manufacturer stock
 // (OEM warehouse VehicleUnit count for vehicles, SparePartInventory for
 // spare parts) and lets staff run the check. Sufficient stock approves the
-// order (the dealer's confirmation); short stock routes it to Close
+// order (the dealer's confirmation); short stock routes it to Disputed
 // Orders instead — nothing is auto-approved without this page's decision.
 // ============================================================================
 import React, { useCallback, useEffect, useState } from "react";
@@ -148,7 +148,7 @@ export default function CheckInventoryPage() {
           {sufficient ? (
             <span><span className="font-semibold">Sufficient stock.</span> Running the check will confirm this order and set it to Approved.</span>
           ) : (
-            <span><span className="font-semibold">Insufficient stock</span> — short by {shortBy}. Running the check will move this order to Close Orders; the dealer will not be confirmed until a notice is sent manually.</span>
+            <span><span className="font-semibold">Insufficient stock</span> — short by {shortBy}. Running the check will move this order to Disputed Orders; the dealer will not be confirmed until a notice is sent manually.</span>
           )}
         </div>
       </div>
@@ -163,13 +163,13 @@ export default function CheckInventoryPage() {
             <AlertTriangle className="h-5 w-5 shrink-0" style={{ color: "var(--zira-rejected)" }} />
           )}
           <div className="flex-1 text-sm">
-            {decided.sufficient ? "Order confirmed — the dealer will see it as Approved." : "Moved to Close Orders — send an out-of-stock notice from there."}
+            {decided.sufficient ? "Order confirmed — the dealer will see it as Approved." : "Moved to Disputed Orders — send an out-of-stock notice from there."}
           </div>
           <Link
-            href={decided.sufficient ? "/order-management" : "/order-management/Close"}
+            href={decided.sufficient ? "/order-management" : "/order-management/disputed"}
             className="shrink-0 rounded-[var(--radius)] border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent"
           >
-            {decided.sufficient ? "Back to Order Management" : "Go to Close Orders"}
+            {decided.sufficient ? "Back to Order Management" : "Go to Disputed Orders"}
           </Link>
         </div>
       ) : alreadyDecided ? (
