@@ -65,7 +65,7 @@ const NAV: NavEntry[] = [
       { href: "/dealer-management", label: "Dealer 360", icon: Building2 },
       { href: "/dealer-inventory", label: "Vehicle Inventory", icon: Warehouse },
       { href: "/order-management", label: "Order Management", icon: ListChecks, exactOnly: true },
-      { href: "/order-management/disputed", label: "Disputed Orders", icon: AlertTriangle },
+      { href: "/order-management/Close", label: "Close Orders", icon: AlertTriangle },
       { href: "/order-management/invoices", label: "Invoices", icon: FileText },
       { href: "/purchase-management", label: "Purchase Management", icon: ShoppingCart, badge: "new" },
       { href: "/dealer-compliance", label: "Compliance & Renewals", icon: ShieldCheck },

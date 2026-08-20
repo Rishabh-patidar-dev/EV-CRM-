@@ -24,9 +24,9 @@ import CreateOrderModal from "@/components/orders/CreateOrderModal";
 
 // REQUESTED isn't in this map — it doesn't advance via the generic PATCH
 // anymore, it goes through the Check Inventory flow (see the action cell
-// below), which is the only thing allowed to set APPROVED or DISPUTED.
+// below), which is the only thing allowed to set APPROVED or Close.
 const FLOW: Record<string, string> = { APPROVED: "DISPATCHED", DISPATCHED: "DELIVERED" };
-const ORDER_STATUSES = ["REQUESTED", "APPROVED", "DISPATCHED", "DELIVERED", "REJECTED", "CANCELLED", "DISPUTED"];
+const ORDER_STATUSES = ["REQUESTED", "APPROVED", "DISPATCHED", "DELIVERED", "REJECTED", "CANCELLED", "Close"];
 
 interface Analytics {
   totalOrders: number;
@@ -62,7 +62,7 @@ export default function OrderManagementPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [zoneCards, setZoneCards] = useState<{ zone: string; openOrders: number; newFromDms: number }[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [disputedCount, setDisputedCount] = useState<number | null>(null);
+  const [CloseCount, setCloseCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [zoneFilter, setZoneFilter] = useState("");
@@ -81,9 +81,9 @@ export default function OrderManagementPage() {
     setZoneCards(data.zones ?? []);
   }, []);
 
-  const loadDisputedCount = useCallback(async () => {
-    const { data } = await apiClient.get("/api/v1/order-management/disputed");
-    setDisputedCount(data.total ?? 0);
+  const loadCloseCount = useCallback(async () => {
+    const { data } = await apiClient.get("/api/v1/order-management/Close");
+    setCloseCount(data.total ?? 0);
   }, []);
 
   const selectZone = (zone: string) => {
@@ -103,11 +103,11 @@ export default function OrderManagementPage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadAnalytics(), loadZones(), loadOrders(), loadDisputedCount()]);
+      await Promise.all([loadAnalytics(), loadZones(), loadOrders(), loadCloseCount()]);
     } finally {
       setLoading(false);
     }
-  }, [loadAnalytics, loadZones, loadOrders, loadDisputedCount]);
+  }, [loadAnalytics, loadZones, loadOrders, loadCloseCount]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -130,15 +130,15 @@ export default function OrderManagementPage() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Link
-            href="/order-management/disputed"
+            href="/order-management/Close"
             className="relative flex items-center gap-1.5 rounded-[var(--radius)] border px-4 py-2 text-sm font-semibold transition-colors hover:bg-accent"
             style={{ borderColor: "var(--zira-rejected)", color: "var(--zira-rejected)" }}
           >
             <AlertTriangle className="h-4 w-4" />
-            Disputed orders
-            {!!disputedCount && (
+            Close orders
+            {!!CloseCount && (
               <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold text-white" style={{ background: "var(--zira-rejected)" }}>
-                {disputedCount}
+                {CloseCount}
               </span>
             )}
           </Link>
@@ -348,8 +348,8 @@ export default function OrderManagementPage() {
                         <SearchCheck className="h-3 w-3" />
                         Check inventory
                       </Link>
-                    ) : o.status === "DISPUTED" ? (
-                      <Link href={`/order-management/disputed`} className="text-xs hover:underline" style={{ color: "var(--zira-rejected)" }}>
+                    ) : o.status === "Close" ? (
+                      <Link href={`/order-management/Close`} className="text-xs hover:underline" style={{ color: "var(--zira-rejected)" }}>
                         View dispute
                       </Link>
                     ) : (
@@ -386,6 +386,6 @@ function TopByZoneList({ rows, empty }: { rows: { zone: string; topItem: string;
 }
 
 function OrderStatusBadge({ status }: { status: string }) {
-  const style = status === "DELIVERED" ? "badge-approved" : status === "REJECTED" || status === "CANCELLED" || status === "DISPUTED" ? "badge-rejected" : "badge-pending";
+  const style = status === "DELIVERED" ? "badge-approved" : status === "REJECTED" || status === "CANCELLED" || status === "Close" ? "badge-rejected" : "badge-pending";
   return <span className={`${style} shrink-0 rounded-full px-2 py-0.5 text-xs`}>{status.replace("_", " ")}</span>;
 }

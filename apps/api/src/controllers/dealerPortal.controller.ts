@@ -223,7 +223,7 @@ export class DealerPortalController {
   // 160 now"). ACCEPTED splits the order: the original is cut down to the
   // offered quantity and approved now, and a fresh REQUESTED backorder
   // covers the remainder so that demand isn't silently lost. DECLINED just
-  // records the answer — the order stays DISPUTED for staff to reconsider.
+  // records the answer — the order stays Close for staff to reconsider.
   async respondToStockTransferNotice(req: Request, res: Response) {
     return this.respondToNotice(req, res, {
       findOrder: (id) => prisma.stockTransferRequest.findUnique({ where: { id }, include: { stockNotice: true } }),
@@ -285,7 +285,7 @@ export class DealerPortalController {
       const order = await ops.findOrder(id);
       if (!order || order.dealerId !== dealerId) return handleNotFoundError(res, "Order", "Respond to out-of-stock notice");
       const notice = order.stockNotice;
-      if (order.status !== "DISPUTED" || !notice || notice.status !== "SENT" || notice.dealerResponse !== "PENDING" || notice.offeredQuantity == null) {
+      if (order.status !== "Close" || !notice || notice.status !== "SENT" || notice.dealerResponse !== "PENDING" || notice.offeredQuantity == null) {
         return handleValidationError(res, "This order has no pending partial-fulfillment offer to respond to", "status", "Respond to out-of-stock notice");
       }
 
