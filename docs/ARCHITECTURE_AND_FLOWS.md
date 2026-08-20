@@ -155,7 +155,7 @@ flowchart TD
 
 ## 6. Invoices
 
-Digitizes the OEM's own order-placement flow chart exactly — three document types, generated automatically (never a manual "create invoice" step) and viewable in **Order Management → Invoices** (CRM) and **Invoices** (DMS):
+Digitizes the OEM's own order-placement flow chart — three document types generated automatically, viewable in **Order Management → Invoices** (CRM) and **Invoices** (DMS):
 
 | Trigger | Invoice type | Fulfilled qty |
 |---|---|---|
@@ -164,3 +164,5 @@ Digitizes the OEM's own order-placement flow chart exactly — three document ty
 | Disputed order, staff send notice **with an offer** ("order is close", e.g. 150 of 155) | `PARTIAL` | = offered |
 
 Each is a standalone, printable document (`invoiceNumber` sequence `INV-2026-000001…`) — an order can accumulate several over its life as its situation changes, unlike the single `OrderStockNotice` row that drives the accept/decline state machine underneath it.
+
+**Create invoice** — staff can also send any dealer an ad-hoc document not tied to an order at all, via `POST /api/v1/order-management/invoices`: `CANCELLATION` (an order cancellation notice) or `CUSTOM` (any other dealership matter — compliance, renewals, anything else). `orderKind`/`requestedQuantity`/`fulfilledQuantity` are all optional on `Invoice` for exactly this reason. Same list, same print view, same dealer-portal visibility as the automatic ones.

@@ -854,12 +854,18 @@ model OrderStockNotice {
 }
 
 // =============================================================================
-// Invoices — the documents Order Management actually hands the dealer,
-// following the OEM's own order-placement flow chart exactly:
+// Invoices — the documents Order Management actually hands the dealer.
+// Three types are generated automatically, following the OEM's own
+// order-placement flow chart exactly:
 //   1) available            -> CONFIRMATION invoice (sales team, sent immediately)
 //   2) completely out of stock -> OUT_OF_STOCK invoice (expected renewal date)
 //   3) order is close (stock < requested but > 0) -> PARTIAL invoice (limited
 //      stock the OEM can deliver now, e.g. 150 of 155 requested)
+// CANCELLATION and CUSTOM are staff-authored instead — Order Management's
+// "Create invoice" action lets staff send any dealer an ad-hoc document (an
+// order cancellation notice, a dealership matter, anything else) that isn't
+// tied to a specific StockTransferRequest/SparePartRequest at all, which is
+// why orderKind/requestedQuantity/fulfilledQuantity are optional below.
 // Unlike OrderStockNotice (one row per order, drives the accept/decline state
 // machine), an order can accumulate multiple Invoice rows over its life —
 // each one is a point-in-time document, same as a real business re-issuing
@@ -870,12 +876,14 @@ enum InvoiceType {
   CONFIRMATION
   OUT_OF_STOCK
   PARTIAL
+  CANCELLATION
+  CUSTOM
 }
 
 model Invoice {
-  id            Int           @id @default(autoincrement())
-  invoiceNumber String        @unique @map("invoice_number")
-  orderKind     OrderItemKind @map("order_kind")
+  id            Int            @id @default(autoincrement())
+  invoiceNumber String         @unique @map("invoice_number")
+  orderKind     OrderItemKind? @map("order_kind")
 
   stockTransferRequestId Int?                  @map("stock_transfer_request_id")
   stockTransferRequest   StockTransferRequest? @relation(fields: [stockTransferRequestId], references: [id], onDelete: Cascade)
@@ -889,10 +897,12 @@ model Invoice {
 
   // Snapshot at issue time — an order's own fields can keep moving (a
   // backorder split, a later recheck), so the invoice keeps its own record
-  // of what it actually promised.
+  // of what it actually promised. For a staff-authored CANCELLATION/CUSTOM
+  // invoice, `item` doubles as the subject line and the quantities are
+  // typically left blank.
   item              String
-  requestedQuantity Int    @map("requested_quantity")
-  fulfilledQuantity Int    @map("fulfilled_quantity")
+  requestedQuantity Int?   @map("requested_quantity")
+  fulfilledQuantity Int?   @map("fulfilled_quantity")
 
   expectedRestockDate DateTime? @map("expected_restock_date")
   message             String?

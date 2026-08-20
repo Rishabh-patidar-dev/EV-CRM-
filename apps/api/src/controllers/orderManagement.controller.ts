@@ -690,4 +690,45 @@ export class OrderManagementController {
       handleError(error, res, "List invoices");
     }
   }
+
+  // POST /api/v1/order-management/invoices — "Create invoice": staff send
+  // any dealer an ad-hoc document not tied to a specific order (order
+  // cancellation, a dealership matter, anything else). Unlike the
+  // automatically-issued CONFIRMATION/OUT_OF_STOCK/PARTIAL invoices, this is
+  // the one path where staff pick the dealer and write the content directly.
+  async createInvoice(req: Request, res: Response) {
+    try {
+      const b = req.body ?? {};
+      const dealerId = parseInt(b.dealerId);
+      const type = String(b.type ?? "").toUpperCase();
+      const item = String(b.item ?? "").trim();
+
+      if (!dealerId) return handleValidationError(res, "Choose a dealer", "dealerId", "Create invoice");
+      if (!["CONFIRMATION", "OUT_OF_STOCK", "PARTIAL", "CANCELLATION", "CUSTOM"].includes(type)) {
+        return handleValidationError(res, "A valid invoice type is required", "type", "Create invoice");
+      }
+      if (!item) return handleValidationError(res, "A subject is required", "item", "Create invoice");
+
+      const toIntOrNull = (v: unknown) => (v === undefined || v === null || v === "" ? null : parseInt(v as string));
+
+      const invoiceNumber = await generateSequenceNumber("INV", () => prisma.invoice.count());
+      const invoice = await prisma.invoice.create({
+        data: {
+          invoiceNumber,
+          dealerId,
+          type: type as any,
+          item,
+          requestedQuantity: toIntOrNull(b.requestedQuantity),
+          fulfilledQuantity: toIntOrNull(b.fulfilledQuantity),
+          expectedRestockDate: b.expectedRestockDate ? new Date(b.expectedRestockDate) : null,
+          message: b.message ? String(b.message) : null,
+          issuedById: actingUserId(req),
+        },
+        include: { dealer: { select: DEALER_SELECT } },
+      });
+      res.status(201).json(invoice);
+    } catch (error) {
+      handleError(error, res, "Create invoice");
+    }
+  }
 }
