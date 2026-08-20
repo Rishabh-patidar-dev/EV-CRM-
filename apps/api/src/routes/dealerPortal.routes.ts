@@ -7,6 +7,7 @@ const router = Router();
 router.use(requireDealerPortalAuth);
 
 router.get("/overview", portal.overview.bind(portal));
+router.get("/vehicle-catalog", portal.vehicleCatalog.bind(portal));
 
 router.get("/vehicle-units", portal.listVehicleUnits.bind(portal));
 

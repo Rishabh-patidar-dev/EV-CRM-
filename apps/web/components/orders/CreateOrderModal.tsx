@@ -15,14 +15,18 @@ interface DealerOption {
   tradeName: string | null;
 }
 
-const SEGMENTS = ["L5", "L3", "CUSTOMISED"];
+interface CatalogItem {
+  model: string;
+  segment: string;
+  application: string;
+}
 
 export default function CreateOrderModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const [type, setType] = useState<"VEHICLE" | "SPARE_PART">("VEHICLE");
   const [dealers, setDealers] = useState<DealerOption[]>([]);
   const [dealerId, setDealerId] = useState("");
-  const [model, setModel] = useState("");
-  const [segment, setSegment] = useState(SEGMENTS[0]);
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [selected, setSelected] = useState("");
   const [partName, setPartName] = useState("");
   const [partCode, setPartCode] = useState("");
   const [quantity, setQuantity] = useState(1);
@@ -35,13 +39,20 @@ export default function CreateOrderModal({ open, onClose, onCreated }: { open: b
     apiClient.get("/api/v1/dealers", { params: { limit: 100 } }).then((res) => {
       setDealers(res.data.dealers ?? res.data.data ?? []);
     }).catch(() => {});
+    // The exact {model, segment} pairs Check Inventory matches on — a
+    // dropdown built from this can never submit a mismatched/typo'd model
+    // name the way a free-text field could.
+    apiClient.get("/api/v1/order-management/vehicle-catalog").then((res) => {
+      const items: CatalogItem[] = res.data.items ?? [];
+      setCatalog(items);
+      if (items.length > 0) setSelected(`${items[0].model}|${items[0].segment}`);
+    }).catch(() => {});
   }, [open]);
 
   function reset() {
     setType("VEHICLE");
     setDealerId("");
-    setModel("");
-    setSegment(SEGMENTS[0]);
+    setSelected(catalog.length > 0 ? `${catalog[0].model}|${catalog[0].segment}` : "");
     setPartName("");
     setPartCode("");
     setQuantity(1);
@@ -52,13 +63,14 @@ export default function CreateOrderModal({ open, onClose, onCreated }: { open: b
   async function handleSubmit() {
     setError(null);
     if (!dealerId) return setError("Choose a dealer");
-    if (type === "VEHICLE" && !model.trim()) return setError("Enter a model");
+    if (type === "VEHICLE" && !selected) return setError("Choose a vehicle");
     if (type === "SPARE_PART" && !partName.trim()) return setError("Enter a part name");
 
     setSubmitting(true);
     try {
       if (type === "VEHICLE") {
-        await apiClient.post("/api/v1/stock-transfers", { dealerId, model: model.trim(), segment, quantity, notes: notes.trim() || undefined });
+        const [model, segment] = selected.split("|");
+        await apiClient.post("/api/v1/stock-transfers", { dealerId, model, segment, quantity, notes: notes.trim() || undefined });
       } else {
         await apiClient.post("/api/v1/spare-parts", { dealerId, partName: partName.trim(), partCode: partCode.trim() || undefined, quantity });
       }
@@ -109,18 +121,21 @@ export default function CreateOrderModal({ open, onClose, onCreated }: { open: b
         </div>
 
         {type === "VEHICLE" ? (
-          <>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Model</label>
-              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. Volt E2" className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Segment</label>
-              <select value={segment} onChange={(e) => setSegment(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }}>
-                {SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          </>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">Vehicle</label>
+            <select
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              disabled={catalog.length === 0}
+              className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm"
+              style={{ borderColor: "var(--border)" }}
+            >
+              {catalog.length === 0 && <option value="">Loading catalog…</option>}
+              {catalog.map((c) => (
+                <option key={`${c.model}|${c.segment}`} value={`${c.model}|${c.segment}`}>{c.model} ({c.segment})</option>
+              ))}
+            </select>
+          </div>
         ) : (
           <>
             <div>

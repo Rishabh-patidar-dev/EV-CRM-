@@ -8,6 +8,7 @@ export const VEHICLE_IMAGES: Record<string, string> = {
   "LX Spark": "/vehicles/lx-spark.webp",
   "LX Soorma": "/vehicles/lx-soorma.webp",
   "LX Nirmal": "/vehicles/lx-nirmal.webp",
+  "LX Speedo": "/vehicles/lx-speedo.webp",
   "Queen EV": "/vehicles/queen-ev.webp",
   "LX EV Cargo": "/vehicles/lx-ev-cargo.webp",
   "LX DV": "/vehicles/lx-dv.webp",

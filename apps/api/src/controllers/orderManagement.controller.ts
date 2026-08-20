@@ -23,7 +23,7 @@
 import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
-import { generateSequenceNumber } from "../services/dealerManagement.service.js";
+import { generateSequenceNumber, VEHICLE_CATALOG } from "../services/dealerManagement.service.js";
 
 type OrderRow = {
   id: number;
@@ -650,6 +650,14 @@ export class OrderManagementController {
     } catch (error) {
       handleError(error, res, "Resolve dispute");
     }
+  }
+
+  // GET /api/v1/order-management/vehicle-catalog — the exact {model,
+  // segment} pairs Check Inventory matches on, driving the staff-side
+  // Create Order model dropdown so it can't submit a name Check Inventory
+  // won't recognise.
+  async vehicleCatalog(_req: Request, res: Response) {
+    res.json({ items: VEHICLE_CATALOG });
   }
 
   // GET /api/v1/order-management/invoices — the Invoices sub-module: every

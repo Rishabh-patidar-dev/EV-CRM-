@@ -37,12 +37,20 @@ export const PRODUCT_CATALOG: Record<VehicleSegment, { model: string; applicatio
     { model: "LX Speedo", application: "Goods delivery / e-commerce" },
     { model: "LX Soorma", application: "Shared mobility / premium" },
     { model: "LX Nirmal", application: "Municipal waste / garbage" },
+    { model: "LX TEV DLX", application: "Premium municipal waste / garbage" },
+    { model: "LX TEV Mega", application: "Heavy-duty municipal waste / garbage" },
   ],
   L3: [
     { model: "Queen EV", application: "Daily commute passenger" },
     { model: "LX DV", application: "Smart cargo loader" },
     { model: "LX EV Cargo", application: "Closed-body delivery" },
     { model: "Vikas Swachh", application: "Urban sanitation (tipper)" },
+    { model: "Queen EV DLX", application: "Premium daily commute passenger" },
+    { model: "Queen Mini DLX", application: "Compact passenger" },
+    { model: "LX EV DLX", application: "Premium closed-body delivery" },
+    { model: "LX EV 1.5 S.DLX", application: "Compact closed-body delivery" },
+    { model: "LX DV DLX", application: "Premium smart cargo loader" },
+    { model: "LX DV Mega", application: "Heavy-duty smart cargo loader" },
   ],
   CUSTOMISED: [
     { model: "LX Foodcart", application: "Street food & beverages" },
@@ -58,6 +66,13 @@ export const PRODUCT_CATALOG: Record<VehicleSegment, { model: string; applicatio
 export const ALL_MODELS: string[] = Object.values(PRODUCT_CATALOG).flatMap((rows) =>
   rows.map((r) => r.model)
 );
+
+/** {model, segment} pairs — the exact shape Check Inventory matches on, so
+ * any order-placement dropdown built from this can never submit a model
+ * name or segment combination Check Inventory won't recognise. */
+export const VEHICLE_CATALOG: { model: string; segment: VehicleSegment; application: string }[] = (
+  Object.entries(PRODUCT_CATALOG) as [VehicleSegment, { model: string; application: string }[]][]
+).flatMap(([segment, rows]) => rows.map((r) => ({ model: r.model, segment, application: r.application })));
 
 // ---------------------------------------------------------------------------
 // Normalisation helpers — states/districts arrive in many spellings/cases.

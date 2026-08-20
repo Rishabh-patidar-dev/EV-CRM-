@@ -17,11 +17,19 @@
 import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
-import { generateSequenceNumber } from "../services/dealerManagement.service.js";
+import { generateSequenceNumber, VEHICLE_CATALOG } from "../services/dealerManagement.service.js";
 import { submitWarrantyClaim } from "../services/warrantyAdjudication.service.js";
 import { segmentWhere } from "./campaignManagement.controller.js";
 
 export class DealerPortalController {
+  // GET /api/v1/dealer-portal/vehicle-catalog — the exact {model, segment}
+  // pairs Check Inventory matches on, so the DMS order form's model dropdown
+  // can never submit a value that doesn't exist in the real catalog (no more
+  // typo'd/mismatched model names silently failing the stock comparison).
+  async vehicleCatalog(_req: Request, res: Response) {
+    res.json({ items: VEHICLE_CATALOG });
+  }
+
   // GET /api/v1/dealer-portal/overview
   async overview(req: Request, res: Response) {
     try {
