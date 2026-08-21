@@ -44,4 +44,25 @@ router.get("/campaigns", portal.listCampaigns.bind(portal));
 router.post("/campaigns", portal.createCampaign.bind(portal));
 router.patch("/campaigns/:id", portal.updateCampaign.bind(portal));
 
+// HRMS
+router.get("/hr/employees", portal.listEmployees.bind(portal));
+router.post("/hr/employees", portal.createEmployee.bind(portal));
+router.patch("/hr/employees/:id", portal.updateEmployee.bind(portal));
+
+router.get("/hr/attendance", portal.listAttendance.bind(portal));
+router.post("/hr/attendance", portal.markAttendance.bind(portal));
+
+router.post("/hr/leave-requests", portal.createLeaveRequest.bind(portal));
+router.patch("/hr/leave-requests/:id", portal.decideLeaveRequest.bind(portal));
+
+router.get("/hr/payroll", portal.listPayroll.bind(portal));
+router.post("/hr/payroll/generate", portal.generatePayroll.bind(portal));
+router.patch("/hr/payroll/:id", portal.markPayslipPaid.bind(portal));
+
+// Sales & Booking
+router.get("/bookings", portal.listBookings.bind(portal));
+router.get("/bookings/available-units", portal.listAvailableUnitsForBooking.bind(portal));
+router.post("/bookings", portal.createBooking.bind(portal));
+router.patch("/bookings/:id", portal.updateBooking.bind(portal));
+
 export default router;

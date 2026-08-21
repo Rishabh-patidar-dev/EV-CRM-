@@ -158,6 +158,7 @@ model Lead {
 
   dealerApplication DealerApplication?
   dealerAssignment  DealerLeadAssignment?
+  bookings          Booking[]
 
   @@index([email])
   @@index([phone])
@@ -628,6 +629,18 @@ model Dealer {
   campaigns             MarketingCampaign[]
   invoices              Invoice[]
 
+  // HRMS
+  employees         Employee[]
+  leaveRequests     LeaveRequest[]
+  attendanceRecords AttendanceRecord[]
+  payslips          Payslip[]
+
+  // Sales & Booking
+  bookings Booking[]
+
+  // Billing
+  customerBills CustomerBill[]
+
   @@index([state])
   @@index([status])
   @@index([tier])
@@ -988,6 +1001,8 @@ model VehicleUnit {
 
   warrantyClaims WarrantyClaim[]
   componentUnits ComponentUnit[]
+  booking        Booking?
+  bills          CustomerBill[]
 
   @@index([dealerId])
   @@index([status])
@@ -1423,5 +1438,289 @@ model SupplierRecovery {
   notes    String?
 
   @@map("supplier_recoveries")
+}
+
+// =============================================================================
+// MODULE — HRMS (dealer-side): Employee Master, Attendance & Leave, Payroll
+// -----------------------------------------------------------------------------
+// Scoped per Dealer (each dealership manages its own staff through the DMS
+// portal), mirroring the FRD's dealer-facing HR & Payroll module (§11).
+// =============================================================================
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+}
+
+model Employee {
+  id           Int    @id @default(autoincrement())
+  dealerId     Int    @map("dealer_id")
+  employeeCode String @unique @map("employee_code")
+
+  fullName String    @map("full_name")
+  gender   String?
+  dob      DateTime?
+  phone    String
+  email    String?
+
+  department         String
+  designation        String
+  reportingManagerId Int?    @map("reporting_manager_id")
+  dateOfJoining      DateTime @map("date_of_joining")
+  workLocation       String?  @map("work_location")
+  monthlySalary      Decimal? @map("monthly_salary")
+
+  status EmployeeStatus @default(ACTIVE)
+  notes  String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  dealer            Dealer             @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  reportingManager  Employee?          @relation("EmployeeManager", fields: [reportingManagerId], references: [id])
+  reports           Employee[]         @relation("EmployeeManager")
+  leaveRequests     LeaveRequest[]
+  attendanceRecords AttendanceRecord[]
+  payslips          Payslip[]
+
+  @@index([dealerId])
+  @@index([status])
+  @@index([reportingManagerId])
+  @@map("employees")
+}
+
+enum LeaveType {
+  CASUAL
+  SICK
+  EARNED
+  UNPAID
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id         Int       @id @default(autoincrement())
+  employeeId Int       @map("employee_id")
+  dealerId   Int       @map("dealer_id")
+  leaveType  LeaveType @map("leave_type")
+  startDate  DateTime  @map("start_date")
+  endDate    DateTime  @map("end_date")
+  reason     String?
+  status     LeaveStatus @default(PENDING)
+  decidedAt  DateTime? @map("decided_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  dealer   Dealer   @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([dealerId])
+  @@index([status])
+  @@map("leave_requests")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  ON_LEAVE
+  HOLIDAY
+}
+
+model AttendanceRecord {
+  id         Int      @id @default(autoincrement())
+  employeeId Int      @map("employee_id")
+  dealerId   Int      @map("dealer_id")
+  date       DateTime
+  status     AttendanceStatus @default(PRESENT)
+  checkIn    DateTime? @map("check_in")
+  checkOut   DateTime? @map("check_out")
+  notes      String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  dealer   Dealer   @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@index([dealerId])
+  @@index([date])
+  @@map("attendance_records")
+}
+
+enum PayslipStatus {
+  GENERATED
+  PAID
+}
+
+model Payslip {
+  id          Int    @id @default(autoincrement())
+  employeeId  Int    @map("employee_id")
+  dealerId    Int    @map("dealer_id")
+  periodMonth Int    @map("period_month")
+  periodYear  Int    @map("period_year")
+
+  basicPay    Decimal @map("basic_pay")
+  allowances  Decimal @default(0)
+  deductions  Decimal @default(0)
+  daysPresent Int     @map("days_present")
+  daysOnLeave Int     @default(0) @map("days_on_leave")
+  netPay      Decimal @map("net_pay")
+
+  status      PayslipStatus @default(GENERATED)
+  generatedAt DateTime      @default(now()) @map("generated_at")
+  paidAt      DateTime?     @map("paid_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  dealer   Dealer   @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, periodMonth, periodYear])
+  @@index([dealerId])
+  @@map("payslips")
+}
+
+// =============================================================================
+// MODULE — Sales & Booking (dealer-side)
+// -----------------------------------------------------------------------------
+// A customer's vehicle booking, from token payment through delivery. Once a
+// specific VehicleUnit from the dealer's own allocated stock is assigned, the
+// same OPEN->SOLD transition dealerInventory.controller.ts already performs
+// for staff (soldAt stamp + registerComponentsForSale for warranty) runs here
+// too, so a DMS-side delivery is indistinguishable from a staff-side one to
+// every other module (Warranty, Overview's sales trend/top-models charts).
+// =============================================================================
+
+enum BookingStatus {
+  BOOKED
+  CONFIRMED
+  ALLOCATED
+  DELIVERED
+  CANCELLED
+}
+
+enum BookingPaymentMode {
+  CASH
+  UPI
+  BANK_TRANSFER
+  FINANCE
+  CHEQUE
+}
+
+model Booking {
+  id            Int    @id @default(autoincrement())
+  dealerId      Int    @map("dealer_id")
+  bookingNumber String @unique @map("booking_number")
+
+  customerName    String  @map("customer_name")
+  customerPhone   String  @map("customer_phone")
+  customerEmail   String? @map("customer_email")
+  customerAddress String? @map("customer_address")
+
+  model   String
+  segment VehicleSegment
+  color   String?
+
+  vehicleUnitId Int?         @unique @map("vehicle_unit_id")
+  vehicleUnit   VehicleUnit? @relation(fields: [vehicleUnitId], references: [id])
+
+  bookingAmount Decimal            @map("booking_amount")
+  paymentMode   BookingPaymentMode @default(CASH) @map("payment_mode")
+  status        BookingStatus      @default(BOOKED)
+
+  expectedDeliveryDate DateTime? @map("expected_delivery_date")
+  deliveredAt          DateTime? @map("delivered_at")
+  cancelledAt          DateTime? @map("cancelled_at")
+  cancellationReason   String?   @map("cancellation_reason")
+
+  leadId Int?  @map("lead_id")
+  lead   Lead? @relation(fields: [leadId], references: [id])
+
+  notes String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  bill   CustomerBill?
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("bookings")
+}
+
+// =============================================================================
+// MODULE — Billing (dealer-side)
+// -----------------------------------------------------------------------------
+// The customer-facing sale bill — distinct from `Invoice` above, which is the
+// OEM->dealer stock-order confirmation/out-of-stock notice. Generating a bill
+// from a DELIVERED booking pulls the customer + vehicle details already on
+// record (no re-typing, no re-fabricating data that already exists), and the
+// dealer only supplies the commercial numbers (price, accessories, discount,
+// on-roads) that genuinely only they know.
+// =============================================================================
+
+enum BillStatus {
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+model CustomerBill {
+  id         Int    @id @default(autoincrement())
+  dealerId   Int    @map("dealer_id")
+  billNumber String @unique @map("bill_number")
+
+  bookingId Int?     @unique @map("booking_id")
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  vehicleUnitId Int?         @map("vehicle_unit_id")
+  vehicleUnit   VehicleUnit? @relation(fields: [vehicleUnitId], references: [id])
+
+  customerName    String  @map("customer_name")
+  customerPhone   String  @map("customer_phone")
+  customerAddress String? @map("customer_address")
+  customerGstin   String? @map("customer_gstin")
+
+  model String
+  vin   String?
+
+  exShowroomPrice    Decimal @map("ex_showroom_price")
+  accessoriesAmount  Decimal @default(0) @map("accessories_amount")
+  registrationAmount Decimal @default(0) @map("registration_amount")
+  insuranceAmount    Decimal @default(0) @map("insurance_amount")
+  discountAmount     Decimal @default(0) @map("discount_amount")
+  taxableAmount      Decimal @map("taxable_amount")
+  gstRate            Decimal @default(5) @map("gst_rate")
+  gstAmount          Decimal @map("gst_amount")
+  totalAmount        Decimal @map("total_amount")
+  amountPaid         Decimal @default(0) @map("amount_paid")
+
+  paymentMode BookingPaymentMode @default(CASH) @map("payment_mode")
+  status      BillStatus         @default(ISSUED)
+
+  issuedAt    DateTime  @default(now()) @map("issued_at")
+  paidAt      DateTime? @map("paid_at")
+  cancelledAt DateTime? @map("cancelled_at")
+  notes       String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("customer_bills")
 }
 
