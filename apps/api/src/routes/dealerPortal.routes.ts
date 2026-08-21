@@ -70,6 +70,4 @@ router.patch("/bills/:id", portal.cancelBill.bind(portal));
 router.post("/bills/:id/eway-bill", portal.generateEwayBill.bind(portal));
 router.patch("/eway-bills/:id", portal.cancelEwayBill.bind(portal));
 
-router.get("/gst/returns", portal.getGstReturn.bind(portal));
-
 export default router;

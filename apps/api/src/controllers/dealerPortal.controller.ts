@@ -1192,6 +1192,13 @@ export class DealerPortalController {
         billType = "SERVICE";
         // partsAmount is always the real sum of what was actually used — never hand-typed.
         partsAmount = ticket.partsUsed.reduce((sum, p) => sum + Number(p.unitPrice) * p.quantityUsed, 0);
+      } else if (b.billType === "SERVICE") {
+        // A walk-in service billed on the spot, outside the ticket workflow
+        // (e.g. a quick inspection) — no real ticket to sum parts from, so
+        // partsAmount here is the dealer's own figure, not derived.
+        if (b.laborCharge == null) return handleValidationError(res, "laborCharge is required for a service bill", "laborCharge", "Create bill");
+        billType = "SERVICE";
+        partsAmount = Number(b.partsAmount ?? 0);
       }
 
       if (billType === "VEHICLE_SALE" && b.exShowroomPrice == null) {
