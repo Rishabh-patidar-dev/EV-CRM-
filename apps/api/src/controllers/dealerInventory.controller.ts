@@ -270,8 +270,8 @@ export class StockTransferController {
   //   body: { status, notes?, vehicleUnitIds? }
   //   When status -> DELIVERED and vehicleUnitIds are given, those VIN units
   //   are reassigned to the dealer (status ALLOCATED) in the same transaction.
-  //   REQUESTED -> APPROVED and any DISPUTED transition must go through
-  //   Order Management's Check Inventory / Disputed Orders endpoints
+  //   REQUESTED -> APPROVED and any Close transition must go through
+  //   Order Management's Check Inventory / Close Orders endpoints
   //   (orderManagement.controller.ts) so an order can't be confirmed without
   //   a stock check ever running.
   async update(req: Request, res: Response) {
@@ -287,11 +287,11 @@ export class StockTransferController {
         if (transfer.status === "REQUESTED" && b.status === "APPROVED") {
           return handleValidationError(res, "Run Check Inventory before approving a requested order", "status", "Update stock transfer");
         }
-        if (b.status === "DISPUTED") {
-          return handleValidationError(res, "Disputed status is only set by Check Inventory", "status", "Update stock transfer");
+        if (b.status === "Close") {
+          return handleValidationError(res, "Close status is only set by Check Inventory", "status", "Update stock transfer");
         }
-        if (transfer.status === "DISPUTED") {
-          return handleValidationError(res, "This order is disputed — use the Disputed Orders actions", "status", "Update stock transfer");
+        if (transfer.status === "Close") {
+          return handleValidationError(res, "This order is Close — use the Close Orders actions", "status", "Update stock transfer");
         }
       }
 

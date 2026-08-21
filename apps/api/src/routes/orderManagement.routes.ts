@@ -6,7 +6,7 @@ import { OrderManagementController } from "../controllers/orderManagement.contro
 const ADMINS = [UserRole.ADMIN, UserRole.SYSTEM_ADMIN];
 // Order Management's home departments — Sales/Order Desk owns the general
 // order desk, Warehouse owns the stock-truth steps (Check Inventory,
-// Disputed Orders). Both are additive to ADMINS, never a restriction on it.
+// Close Orders). Both are additive to ADMINS, never a restriction on it.
 // See docs/ARCHITECTURE_AND_FLOWS.md §4 for the full department mapping.
 const ORDER_DESK = [...ADMINS, UserRole.SALES, UserRole.RELATIONSHIP_MANAGER];
 const WAREHOUSE_STAFF = [...ADMINS, UserRole.WAREHOUSE];
@@ -21,11 +21,11 @@ router.get("/invoices", requireRole(ORDER_DESK), controller.listInvoices.bind(co
 router.post("/invoices", requireRole(ORDER_DESK), controller.createInvoice.bind(controller));
 router.get("/vehicle-catalog", requireRole(ORDER_DESK), controller.vehicleCatalog.bind(controller));
 
-// Check Inventory + Disputed Orders — Warehouse's stage of the order flow.
+// Check Inventory + Close Orders — Warehouse's stage of the order flow.
 router.get("/orders/:type/:id/check-inventory", requireRole(WAREHOUSE_STAFF), controller.getInventoryCheck.bind(controller));
 router.post("/orders/:type/:id/check-inventory", requireRole(WAREHOUSE_STAFF), controller.runInventoryCheck.bind(controller));
-router.get("/disputed", requireRole(WAREHOUSE_STAFF), controller.listDisputed.bind(controller));
-router.post("/disputed/:type/:id/notice", requireRole(WAREHOUSE_STAFF), controller.sendNotice.bind(controller));
-router.post("/disputed/:type/:id/resolve", requireRole(WAREHOUSE_STAFF), controller.resolveDispute.bind(controller));
+router.get("/Close", requireRole(WAREHOUSE_STAFF), controller.listClose.bind(controller));
+router.post("/Close/:type/:id/notice", requireRole(WAREHOUSE_STAFF), controller.sendNotice.bind(controller));
+router.post("/Close/:type/:id/resolve", requireRole(WAREHOUSE_STAFF), controller.resolveDispute.bind(controller));
 
 export default router;

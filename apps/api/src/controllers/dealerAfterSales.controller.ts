@@ -230,8 +230,8 @@ export class AfterSalesController {
   }
 
   // PATCH /api/v1/spare-parts/:id
-  //   REQUESTED -> APPROVED and any DISPUTED transition must go through
-  //   Order Management's Check Inventory / Disputed Orders endpoints
+  //   REQUESTED -> APPROVED and any Close transition must go through
+  //   Order Management's Check Inventory / Close Orders endpoints
   //   (orderManagement.controller.ts) so a spare-part order can't be
   //   confirmed without a stock check ever running.
   async updateSparePart(req: Request, res: Response) {
@@ -246,11 +246,11 @@ export class AfterSalesController {
         if (current.status === "REQUESTED" && b.status === "APPROVED") {
           return handleValidationError(res, "Run Check Inventory before approving a requested order", "status", "Update spare request");
         }
-        if (b.status === "DISPUTED") {
-          return handleValidationError(res, "Disputed status is only set by Check Inventory", "status", "Update spare request");
+        if (b.status === "Close") {
+          return handleValidationError(res, "Close status is only set by Check Inventory", "status", "Update spare request");
         }
-        if (current.status === "DISPUTED") {
-          return handleValidationError(res, "This order is disputed — use the Disputed Orders actions", "status", "Update spare request");
+        if (current.status === "Close") {
+          return handleValidationError(res, "This order is Close — use the Close Orders actions", "status", "Update spare request");
         }
       }
 
