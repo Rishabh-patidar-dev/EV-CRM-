@@ -25,6 +25,14 @@ router.post("/spare-parts/:id/notice-response", portal.respondToSparePartNotice.
 
 router.get("/service-tickets", portal.listServiceTickets.bind(portal));
 router.post("/service-tickets", portal.createServiceTicket.bind(portal));
+router.get("/service-tickets/:id", portal.getServiceTicket.bind(portal));
+router.patch("/service-tickets/:id", portal.updateServiceTicketStatus.bind(portal));
+router.post("/service-tickets/:id/parts", portal.addServiceTicketPart.bind(portal));
+router.delete("/service-tickets/:id/parts/:usageId", portal.removeServiceTicketPart.bind(portal));
+
+router.get("/spare-parts-stock", portal.listDealerSpareParts.bind(portal));
+router.post("/spare-parts-stock", portal.upsertDealerSparePart.bind(portal));
+router.patch("/spare-parts-stock/:id", portal.updateDealerSparePart.bind(portal));
 
 router.get("/warranty-claims", portal.listWarrantyClaims.bind(portal));
 router.post("/warranty-claims", portal.createWarrantyClaim.bind(portal));
@@ -44,25 +52,24 @@ router.get("/campaigns", portal.listCampaigns.bind(portal));
 router.post("/campaigns", portal.createCampaign.bind(portal));
 router.patch("/campaigns/:id", portal.updateCampaign.bind(portal));
 
-// HRMS
-router.get("/hr/employees", portal.listEmployees.bind(portal));
-router.post("/hr/employees", portal.createEmployee.bind(portal));
-router.patch("/hr/employees/:id", portal.updateEmployee.bind(portal));
-
-router.get("/hr/attendance", portal.listAttendance.bind(portal));
-router.post("/hr/attendance", portal.markAttendance.bind(portal));
-
-router.post("/hr/leave-requests", portal.createLeaveRequest.bind(portal));
-router.patch("/hr/leave-requests/:id", portal.decideLeaveRequest.bind(portal));
-
-router.get("/hr/payroll", portal.listPayroll.bind(portal));
-router.post("/hr/payroll/generate", portal.generatePayroll.bind(portal));
-router.patch("/hr/payroll/:id", portal.markPayslipPaid.bind(portal));
-
 // Sales & Booking
 router.get("/bookings", portal.listBookings.bind(portal));
 router.get("/bookings/available-units", portal.listAvailableUnitsForBooking.bind(portal));
 router.post("/bookings", portal.createBooking.bind(portal));
 router.patch("/bookings/:id", portal.updateBooking.bind(portal));
+
+// Billing / GST Invoicing
+router.get("/billable-bookings", portal.listBillableBookings.bind(portal));
+router.get("/billable-service-tickets", portal.listBillableServiceTickets.bind(portal));
+router.get("/bills", portal.listBills.bind(portal));
+router.post("/bills", portal.createBill.bind(portal));
+router.get("/bills/:id/gst-invoice", portal.getGstInvoice.bind(portal));
+router.patch("/bills/:id/payment", portal.recordBillPayment.bind(portal));
+router.patch("/bills/:id", portal.cancelBill.bind(portal));
+
+router.post("/bills/:id/eway-bill", portal.generateEwayBill.bind(portal));
+router.patch("/eway-bills/:id", portal.cancelEwayBill.bind(portal));
+
+router.get("/gst/returns", portal.getGstReturn.bind(portal));
 
 export default router;

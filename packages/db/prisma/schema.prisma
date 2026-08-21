@@ -617,6 +617,7 @@ model Dealer {
   leadAssignments      DealerLeadAssignment[]
   financeCases         FinanceCase[]
   serviceTickets       ServiceTicket[]
+  spareParts           DealerSparePart[]
   sparePartRequests    SparePartRequest[]
 
   // New operational submodules
@@ -629,17 +630,12 @@ model Dealer {
   campaigns             MarketingCampaign[]
   invoices              Invoice[]
 
-  // HRMS
-  employees         Employee[]
-  leaveRequests     LeaveRequest[]
-  attendanceRecords AttendanceRecord[]
-  payslips          Payslip[]
-
   // Sales & Booking
   bookings Booking[]
 
   // Billing
   customerBills CustomerBill[]
+  ewayBills     EwayBill[]
 
   @@index([state])
   @@index([status])
@@ -760,10 +756,60 @@ model ServiceTicket {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  partsUsed ServiceTicketPart[]
+  bill      CustomerBill?
 
   @@index([dealerId])
   @@index([status])
   @@map("service_tickets")
+}
+
+// =============================================================================
+// SUBMODULE — Dealer's own spare-parts stock (Service & Workshop)
+// -----------------------------------------------------------------------------
+// Distinct from SparePartInventory below, which is the manufacturer-level
+// catalog used for Check Inventory comparisons on stock *orders*. This is the
+// physical stock a dealer actually holds in their own workshop — what gets
+// decremented, part by part, as a mechanic uses parts to service a vehicle.
+// =============================================================================
+
+model DealerSparePart {
+  id             Int     @id @default(autoincrement())
+  dealerId       Int     @map("dealer_id")
+  partName       String  @map("part_name")
+  partCode       String? @map("part_code")
+  quantityOnHand Int     @default(0) @map("quantity_on_hand")
+  unitPrice      Decimal @default(0) @map("unit_price")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  dealer Dealer              @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  usages ServiceTicketPart[]
+
+  @@unique([dealerId, partName])
+  @@index([dealerId])
+  @@map("dealer_spare_parts")
+}
+
+// One row per part consumed against a service ticket, added one at a time as
+// the mechanic actually uses it (never upfront) — quantityUsed is deducted
+// from DealerSparePart.quantityOnHand the moment the row is created.
+model ServiceTicketPart {
+  id                Int     @id @default(autoincrement())
+  serviceTicketId   Int     @map("service_ticket_id")
+  dealerSparePartId Int     @map("dealer_spare_part_id")
+  partName          String  @map("part_name")
+  quantityUsed      Int     @map("quantity_used")
+  unitPrice         Decimal @map("unit_price")
+
+  usedAt DateTime @default(now()) @map("used_at")
+
+  serviceTicket   ServiceTicket   @relation(fields: [serviceTicketId], references: [id], onDelete: Cascade)
+  dealerSparePart DealerSparePart @relation(fields: [dealerSparePartId], references: [id])
+
+  @@index([serviceTicketId])
+  @@map("service_ticket_parts")
 }
 
 model SparePartRequest {
@@ -1441,155 +1487,6 @@ model SupplierRecovery {
 }
 
 // =============================================================================
-// MODULE — HRMS (dealer-side): Employee Master, Attendance & Leave, Payroll
-// -----------------------------------------------------------------------------
-// Scoped per Dealer (each dealership manages its own staff through the DMS
-// portal), mirroring the FRD's dealer-facing HR & Payroll module (§11).
-// =============================================================================
-
-enum EmployeeStatus {
-  ACTIVE
-  ON_LEAVE
-  SUSPENDED
-  TERMINATED
-}
-
-model Employee {
-  id           Int    @id @default(autoincrement())
-  dealerId     Int    @map("dealer_id")
-  employeeCode String @unique @map("employee_code")
-
-  fullName String    @map("full_name")
-  gender   String?
-  dob      DateTime?
-  phone    String
-  email    String?
-
-  department         String
-  designation        String
-  reportingManagerId Int?    @map("reporting_manager_id")
-  dateOfJoining      DateTime @map("date_of_joining")
-  workLocation       String?  @map("work_location")
-  monthlySalary      Decimal? @map("monthly_salary")
-
-  status EmployeeStatus @default(ACTIVE)
-  notes  String?
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  dealer            Dealer             @relation(fields: [dealerId], references: [id], onDelete: Cascade)
-  reportingManager  Employee?          @relation("EmployeeManager", fields: [reportingManagerId], references: [id])
-  reports           Employee[]         @relation("EmployeeManager")
-  leaveRequests     LeaveRequest[]
-  attendanceRecords AttendanceRecord[]
-  payslips          Payslip[]
-
-  @@index([dealerId])
-  @@index([status])
-  @@index([reportingManagerId])
-  @@map("employees")
-}
-
-enum LeaveType {
-  CASUAL
-  SICK
-  EARNED
-  UNPAID
-}
-
-enum LeaveStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-}
-
-model LeaveRequest {
-  id         Int       @id @default(autoincrement())
-  employeeId Int       @map("employee_id")
-  dealerId   Int       @map("dealer_id")
-  leaveType  LeaveType @map("leave_type")
-  startDate  DateTime  @map("start_date")
-  endDate    DateTime  @map("end_date")
-  reason     String?
-  status     LeaveStatus @default(PENDING)
-  decidedAt  DateTime? @map("decided_at")
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  dealer   Dealer   @relation(fields: [dealerId], references: [id], onDelete: Cascade)
-
-  @@index([employeeId])
-  @@index([dealerId])
-  @@index([status])
-  @@map("leave_requests")
-}
-
-enum AttendanceStatus {
-  PRESENT
-  ABSENT
-  HALF_DAY
-  ON_LEAVE
-  HOLIDAY
-}
-
-model AttendanceRecord {
-  id         Int      @id @default(autoincrement())
-  employeeId Int      @map("employee_id")
-  dealerId   Int      @map("dealer_id")
-  date       DateTime
-  status     AttendanceStatus @default(PRESENT)
-  checkIn    DateTime? @map("check_in")
-  checkOut   DateTime? @map("check_out")
-  notes      String?
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  dealer   Dealer   @relation(fields: [dealerId], references: [id], onDelete: Cascade)
-
-  @@unique([employeeId, date])
-  @@index([dealerId])
-  @@index([date])
-  @@map("attendance_records")
-}
-
-enum PayslipStatus {
-  GENERATED
-  PAID
-}
-
-model Payslip {
-  id          Int    @id @default(autoincrement())
-  employeeId  Int    @map("employee_id")
-  dealerId    Int    @map("dealer_id")
-  periodMonth Int    @map("period_month")
-  periodYear  Int    @map("period_year")
-
-  basicPay    Decimal @map("basic_pay")
-  allowances  Decimal @default(0)
-  deductions  Decimal @default(0)
-  daysPresent Int     @map("days_present")
-  daysOnLeave Int     @default(0) @map("days_on_leave")
-  netPay      Decimal @map("net_pay")
-
-  status      PayslipStatus @default(GENERATED)
-  generatedAt DateTime      @default(now()) @map("generated_at")
-  paidAt      DateTime?     @map("paid_at")
-
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  dealer   Dealer   @relation(fields: [dealerId], references: [id], onDelete: Cascade)
-
-  @@unique([employeeId, periodMonth, periodYear])
-  @@index([dealerId])
-  @@map("payslips")
-}
-
-// =============================================================================
 // MODULE — Sales & Booking (dealer-side)
 // -----------------------------------------------------------------------------
 // A customer's vehicle booking, from token payment through delivery. Once a
@@ -1676,13 +1573,22 @@ enum BillStatus {
   CANCELLED
 }
 
+enum BillType {
+  VEHICLE_SALE
+  SERVICE
+}
+
 model CustomerBill {
-  id         Int    @id @default(autoincrement())
-  dealerId   Int    @map("dealer_id")
-  billNumber String @unique @map("bill_number")
+  id         Int      @id @default(autoincrement())
+  dealerId   Int      @map("dealer_id")
+  billNumber String   @unique @map("bill_number")
+  billType   BillType @default(VEHICLE_SALE) @map("bill_type")
 
   bookingId Int?     @unique @map("booking_id")
   booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  serviceTicketId Int?           @unique @map("service_ticket_id")
+  serviceTicket   ServiceTicket? @relation(fields: [serviceTicketId], references: [id])
 
   vehicleUnitId Int?         @map("vehicle_unit_id")
   vehicleUnit   VehicleUnit? @relation(fields: [vehicleUnitId], references: [id])
@@ -1690,21 +1596,39 @@ model CustomerBill {
   customerName    String  @map("customer_name")
   customerPhone   String  @map("customer_phone")
   customerAddress String? @map("customer_address")
+  customerState   String? @map("customer_state")
   customerGstin   String? @map("customer_gstin")
 
   model String
   vin   String?
 
-  exShowroomPrice    Decimal @map("ex_showroom_price")
+  // GST-compliant invoice fields (FRD Billing/GST Invoicing submodule): HSN
+  // 8703 is the standard code for electric passenger vehicles; place of
+  // supply and the CGST+SGST vs IGST split follow the customer's billing
+  // state against the dealer's own registered state.
+  hsnCode        String  @default("8703") @map("hsn_code")
+  placeOfSupply  String? @map("place_of_supply")
+  isInterState   Boolean @default(false) @map("is_inter_state")
+  cgstAmount     Decimal @default(0) @map("cgst_amount")
+  sgstAmount     Decimal @default(0) @map("sgst_amount")
+  igstAmount     Decimal @default(0) @map("igst_amount")
+
+  // VEHICLE_SALE fields
+  exShowroomPrice    Decimal @default(0) @map("ex_showroom_price")
   accessoriesAmount  Decimal @default(0) @map("accessories_amount")
   registrationAmount Decimal @default(0) @map("registration_amount")
   insuranceAmount    Decimal @default(0) @map("insurance_amount")
-  discountAmount     Decimal @default(0) @map("discount_amount")
-  taxableAmount      Decimal @map("taxable_amount")
-  gstRate            Decimal @default(5) @map("gst_rate")
-  gstAmount          Decimal @map("gst_amount")
-  totalAmount        Decimal @map("total_amount")
-  amountPaid         Decimal @default(0) @map("amount_paid")
+  // SERVICE fields — partsAmount is always the real sum of that ticket's
+  // ServiceTicketPart rows, never hand-typed.
+  laborCharge Decimal @default(0) @map("labor_charge")
+  partsAmount Decimal @default(0) @map("parts_amount")
+
+  discountAmount Decimal @default(0) @map("discount_amount")
+  taxableAmount  Decimal @map("taxable_amount")
+  gstRate        Decimal @default(5) @map("gst_rate")
+  gstAmount      Decimal @map("gst_amount")
+  totalAmount    Decimal @map("total_amount")
+  amountPaid     Decimal @default(0) @map("amount_paid")
 
   paymentMode BookingPaymentMode @default(CASH) @map("payment_mode")
   status      BillStatus         @default(ISSUED)
@@ -1717,10 +1641,54 @@ model CustomerBill {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  dealer   Dealer    @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  ewayBill EwayBill?
 
   @@index([dealerId])
   @@index([status])
   @@map("customer_bills")
+}
+
+enum EwayBillStatus {
+  GENERATED
+  CANCELLED
+}
+
+enum TransportMode {
+  ROAD
+  RAIL
+  AIR
+  SHIP
+}
+
+// A real GST rule this enforces: e-way bills are only mandatory (and here,
+// only generatable) for consignments whose taxable value exceeds ₹50,000 —
+// checked server-side against the bill's own taxableAmount, not left to the
+// dealer's judgement. Validity is computed the same way the GST portal does:
+// 1 day per 200km of distance, minimum 1 day.
+model EwayBill {
+  id             Int    @id @default(autoincrement())
+  dealerId       Int    @map("dealer_id")
+  billId         Int    @unique @map("bill_id")
+  ewayBillNumber String @unique @map("eway_bill_number")
+
+  transporterName String  @map("transporter_name")
+  transporterGstin String? @map("transporter_gstin")
+  vehicleNumber   String  @map("vehicle_number")
+  transportMode   TransportMode @default(ROAD) @map("transport_mode")
+  distanceKm      Int     @map("distance_km")
+
+  status EwayBillStatus @default(GENERATED)
+
+  generatedAt DateTime  @default(now()) @map("generated_at")
+  validUntil  DateTime  @map("valid_until")
+  cancelledAt DateTime? @map("cancelled_at")
+  cancellationReason String? @map("cancellation_reason")
+
+  bill   CustomerBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  dealer Dealer       @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@map("eway_bills")
 }
 

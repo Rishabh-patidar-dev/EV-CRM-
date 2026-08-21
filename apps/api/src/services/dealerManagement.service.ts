@@ -217,7 +217,7 @@ export async function generateDealerCode(state?: string | null): Promise<string>
 
 /** Generic prefixed sequential number, e.g. SVC-2026-000123 / STR-2026-000045. */
 export async function generateSequenceNumber(
-  prefix: "SVC" | "SPR" | "STR" | "WC" | "INV" | "EMP" | "PAY" | "BKG",
+  prefix: "SVC" | "SPR" | "STR" | "WC" | "INV" | "BKG" | "BILL" | "EWB",
   countFn: () => Promise<number>
 ): Promise<string> {
   const year = new Date().getFullYear();

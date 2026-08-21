@@ -22,16 +22,9 @@ import { submitWarrantyClaim } from "../services/warrantyAdjudication.service.js
 import { segmentWhere } from "./campaignManagement.controller.js";
 import { registerComponentsForSale } from "../services/componentRegistration.service.js";
 
-// Parses a "YYYY-MM-DD" calendar date literally as UTC midnight, independent
-// of the server's local timezone. `new Date(y, m, d)` (no Date.UTC) reads its
-// arguments as LOCAL time — on a server running IST (UTC+5:30) that silently
-// stores the previous day's 18:30 UTC instead of the calendar date the user
-// actually picked. Every attendance/leave date must go through this, not a
-// bare `new Date(str)` or local-component constructor.
-function parseDateOnly(value: string): Date {
-  const [y, m, d] = value.slice(0, 10).split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d));
-}
+// GST rule: e-way bills are mandatory (and here, only generatable) once a
+// consignment's taxable value exceeds this statutory threshold.
+const EWAY_BILL_THRESHOLD = 50000;
 
 export class DealerPortalController {
   // GET /api/v1/dealer-portal/vehicle-catalog — the exact {model, segment}
@@ -351,24 +344,56 @@ export class DealerPortalController {
     }
   }
 
+  // ===========================================================================
+  // MODULE — Service & Workshop
+  // -----------------------------------------------------------------------------
+  // Intake only asks for the vehicle number, customer name and the issue —
+  // nothing about parts. Parts are added one at a time, only once servicing
+  // is actually under way (IN_PROGRESS/AWAITING_PARTS), and each addition
+  // decrements the dealer's own spare-parts stock (DealerSparePart) in the
+  // same transaction — never fabricated, never entered up front.
+  // ===========================================================================
+
   // GET /api/v1/dealer-portal/service-tickets
   async listServiceTickets(req: Request, res: Response) {
     try {
       const { dealerId } = req.dealerPortal!;
-      const tickets = await prisma.serviceTicket.findMany({ where: { dealerId }, orderBy: { createdAt: "desc" }, take: 100 });
+      const tickets = await prisma.serviceTicket.findMany({
+        where: { dealerId },
+        include: { partsUsed: true, bill: { select: { id: true, billNumber: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
       res.json({ tickets });
     } catch (error) {
       handleError(error, res, "List dealer service tickets");
     }
   }
 
-  // POST /api/v1/dealer-portal/service-tickets — dealer logs a customer service issue
+  // GET /api/v1/dealer-portal/service-tickets/:id
+  async getServiceTicket(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const ticket = await prisma.serviceTicket.findFirst({
+        where: { id, dealerId },
+        include: { partsUsed: { orderBy: { usedAt: "asc" } }, bill: { select: { id: true, billNumber: true } } },
+      });
+      if (!ticket) return handleNotFoundError(res, "Service ticket", "Get service ticket");
+      res.json(ticket);
+    } catch (error) {
+      handleError(error, res, "Get service ticket");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/service-tickets — vehicle in, at intake: just
+  // the vehicle number, customer name, and the issue. Nothing about parts yet.
   async createServiceTicket(req: Request, res: Response) {
     try {
       const { dealerId } = req.dealerPortal!;
       const b = req.body ?? {};
-      if (!b.customerName || !b.issue) {
-        return handleValidationError(res, "customerName and issue are required", "body", "Log service ticket");
+      if (!b.customerName || !b.chassisNumber || !b.issue) {
+        return handleValidationError(res, "customerName, chassisNumber (vehicle number) and issue are required", "body", "Log service ticket");
       }
       const ticketNumber = await generateSequenceNumber("SVC", () => prisma.serviceTicket.count());
       const ticket = await prisma.serviceTicket.create({
@@ -378,7 +403,7 @@ export class DealerPortalController {
           customerName: b.customerName,
           customerPhone: b.customerPhone ?? null,
           vehicleModel: b.vehicleModel ?? null,
-          chassisNumber: b.chassisNumber ?? null,
+          chassisNumber: b.chassisNumber,
           issue: b.issue,
           priority: b.priority ?? "NORMAL",
         },
@@ -386,6 +411,158 @@ export class DealerPortalController {
       res.status(201).json(ticket);
     } catch (error) {
       handleError(error, res, "Log service ticket");
+    }
+  }
+
+  // PATCH /api/v1/dealer-portal/service-tickets/:id — move the ticket through
+  // its workflow: OPEN (vehicle just checked in) -> IN_PROGRESS (customer has
+  // left, mechanic working) -> RESOLVED -> CLOSED, or AWAITING_PARTS if stock
+  // runs out mid-job.
+  async updateServiceTicketStatus(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const status = req.body?.status;
+      if (!["OPEN", "IN_PROGRESS", "AWAITING_PARTS", "RESOLVED", "CLOSED"].includes(status)) {
+        return handleValidationError(res, "Invalid status", "status", "Update service ticket");
+      }
+      const ticket = await prisma.serviceTicket.findFirst({ where: { id, dealerId } });
+      if (!ticket) return handleNotFoundError(res, "Service ticket", "Update service ticket");
+
+      const data: any = { status };
+      if (status === "RESOLVED" && !ticket.resolvedAt) data.resolvedAt = new Date();
+      const updated = await prisma.serviceTicket.update({ where: { id }, data });
+      res.json(updated);
+    } catch (error) {
+      handleError(error, res, "Update service ticket");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/service-tickets/:id/parts — add one spare part
+  // actually used, the moment the mechanic uses it. Decrements the dealer's
+  // own stock in the same transaction; refuses if there isn't enough on hand.
+  async addServiceTicketPart(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const ticketId = parseInt(req.params.id as string);
+      const b = req.body ?? {};
+      const quantityUsed = parseInt(b.quantityUsed ?? "1");
+      if (!b.dealerSparePartId || !quantityUsed || quantityUsed < 1) {
+        return handleValidationError(res, "dealerSparePartId and a positive quantityUsed are required", "body", "Add part used");
+      }
+
+      const ticket = await prisma.serviceTicket.findFirst({ where: { id: ticketId, dealerId } });
+      if (!ticket) return handleNotFoundError(res, "Service ticket", "Add part used");
+      if (!["IN_PROGRESS", "AWAITING_PARTS"].includes(ticket.status)) {
+        return handleValidationError(res, "Parts can only be added once servicing is in progress", "status", "Add part used");
+      }
+
+      const part = await prisma.dealerSparePart.findFirst({ where: { id: parseInt(b.dealerSparePartId), dealerId } });
+      if (!part) return handleNotFoundError(res, "Spare part", "Add part used");
+      if (part.quantityOnHand < quantityUsed) {
+        return handleValidationError(res, `Only ${part.quantityOnHand} ${part.partName} in stock`, "quantityUsed", "Add part used");
+      }
+
+      const usage = await prisma.$transaction(async (tx) => {
+        await tx.dealerSparePart.update({ where: { id: part.id }, data: { quantityOnHand: { decrement: quantityUsed } } });
+        return tx.serviceTicketPart.create({
+          data: {
+            serviceTicketId: ticket.id,
+            dealerSparePartId: part.id,
+            partName: part.partName,
+            quantityUsed,
+            unitPrice: part.unitPrice,
+          },
+        });
+      });
+      res.status(201).json(usage);
+    } catch (error) {
+      handleError(error, res, "Add part used");
+    }
+  }
+
+  // DELETE /api/v1/dealer-portal/service-tickets/:id/parts/:usageId — undo a
+  // mis-added part, restocking the quantity back to the dealer's inventory.
+  async removeServiceTicketPart(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const ticketId = parseInt(req.params.id as string);
+      const usageId = parseInt(req.params.usageId as string);
+
+      const usage = await prisma.serviceTicketPart.findFirst({
+        where: { id: usageId, serviceTicketId: ticketId, serviceTicket: { dealerId } },
+      });
+      if (!usage) return handleNotFoundError(res, "Part usage", "Remove part used");
+
+      await prisma.$transaction(async (tx) => {
+        await tx.dealerSparePart.update({ where: { id: usage.dealerSparePartId }, data: { quantityOnHand: { increment: usage.quantityUsed } } });
+        await tx.serviceTicketPart.delete({ where: { id: usage.id } });
+      });
+      res.status(204).send();
+    } catch (error) {
+      handleError(error, res, "Remove part used");
+    }
+  }
+
+  // ===========================================================================
+  // SUBMODULE — Dealer's spare-parts stock (Inventory)
+  // ===========================================================================
+
+  // GET /api/v1/dealer-portal/spare-parts-stock
+  async listDealerSpareParts(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const parts = await prisma.dealerSparePart.findMany({ where: { dealerId }, orderBy: { partName: "asc" } });
+      res.json({ parts });
+    } catch (error) {
+      handleError(error, res, "List spare parts stock");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/spare-parts-stock — add a new part, or top up
+  // an existing one's quantity (matched by name, same convention as the
+  // catalog's own model matching).
+  async upsertDealerSparePart(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const b = req.body ?? {};
+      const quantity = parseInt(b.quantity ?? "0");
+      if (!b.partName || quantity < 1) {
+        return handleValidationError(res, "partName and a positive quantity are required", "body", "Add spare parts stock");
+      }
+      const unitPrice = b.unitPrice != null ? String(Number(b.unitPrice)) : undefined;
+
+      const existing = await prisma.dealerSparePart.findFirst({ where: { dealerId, partName: b.partName } });
+      const part = existing
+        ? await prisma.dealerSparePart.update({
+            where: { id: existing.id },
+            data: { quantityOnHand: { increment: quantity }, ...(unitPrice != null ? { unitPrice } : {}), ...(b.partCode ? { partCode: b.partCode } : {}) },
+          })
+        : await prisma.dealerSparePart.create({
+            data: { dealerId, partName: b.partName, partCode: b.partCode ?? null, quantityOnHand: quantity, unitPrice: unitPrice ?? "0" },
+          });
+      res.status(existing ? 200 : 201).json(part);
+    } catch (error) {
+      handleError(error, res, "Add spare parts stock");
+    }
+  }
+
+  // PATCH /api/v1/dealer-portal/spare-parts-stock/:id — correct price or stock directly
+  async updateDealerSparePart(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const part = await prisma.dealerSparePart.findFirst({ where: { id, dealerId } });
+      if (!part) return handleNotFoundError(res, "Spare part", "Update spare parts stock");
+      const b = req.body ?? {};
+      const data: any = {};
+      if (b.partCode !== undefined) data.partCode = b.partCode;
+      if (b.unitPrice !== undefined) data.unitPrice = String(Number(b.unitPrice));
+      if (b.quantityOnHand !== undefined) data.quantityOnHand = parseInt(b.quantityOnHand);
+      const updated = await prisma.dealerSparePart.update({ where: { id }, data });
+      res.json(updated);
+    } catch (error) {
+      handleError(error, res, "Update spare parts stock");
     }
   }
 
@@ -765,335 +942,6 @@ export class DealerPortalController {
   }
 
   // ===========================================================================
-  // MODULE — HRMS: Employee Master, Attendance & Leave, Payroll
-  // ===========================================================================
-
-  // GET /api/v1/dealer-portal/hr/employees
-  async listEmployees(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const employees = await prisma.employee.findMany({
-        where: { dealerId },
-        include: { reportingManager: { select: { id: true, fullName: true } } },
-        orderBy: { fullName: "asc" },
-      });
-      res.json({ employees });
-    } catch (error) {
-      handleError(error, res, "List employees");
-    }
-  }
-
-  // POST /api/v1/dealer-portal/hr/employees
-  async createEmployee(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const b = req.body ?? {};
-      if (!b.fullName || !b.phone || !b.department || !b.designation || !b.dateOfJoining) {
-        return handleValidationError(res, "fullName, phone, department, designation and dateOfJoining are required", "body", "Create employee");
-      }
-      const employeeCode = await generateSequenceNumber("EMP", () => prisma.employee.count({ where: { dealerId } }));
-      const employee = await prisma.employee.create({
-        data: {
-          dealerId,
-          employeeCode: `${employeeCode}-D${dealerId}`,
-          fullName: b.fullName,
-          gender: b.gender ?? null,
-          dob: b.dob ? new Date(b.dob) : null,
-          phone: b.phone,
-          email: b.email ?? null,
-          department: b.department,
-          designation: b.designation,
-          reportingManagerId: b.reportingManagerId ? parseInt(b.reportingManagerId) : null,
-          dateOfJoining: new Date(b.dateOfJoining),
-          workLocation: b.workLocation ?? null,
-          monthlySalary: b.monthlySalary ? String(b.monthlySalary) : null,
-          notes: b.notes ?? null,
-        },
-      });
-      res.status(201).json(employee);
-    } catch (error) {
-      handleError(error, res, "Create employee");
-    }
-  }
-
-  // PATCH /api/v1/dealer-portal/hr/employees/:id
-  async updateEmployee(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const id = parseInt(req.params.id as string);
-      const employee = await prisma.employee.findFirst({ where: { id, dealerId } });
-      if (!employee) return handleNotFoundError(res, "Employee", "Update employee");
-
-      const b = req.body ?? {};
-      const data: any = {};
-      if (b.fullName !== undefined) data.fullName = b.fullName;
-      if (b.gender !== undefined) data.gender = b.gender;
-      if (b.dob !== undefined) data.dob = b.dob ? new Date(b.dob) : null;
-      if (b.phone !== undefined) data.phone = b.phone;
-      if (b.email !== undefined) data.email = b.email;
-      if (b.department !== undefined) data.department = b.department;
-      if (b.designation !== undefined) data.designation = b.designation;
-      if (b.reportingManagerId !== undefined) data.reportingManagerId = b.reportingManagerId ? parseInt(b.reportingManagerId) : null;
-      if (b.workLocation !== undefined) data.workLocation = b.workLocation;
-      if (b.monthlySalary !== undefined) data.monthlySalary = b.monthlySalary ? String(b.monthlySalary) : null;
-      if (b.status !== undefined) data.status = b.status;
-      if (b.notes !== undefined) data.notes = b.notes;
-
-      const updated = await prisma.employee.update({ where: { id }, data });
-      res.json(updated);
-    } catch (error) {
-      handleError(error, res, "Update employee");
-    }
-  }
-
-  // GET /api/v1/dealer-portal/hr/attendance?date=YYYY-MM-DD&month=&year=&employeeId=
-  async listAttendance(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const { date, month, year, employeeId } = req.query as Record<string, string | undefined>;
-      const where: any = { dealerId };
-      if (employeeId) where.employeeId = parseInt(employeeId);
-      if (date) {
-        const d = parseDateOnly(date);
-        where.date = { gte: d, lt: new Date(d.getTime() + 86_400_000) };
-      } else if (month && year) {
-        const m = parseInt(month) - 1;
-        const y = parseInt(year);
-        where.date = { gte: new Date(Date.UTC(y, m, 1)), lt: new Date(Date.UTC(y, m + 1, 1)) };
-      }
-      const records = await prisma.attendanceRecord.findMany({
-        where,
-        include: { employee: { select: { id: true, fullName: true, employeeCode: true, department: true } } },
-        orderBy: [{ date: "desc" }, { employeeId: "asc" }],
-        take: 500,
-      });
-      const leaveRequests = await prisma.leaveRequest.findMany({
-        where: { dealerId },
-        include: { employee: { select: { id: true, fullName: true, employeeCode: true } } },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      });
-      res.json({ records, leaveRequests });
-    } catch (error) {
-      handleError(error, res, "List attendance");
-    }
-  }
-
-  // POST /api/v1/dealer-portal/hr/attendance — mark/update one employee's status for one date
-  async markAttendance(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const b = req.body ?? {};
-      if (!b.employeeId || !b.date || !b.status) {
-        return handleValidationError(res, "employeeId, date and status are required", "body", "Mark attendance");
-      }
-      const employee = await prisma.employee.findFirst({ where: { id: parseInt(b.employeeId), dealerId } });
-      if (!employee) return handleNotFoundError(res, "Employee", "Mark attendance");
-
-      const day = parseDateOnly(b.date);
-      const record = await prisma.attendanceRecord.upsert({
-        where: { employeeId_date: { employeeId: employee.id, date: day } },
-        create: {
-          employeeId: employee.id,
-          dealerId,
-          date: day,
-          status: b.status,
-          checkIn: b.checkIn ? new Date(b.checkIn) : null,
-          checkOut: b.checkOut ? new Date(b.checkOut) : null,
-          notes: b.notes ?? null,
-        },
-        update: {
-          status: b.status,
-          checkIn: b.checkIn ? new Date(b.checkIn) : null,
-          checkOut: b.checkOut ? new Date(b.checkOut) : null,
-          notes: b.notes ?? null,
-        },
-      });
-      res.status(201).json(record);
-    } catch (error) {
-      handleError(error, res, "Mark attendance");
-    }
-  }
-
-  // POST /api/v1/dealer-portal/hr/leave-requests
-  async createLeaveRequest(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const b = req.body ?? {};
-      if (!b.employeeId || !b.leaveType || !b.startDate || !b.endDate) {
-        return handleValidationError(res, "employeeId, leaveType, startDate and endDate are required", "body", "Create leave request");
-      }
-      const employee = await prisma.employee.findFirst({ where: { id: parseInt(b.employeeId), dealerId } });
-      if (!employee) return handleNotFoundError(res, "Employee", "Create leave request");
-
-      const leave = await prisma.leaveRequest.create({
-        data: {
-          employeeId: employee.id,
-          dealerId,
-          leaveType: b.leaveType,
-          startDate: parseDateOnly(b.startDate),
-          endDate: parseDateOnly(b.endDate),
-          reason: b.reason ?? null,
-        },
-      });
-      res.status(201).json(leave);
-    } catch (error) {
-      handleError(error, res, "Create leave request");
-    }
-  }
-
-  // PATCH /api/v1/dealer-portal/hr/leave-requests/:id — approve/reject; approving
-  // auto-marks the employee's attendance ON_LEAVE for every day in the range so
-  // payroll never has to re-derive it from two disagreeing sources.
-  async decideLeaveRequest(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const id = parseInt(req.params.id as string);
-      const status = req.body?.status;
-      if (!["APPROVED", "REJECTED", "CANCELLED"].includes(status)) {
-        return handleValidationError(res, "status must be APPROVED, REJECTED or CANCELLED", "status", "Decide leave request");
-      }
-      const leave = await prisma.leaveRequest.findFirst({ where: { id, dealerId } });
-      if (!leave) return handleNotFoundError(res, "Leave request", "Decide leave request");
-
-      const updated = await prisma.$transaction(async (tx) => {
-        const next = await tx.leaveRequest.update({ where: { id }, data: { status, decidedAt: new Date() } });
-        if (status === "APPROVED") {
-          const days: Date[] = [];
-          let cursor = leave.startDate.getTime();
-          const end = leave.endDate.getTime();
-          while (cursor <= end) {
-            days.push(new Date(cursor));
-            cursor += 86_400_000;
-          }
-          for (const day of days) {
-            await tx.attendanceRecord.upsert({
-              where: { employeeId_date: { employeeId: leave.employeeId, date: day } },
-              create: { employeeId: leave.employeeId, dealerId, date: day, status: "ON_LEAVE" },
-              update: { status: "ON_LEAVE" },
-            });
-          }
-        }
-        return next;
-      });
-      res.json(updated);
-    } catch (error) {
-      handleError(error, res, "Decide leave request");
-    }
-  }
-
-  // GET /api/v1/dealer-portal/hr/payroll?month=&year=
-  async listPayroll(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const { month, year } = req.query as Record<string, string | undefined>;
-      const where: any = { dealerId };
-      if (month) where.periodMonth = parseInt(month);
-      if (year) where.periodYear = parseInt(year);
-      const payslips = await prisma.payslip.findMany({
-        where,
-        include: { employee: { select: { id: true, fullName: true, employeeCode: true, department: true } } },
-        orderBy: [{ periodYear: "desc" }, { periodMonth: "desc" }, { id: "desc" }],
-      });
-      res.json({ payslips });
-    } catch (error) {
-      handleError(error, res, "List payroll");
-    }
-  }
-
-  // POST /api/v1/dealer-portal/hr/payroll/generate — computes one payslip per
-  // active employee from that month's real attendance records; refuses to
-  // fabricate a payslip for anyone with zero attendance marked that month.
-  async generatePayroll(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const b = req.body ?? {};
-      const month = parseInt(b.month);
-      const year = parseInt(b.year);
-      if (!month || !year) {
-        return handleValidationError(res, "month and year are required", "body", "Generate payroll");
-      }
-      const allowances = b.allowances ? String(b.allowances) : "0";
-      const deductions = b.deductions ? String(b.deductions) : "0";
-
-      const employees = await prisma.employee.findMany({ where: { dealerId, status: { in: ["ACTIVE", "ON_LEAVE"] } } });
-      const periodStart = new Date(Date.UTC(year, month - 1, 1));
-      const periodEnd = new Date(Date.UTC(year, month, 1));
-      const totalDaysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-
-      const results: any[] = [];
-      const skipped: string[] = [];
-      for (const employee of employees) {
-        if (employee.monthlySalary == null) {
-          skipped.push(`${employee.fullName} — no monthly salary on file`);
-          continue;
-        }
-        const existing = await prisma.payslip.findUnique({
-          where: { employeeId_periodMonth_periodYear: { employeeId: employee.id, periodMonth: month, periodYear: year } },
-        });
-        if (existing?.status === "PAID") {
-          skipped.push(`${employee.fullName} — already paid for this period, not regenerated`);
-          continue;
-        }
-        const attendance = await prisma.attendanceRecord.findMany({
-          where: { employeeId: employee.id, date: { gte: periodStart, lt: periodEnd } },
-        });
-        if (attendance.length === 0) {
-          skipped.push(`${employee.fullName} — no attendance recorded for this period`);
-          continue;
-        }
-        const presentDays = attendance.filter((a) => a.status === "PRESENT").length + attendance.filter((a) => a.status === "HALF_DAY").length * 0.5;
-        const daysOnLeave = attendance.filter((a) => a.status === "ON_LEAVE").length;
-        const payableDays = presentDays + daysOnLeave;
-        const basicPay = Number(employee.monthlySalary);
-        const netPay = Math.round((basicPay * (payableDays / totalDaysInMonth) + Number(allowances) - Number(deductions)) * 100) / 100;
-
-        const payslip = await prisma.payslip.upsert({
-          where: { employeeId_periodMonth_periodYear: { employeeId: employee.id, periodMonth: month, periodYear: year } },
-          create: {
-            employeeId: employee.id,
-            dealerId,
-            periodMonth: month,
-            periodYear: year,
-            basicPay: String(basicPay),
-            allowances,
-            deductions,
-            daysPresent: Math.round(presentDays),
-            daysOnLeave,
-            netPay: String(netPay),
-          },
-          update: {
-            basicPay: String(basicPay),
-            allowances,
-            deductions,
-            daysPresent: Math.round(presentDays),
-            daysOnLeave,
-            netPay: String(netPay),
-          },
-        });
-        results.push(payslip);
-      }
-      res.status(201).json({ payslips: results, skipped });
-    } catch (error) {
-      handleError(error, res, "Generate payroll");
-    }
-  }
-
-  // PATCH /api/v1/dealer-portal/hr/payroll/:id — mark a payslip paid
-  async markPayslipPaid(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const id = parseInt(req.params.id as string);
-      const payslip = await prisma.payslip.findFirst({ where: { id, dealerId } });
-      if (!payslip) return handleNotFoundError(res, "Payslip", "Mark payslip paid");
-      const updated = await prisma.payslip.update({ where: { id }, data: { status: "PAID", paidAt: new Date() } });
-      res.json(updated);
-    } catch (error) {
-      handleError(error, res, "Mark payslip paid");
-    }
-  }
-
-  // ===========================================================================
   // MODULE — Sales & Booking
   // -----------------------------------------------------------------------------
   // BOOKED -> (CONFIRMED) -> ALLOCATED (a real VehicleUnit from this dealer's
@@ -1232,4 +1080,323 @@ export class DealerPortalController {
       handleError(error, res, "Update booking");
     }
   }
+
+  // ===========================================================================
+  // MODULE — Billing
+  // -----------------------------------------------------------------------------
+  // The customer-facing sale bill. Distinct from `Invoice` (the OEM->dealer
+  // stock-order confirmation used elsewhere in this file) — this is what the
+  // dealer hands the customer. Generating one from a DELIVERED booking pulls
+  // every fact that's already on record (customer, model, VIN); the dealer
+  // only supplies the commercial numbers only they know.
+  // ===========================================================================
+
+  // GET /api/v1/dealer-portal/billable-bookings — DELIVERED bookings with no bill yet
+  async listBillableBookings(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const bookings = await prisma.booking.findMany({
+        where: { dealerId, status: "DELIVERED", bill: null },
+        include: { vehicleUnit: { select: { id: true, vin: true, model: true } } },
+        orderBy: { deliveredAt: "desc" },
+      });
+      res.json({ bookings });
+    } catch (error) {
+      handleError(error, res, "List billable bookings");
+    }
+  }
+
+  // GET /api/v1/dealer-portal/billable-service-tickets — RESOLVED/CLOSED tickets with no bill yet
+  async listBillableServiceTickets(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const tickets = await prisma.serviceTicket.findMany({
+        where: { dealerId, status: { in: ["RESOLVED", "CLOSED"] }, bill: null },
+        include: { partsUsed: true },
+        orderBy: { resolvedAt: "desc" },
+      });
+      res.json({
+        tickets: tickets.map((t) => ({
+          ...t,
+          partsAmount: t.partsUsed.reduce((sum, p) => sum + Number(p.unitPrice) * p.quantityUsed, 0),
+        })),
+      });
+    } catch (error) {
+      handleError(error, res, "List billable service tickets");
+    }
+  }
+
+  // GET /api/v1/dealer-portal/bills
+  async listBills(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const bills = await prisma.customerBill.findMany({
+        where: { dealerId },
+        include: {
+          booking: { select: { id: true, bookingNumber: true } },
+          serviceTicket: { select: { id: true, ticketNumber: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      });
+      res.json({ bills });
+    } catch (error) {
+      handleError(error, res, "List bills");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/bills — from a delivered booking (preferred, pulls
+  // customer + vehicle facts off the real record) or fully manual for a sale
+  // made outside the booking flow.
+  async createBill(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const b = req.body ?? {};
+
+      let customerName = b.customerName;
+      let customerPhone = b.customerPhone;
+      let model = b.model;
+      let vin: string | null = b.vin ?? null;
+      let vehicleUnitId: number | null = null;
+      let bookingId: number | null = null;
+      let serviceTicketId: number | null = null;
+      let billType: "VEHICLE_SALE" | "SERVICE" = "VEHICLE_SALE";
+      let partsAmount = 0;
+
+      if (b.bookingId) {
+        const booking = await prisma.booking.findFirst({
+          where: { id: parseInt(b.bookingId), dealerId, status: "DELIVERED" },
+          include: { vehicleUnit: { select: { id: true, vin: true } }, bill: true },
+        });
+        if (!booking) return handleValidationError(res, "That booking isn't a delivered booking on your account", "bookingId", "Create bill");
+        if (booking.bill) return handleValidationError(res, "This booking already has a bill", "bookingId", "Create bill");
+        customerName = booking.customerName;
+        customerPhone = booking.customerPhone;
+        model = booking.model;
+        vin = booking.vehicleUnit?.vin ?? null;
+        vehicleUnitId = booking.vehicleUnit?.id ?? null;
+        bookingId = booking.id;
+      } else if (b.serviceTicketId) {
+        const ticket = await prisma.serviceTicket.findFirst({
+          where: { id: parseInt(b.serviceTicketId), dealerId, status: { in: ["RESOLVED", "CLOSED"] } },
+          include: { partsUsed: true, bill: true },
+        });
+        if (!ticket) return handleValidationError(res, "That isn't a resolved service ticket on your account", "serviceTicketId", "Create bill");
+        if (ticket.bill) return handleValidationError(res, "This service ticket already has a bill", "serviceTicketId", "Create bill");
+        if (b.laborCharge == null) return handleValidationError(res, "laborCharge is required to bill a service ticket", "laborCharge", "Create bill");
+        customerName = ticket.customerName;
+        customerPhone = ticket.customerPhone ?? "—";
+        model = ticket.vehicleModel ?? "—";
+        vin = ticket.chassisNumber;
+        serviceTicketId = ticket.id;
+        billType = "SERVICE";
+        // partsAmount is always the real sum of what was actually used — never hand-typed.
+        partsAmount = ticket.partsUsed.reduce((sum, p) => sum + Number(p.unitPrice) * p.quantityUsed, 0);
+      }
+
+      if (billType === "VEHICLE_SALE" && b.exShowroomPrice == null) {
+        return handleValidationError(res, "exShowroomPrice is required", "exShowroomPrice", "Create bill");
+      }
+      if (!customerName || !customerPhone || !model) {
+        return handleValidationError(res, "customerName, customerPhone and model are required (or pass a bookingId/serviceTicketId)", "body", "Create bill");
+      }
+
+      const exShowroomPrice = billType === "VEHICLE_SALE" ? Number(b.exShowroomPrice) : 0;
+      const accessoriesAmount = billType === "VEHICLE_SALE" ? Number(b.accessoriesAmount ?? 0) : 0;
+      const registrationAmount = billType === "VEHICLE_SALE" ? Number(b.registrationAmount ?? 0) : 0;
+      const insuranceAmount = billType === "VEHICLE_SALE" ? Number(b.insuranceAmount ?? 0) : 0;
+      const laborCharge = billType === "SERVICE" ? Number(b.laborCharge) : 0;
+      const discountAmount = Number(b.discountAmount ?? 0);
+      const gstRate = Number(b.gstRate ?? 5);
+      const taxableAmount = exShowroomPrice + accessoriesAmount + registrationAmount + insuranceAmount + laborCharge + partsAmount - discountAmount;
+      const gstAmount = Math.round(taxableAmount * (gstRate / 100) * 100) / 100;
+      const totalAmount = Math.round((taxableAmount + gstAmount) * 100) / 100;
+
+      // GST split: intra-state sales (customer's billing state == dealer's
+      // registered state) split the tax as CGST+SGST (half each); any other
+      // state is inter-state and the whole amount is IGST — the same rule
+      // the GST portal itself applies based on place of supply.
+      const dealer = await prisma.dealer.findUnique({ where: { id: dealerId }, select: { state: true } });
+      const customerState: string | null = b.customerState ?? null;
+      const isInterState = !!(customerState && dealer?.state && customerState.trim().toLowerCase() !== dealer.state.trim().toLowerCase());
+      const cgstAmount = isInterState ? 0 : Math.round((gstAmount / 2) * 100) / 100;
+      const sgstAmount = isInterState ? 0 : gstAmount - cgstAmount;
+      const igstAmount = isInterState ? gstAmount : 0;
+
+      const billNumber = await generateSequenceNumber("BILL", () => prisma.customerBill.count());
+      const bill = await prisma.customerBill.create({
+        data: {
+          dealerId,
+          billNumber,
+          billType,
+          bookingId,
+          serviceTicketId,
+          vehicleUnitId,
+          customerName,
+          customerPhone,
+          customerAddress: b.customerAddress ?? null,
+          customerState,
+          customerGstin: b.customerGstin ?? null,
+          model,
+          vin,
+          hsnCode: b.hsnCode || "8703",
+          placeOfSupply: customerState ?? dealer?.state ?? null,
+          isInterState,
+          cgstAmount: String(cgstAmount),
+          sgstAmount: String(sgstAmount),
+          igstAmount: String(igstAmount),
+          exShowroomPrice: String(exShowroomPrice),
+          accessoriesAmount: String(accessoriesAmount),
+          registrationAmount: String(registrationAmount),
+          insuranceAmount: String(insuranceAmount),
+          laborCharge: String(laborCharge),
+          partsAmount: String(partsAmount),
+          discountAmount: String(discountAmount),
+          taxableAmount: String(taxableAmount),
+          gstRate: String(gstRate),
+          gstAmount: String(gstAmount),
+          totalAmount: String(totalAmount),
+          paymentMode: b.paymentMode ?? "CASH",
+          notes: b.notes ?? null,
+        },
+      });
+      res.status(201).json(bill);
+    } catch (error) {
+      handleError(error, res, "Create bill");
+    }
+  }
+
+  // GET /api/v1/dealer-portal/bills/:id/gst-invoice — full GST-compliant invoice view
+  async getGstInvoice(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const bill = await prisma.customerBill.findFirst({
+        where: { id, dealerId },
+        include: { dealer: { select: { legalName: true, tradeName: true, gstNumber: true, addressLine: true, city: true, state: true, pincode: true } }, ewayBill: true },
+      });
+      if (!bill) return handleNotFoundError(res, "Bill", "Get GST invoice");
+      res.json({ invoice: bill });
+    } catch (error) {
+      handleError(error, res, "Get GST invoice");
+    }
+  }
+
+  // PATCH /api/v1/dealer-portal/bills/:id/payment — record a payment against the bill
+  async recordBillPayment(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const amount = Number(req.body?.amount);
+      if (!amount || amount <= 0) return handleValidationError(res, "amount must be a positive number", "amount", "Record bill payment");
+
+      const bill = await prisma.customerBill.findFirst({ where: { id, dealerId } });
+      if (!bill) return handleNotFoundError(res, "Bill", "Record bill payment");
+      if (bill.status === "CANCELLED") return handleValidationError(res, "This bill is cancelled", "status", "Record bill payment");
+      if (bill.status === "PAID") return handleValidationError(res, "This bill is already fully paid", "status", "Record bill payment");
+
+      const amountPaid = Number(bill.amountPaid) + amount;
+      const total = Number(bill.totalAmount);
+      const status = amountPaid >= total ? "PAID" : "PARTIALLY_PAID";
+      const updated = await prisma.customerBill.update({
+        where: { id },
+        data: { amountPaid: String(Math.min(amountPaid, total)), status, paidAt: status === "PAID" ? new Date() : null },
+      });
+      res.json(updated);
+    } catch (error) {
+      handleError(error, res, "Record bill payment");
+    }
+  }
+
+  // PATCH /api/v1/dealer-portal/bills/:id — cancel an unpaid/partially-paid bill
+  async cancelBill(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const bill = await prisma.customerBill.findFirst({ where: { id, dealerId } });
+      if (!bill) return handleNotFoundError(res, "Bill", "Cancel bill");
+      if (bill.status === "PAID") return handleValidationError(res, "A fully paid bill can't be cancelled", "status", "Cancel bill");
+      const updated = await prisma.customerBill.update({ where: { id }, data: { status: "CANCELLED", cancelledAt: new Date() } });
+      res.json(updated);
+    } catch (error) {
+      handleError(error, res, "Cancel bill");
+    }
+  }
+
+  // ===========================================================================
+  // SUBMODULE — E-way bill generation
+  // -----------------------------------------------------------------------------
+  // GST rule enforced here, not left to the dealer's judgement: e-way bills
+  // are only generatable for consignments whose taxable value exceeds the
+  // real statutory threshold (₹50,000). Validity follows the same 1-day-per-
+  // 200km rule (minimum 1 day) the GST portal itself computes.
+  // ===========================================================================
+
+  // POST /api/v1/dealer-portal/bills/:id/eway-bill
+  async generateEwayBill(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const b = req.body ?? {};
+      if (!b.transporterName || !b.vehicleNumber || !b.distanceKm) {
+        return handleValidationError(res, "transporterName, vehicleNumber and distanceKm are required", "body", "Generate e-way bill");
+      }
+
+      const bill = await prisma.customerBill.findFirst({ where: { id, dealerId }, include: { ewayBill: true } });
+      if (!bill) return handleNotFoundError(res, "Bill", "Generate e-way bill");
+      if (bill.status === "CANCELLED") return handleValidationError(res, "This bill is cancelled", "status", "Generate e-way bill");
+      if (bill.ewayBill) return handleValidationError(res, "This bill already has an e-way bill", "billId", "Generate e-way bill");
+      if (Number(bill.taxableAmount) <= EWAY_BILL_THRESHOLD) {
+        return handleValidationError(
+          res,
+          `E-way bills are only required for consignments over ₹${EWAY_BILL_THRESHOLD.toLocaleString("en-IN")} taxable value — this bill is ₹${Number(bill.taxableAmount).toLocaleString("en-IN")}`,
+          "taxableAmount",
+          "Generate e-way bill"
+        );
+      }
+
+      const distanceKm = parseInt(b.distanceKm);
+      const validDays = Math.max(1, Math.ceil(distanceKm / 200));
+      const generatedAt = new Date();
+      const validUntil = new Date(generatedAt.getTime() + validDays * 86_400_000);
+
+      const ewayBillNumber = await generateSequenceNumber("EWB", () => prisma.ewayBill.count());
+      const ewayBill = await prisma.ewayBill.create({
+        data: {
+          dealerId,
+          billId: bill.id,
+          ewayBillNumber,
+          transporterName: b.transporterName,
+          transporterGstin: b.transporterGstin ?? null,
+          vehicleNumber: b.vehicleNumber,
+          transportMode: b.transportMode ?? "ROAD",
+          distanceKm,
+          generatedAt,
+          validUntil,
+        },
+      });
+      res.status(201).json(ewayBill);
+    } catch (error) {
+      handleError(error, res, "Generate e-way bill");
+    }
+  }
+
+  // PATCH /api/v1/dealer-portal/eway-bills/:id — cancel
+  async cancelEwayBill(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const ewayBill = await prisma.ewayBill.findFirst({ where: { id, dealerId } });
+      if (!ewayBill) return handleNotFoundError(res, "E-way bill", "Cancel e-way bill");
+      if (ewayBill.status === "CANCELLED") return handleValidationError(res, "Already cancelled", "status", "Cancel e-way bill");
+      const updated = await prisma.ewayBill.update({
+        where: { id },
+        data: { status: "CANCELLED", cancelledAt: new Date(), cancellationReason: req.body?.reason ?? null },
+      });
+      res.json(updated);
+    } catch (error) {
+      handleError(error, res, "Cancel e-way bill");
+    }
+  }
+
 }
