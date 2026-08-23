@@ -1,6 +1,14 @@
 import { Router } from "express";
+import multer from "multer";
 import { requireDealerPortalAuth } from "../middleware/dealerPortalAuth.middleware.js";
 import { DealerPortalController } from "../controllers/dealerPortal.controller.js";
+
+// Buffers held in memory, never touch disk directly — fileStorage.service.ts
+// takes the raw buffer and either pushes it to Supabase Storage or (dev
+// fallback) writes it to apps/api/uploads itself. Unlike the older
+// warranty/dealer-application uploaders (diskStorage), nothing here assumes
+// local disk is where the file ends up.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const portal = new DealerPortalController();
 const router = Router();
@@ -69,5 +77,27 @@ router.patch("/bills/:id", portal.cancelBill.bind(portal));
 
 router.post("/bills/:id/eway-bill", portal.generateEwayBill.bind(portal));
 router.patch("/eway-bills/:id", portal.cancelEwayBill.bind(portal));
+
+// File attachments (Supabase Storage / local-disk dev fallback — see
+// services/fileStorage.service.ts) — one generic Attachment row per file,
+// reused across every parent type below rather than 4 near-identical tables.
+router.get("/customer-bills/:id/attachments", portal.listAttachments("CUSTOMER_BILL"));
+router.post("/customer-bills/:id/attachments", upload.single("file"), portal.uploadAttachment("CUSTOMER_BILL"));
+router.get("/service-tickets/:id/attachments", portal.listAttachments("SERVICE_TICKET"));
+router.post("/service-tickets/:id/attachments", upload.single("file"), portal.uploadAttachment("SERVICE_TICKET"));
+router.get("/bookings/:id/attachments", portal.listAttachments("BOOKING"));
+router.post("/bookings/:id/attachments", upload.single("file"), portal.uploadAttachment("BOOKING"));
+router.get("/warranty-claims/:id/attachments", portal.listAttachments("WARRANTY_CLAIM"));
+router.post("/warranty-claims/:id/attachments", upload.single("file"), portal.uploadAttachment("WARRANTY_CLAIM"));
+router.delete("/attachments/:id", portal.deleteAttachment.bind(portal));
+
+// Purchase invoices — dealer logs a supplier/OEM invoice; OCR (plain text
+// only) runs at upload time so the dealer has a copy-paste reference for
+// filling in the real fields themselves (no auto-fill).
+router.post("/purchase-invoices/ocr-preview", upload.single("file"), portal.previewPurchaseInvoiceOcr.bind(portal));
+router.get("/purchase-invoices", portal.listPurchaseInvoices.bind(portal));
+router.post("/purchase-invoices", portal.createPurchaseInvoice.bind(portal));
+router.get("/purchase-invoices/:id", portal.getPurchaseInvoice.bind(portal));
+router.patch("/purchase-invoices/:id", portal.updatePurchaseInvoice.bind(portal));
 
 export default router;

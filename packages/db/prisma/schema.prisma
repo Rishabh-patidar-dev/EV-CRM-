@@ -637,6 +637,9 @@ model Dealer {
   customerBills CustomerBill[]
   ewayBills     EwayBill[]
 
+  // Purchase invoices (dealer-logged, OCR-assisted)
+  dealerPurchaseInvoices DealerPurchaseInvoice[]
+
   @@index([state])
   @@index([status])
   @@index([tier])
@@ -757,6 +760,7 @@ model ServiceTicket {
 
   dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
   partsUsed ServiceTicketPart[]
+  attachments Attachment[]
   bill      CustomerBill?
 
   @@index([dealerId])
@@ -1433,6 +1437,7 @@ model WarrantyClaim {
 
   events           WarrantyClaimEvent[]
   supplierRecovery SupplierRecovery?
+  attachments      Attachment[]
 
   @@index([dealerId])
   @@index([status])
@@ -1549,6 +1554,7 @@ model Booking {
 
   dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
   bill   CustomerBill?
+  attachments Attachment[]
 
   @@index([dealerId])
   @@index([status])
@@ -1643,6 +1649,7 @@ model CustomerBill {
 
   dealer   Dealer    @relation(fields: [dealerId], references: [id], onDelete: Cascade)
   ewayBill EwayBill?
+  attachments Attachment[]
 
   @@index([dealerId])
   @@index([status])
@@ -1690,5 +1697,98 @@ model EwayBill {
 
   @@index([dealerId])
   @@map("eway_bills")
+}
+
+// =============================================================================
+// MODULE — File attachments + purchase-invoice OCR logging (dealer-side)
+// -----------------------------------------------------------------------------
+// Bytes live in Supabase Storage (or local disk in dev — see
+// fileStorage.service.ts); only the URL/path is stored here. Follows the same
+// "multiple nullable FKs + a denormalized kind enum, exactly one set" pattern
+// already used by Invoice/OrderStockNotice above — real FK/cascade/`include`
+// support from Prisma, no hand-rolled polymorphic joins.
+// =============================================================================
+
+enum AttachmentKind {
+  CUSTOMER_BILL
+  SERVICE_TICKET
+  BOOKING
+  WARRANTY_CLAIM
+}
+
+model Attachment {
+  id   Int            @id @default(autoincrement())
+  kind AttachmentKind
+
+  customerBillId  Int?           @map("customer_bill_id")
+  customerBill    CustomerBill?  @relation(fields: [customerBillId], references: [id], onDelete: Cascade)
+  serviceTicketId Int?           @map("service_ticket_id")
+  serviceTicket   ServiceTicket? @relation(fields: [serviceTicketId], references: [id], onDelete: Cascade)
+  bookingId       Int?           @map("booking_id")
+  booking         Booking?       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  warrantyClaimId Int?           @map("warranty_claim_id")
+  warrantyClaim   WarrantyClaim? @relation(fields: [warrantyClaimId], references: [id], onDelete: Cascade)
+
+  fileName      String  @map("file_name")
+  fileUrl       String  @map("file_url")
+  storagePath   String  @map("storage_path")
+  mimeType      String? @map("mime_type")
+  fileSizeBytes Int?    @map("file_size_bytes")
+
+  uploadedByDealerId Int? @map("uploaded_by_dealer_id")
+  uploadedByUserId   Int? @map("uploaded_by_user_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([customerBillId])
+  @@index([serviceTicketId])
+  @@index([bookingId])
+  @@index([warrantyClaimId])
+  @@map("attachments")
+}
+
+// Dealer-logged purchase invoices (from the OEM or spare-parts suppliers) —
+// a flat log with no approval/dispute workflow. OCR (tesseract.js, plain
+// text only) runs once at upload time via /purchase-invoices/ocr-preview;
+// the extracted text is a copy-paste reference for the dealer's own manual
+// entry below, never auto-filled.
+enum PurchaseInvoiceCategory {
+  VEHICLE_STOCK
+  SPARE_PARTS
+  OTHER
+}
+
+enum OcrStatus {
+  DONE
+  FAILED
+  SKIPPED
+}
+
+model DealerPurchaseInvoice {
+  id       Int    @id @default(autoincrement())
+  dealerId Int    @map("dealer_id")
+  dealer   Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  vendorName    String   @map("vendor_name")
+  vendorGstin   String?  @map("vendor_gstin")
+  invoiceNumber String   @map("invoice_number")
+  invoiceDate   DateTime @map("invoice_date")
+  amount        Decimal
+  category      PurchaseInvoiceCategory @default(OTHER)
+  notes         String?
+
+  fileUrl     String? @map("file_url")
+  storagePath String? @map("storage_path")
+  fileName    String? @map("file_name")
+  mimeType    String? @map("mime_type")
+
+  ocrExtractedText String?    @map("ocr_extracted_text")
+  ocrStatus        OcrStatus? @map("ocr_status")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([dealerId])
+  @@map("dealer_purchase_invoices")
 }
 

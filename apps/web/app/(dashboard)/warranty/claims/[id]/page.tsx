@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, AlertTriangle, ChevronRight, Battery, PackageSearch, Loader2 } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { AttachmentUpload } from "@/components/ui/AttachmentUpload";
 
 const STATUS_BADGE: Record<string, string> = {
   SUBMITTED: "bg-secondary text-secondary-foreground",
@@ -161,6 +162,8 @@ export default function ClaimDetailPage() {
               <button onClick={openRecovery} className="w-full rounded-[var(--radius)] border border-border px-3 py-2 text-sm hover:bg-accent">Open recovery case</button>
             </div>
           )}
+
+          <AttachmentUpload basePath={`/api/v1/warranty-claims/${claimId}`} />
         </div>
 
         <aside className="rounded-[var(--radius)] border border-border bg-card p-5">

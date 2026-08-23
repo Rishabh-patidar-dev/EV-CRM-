@@ -385,4 +385,40 @@ export class PurchaseManagementController {
       handleError(error, res, "Purchase management analytics");
     }
   }
+
+  // GET /api/v1/purchase-management/dealer-invoices?dealerId= — read-only:
+  // dealers log these themselves through the DMS portal (see
+  // dealerPortal.controller.ts#createPurchaseInvoice). No approval/dispute
+  // workflow here, just visibility.
+  async listDealerInvoices(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.query;
+      const where: any = {};
+      if (dealerId) where.dealerId = parseInt(dealerId as string);
+      const invoices = await prisma.dealerPurchaseInvoice.findMany({
+        where,
+        include: { dealer: { select: { id: true, dealerCode: true, legalName: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      });
+      res.json({ invoices });
+    } catch (error) {
+      handleError(error, res, "List dealer purchase invoices");
+    }
+  }
+
+  // GET /api/v1/purchase-management/dealer-invoices/:id
+  async getDealerInvoice(req: Request, res: Response) {
+    try {
+      const id = parseInt(req.params.id as string);
+      const invoice = await prisma.dealerPurchaseInvoice.findUnique({
+        where: { id },
+        include: { dealer: { select: { id: true, dealerCode: true, legalName: true } } },
+      });
+      if (!invoice) return handleNotFoundError(res, "Purchase invoice", "Get dealer purchase invoice");
+      res.json(invoice);
+    } catch (error) {
+      handleError(error, res, "Get dealer purchase invoice");
+    }
+  }
 }

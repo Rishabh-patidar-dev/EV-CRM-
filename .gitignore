@@ -18,6 +18,9 @@ packages/db/generated/
 # locally-stored warranty claim document uploads
 apps/api/uploads/
 
+# tesseract.js auto-downloads its language model here on first OCR call
+apps/api/eng.traineddata
+
 # editors / os
 .DS_Store
 Thumbs.db

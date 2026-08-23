@@ -18,4 +18,10 @@ router.post("/vendors", requireRole(ADMINS), controller.createVendor.bind(contro
 router.patch("/vendors/:id", requireRole(ADMINS), controller.updateVendor.bind(controller));
 router.get("/analytics", requireRole(ADMINS), controller.analytics.bind(controller));
 
+// Read-only — dealers log these themselves via the DMS portal
+// (dealerPortal.controller.ts). No approval/dispute workflow here, just
+// visibility for staff into what each dealer has logged.
+router.get("/dealer-invoices", requireRole(ADMINS), controller.listDealerInvoices.bind(controller));
+router.get("/dealer-invoices/:id", requireRole(ADMINS), controller.getDealerInvoice.bind(controller));
+
 export default router;

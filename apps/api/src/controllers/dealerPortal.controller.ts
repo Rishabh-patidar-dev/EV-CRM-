@@ -21,10 +21,28 @@ import { generateSequenceNumber, VEHICLE_CATALOG } from "../services/dealerManag
 import { submitWarrantyClaim } from "../services/warrantyAdjudication.service.js";
 import { segmentWhere } from "./campaignManagement.controller.js";
 import { registerComponentsForSale } from "../services/componentRegistration.service.js";
+import { uploadFile, deleteFile } from "../services/fileStorage.service.js";
+import { extractText } from "../services/ocr.service.js";
 
 // GST rule: e-way bills are mandatory (and here, only generatable) once a
 // consignment's taxable value exceeds this statutory threshold.
 const EWAY_BILL_THRESHOLD = 50000;
+
+type AttachmentKind = "CUSTOMER_BILL" | "SERVICE_TICKET" | "BOOKING" | "WARRANTY_CLAIM";
+
+// Which Prisma delegate + FK column owns a given attachment kind — every
+// generic-attachment endpoint is one of these 4 rows away from a full
+// implementation, see listAttachments/uploadAttachment below.
+const ATTACHMENT_PARENT: Record<AttachmentKind, { delegate: any; fkField: string }> = {
+  CUSTOMER_BILL: { delegate: prisma.customerBill, fkField: "customerBillId" },
+  SERVICE_TICKET: { delegate: prisma.serviceTicket, fkField: "serviceTicketId" },
+  BOOKING: { delegate: prisma.booking, fkField: "bookingId" },
+  WARRANTY_CLAIM: { delegate: prisma.warrantyClaim, fkField: "warrantyClaimId" },
+};
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
 
 export class DealerPortalController {
   // GET /api/v1/dealer-portal/vehicle-catalog — the exact {model, segment}
@@ -1406,4 +1424,224 @@ export class DealerPortalController {
     }
   }
 
+  // ===========================================================================
+  // MODULE — File attachments
+  // -----------------------------------------------------------------------------
+  // One generic Attachment table reused across every parent type (see
+  // ATTACHMENT_PARENT above) rather than 4 near-identical tables/controllers.
+  // Bytes go to Supabase Storage (or local disk in dev) via
+  // fileStorage.service.ts — this controller never touches the filesystem
+  // directly.
+  // ===========================================================================
+
+  // GET /api/v1/dealer-portal/{customer-bills,service-tickets,bookings,warranty-claims}/:id/attachments
+  listAttachments(kind: AttachmentKind) {
+    return async (req: Request, res: Response) => {
+      try {
+        const { dealerId } = req.dealerPortal!;
+        const parentId = parseInt(req.params.id as string);
+        const { delegate, fkField } = ATTACHMENT_PARENT[kind];
+        const parent = await delegate.findFirst({ where: { id: parentId, dealerId } });
+        if (!parent) return handleNotFoundError(res, "Record", "List attachments");
+
+        const attachments = await prisma.attachment.findMany({
+          where: { kind, [fkField]: parentId },
+          orderBy: { createdAt: "desc" },
+        });
+        res.json({ attachments });
+      } catch (error) {
+        handleError(error, res, "List attachments");
+      }
+    };
+  }
+
+  // POST /api/v1/dealer-portal/{customer-bills,service-tickets,bookings,warranty-claims}/:id/attachments
+  uploadAttachment(kind: AttachmentKind) {
+    return async (req: Request, res: Response) => {
+      try {
+        const { dealerId } = req.dealerPortal!;
+        const parentId = parseInt(req.params.id as string);
+        const file = (req as any).file as Express.Multer.File | undefined;
+        if (!file) return handleValidationError(res, "file is required", "file", "Upload attachment");
+
+        const { delegate, fkField } = ATTACHMENT_PARENT[kind];
+        const parent = await delegate.findFirst({ where: { id: parentId, dealerId } });
+        if (!parent) return handleNotFoundError(res, "Record", "Upload attachment");
+
+        const key = `attachments/${kind.toLowerCase()}/${parentId}/${Date.now()}_${sanitizeFileName(file.originalname)}`;
+        const { url, path: storagePath } = await uploadFile(file.buffer, key, file.mimetype);
+
+        const attachment = await prisma.attachment.create({
+          data: {
+            kind,
+            [fkField]: parentId,
+            fileName: file.originalname,
+            fileUrl: url,
+            storagePath,
+            mimeType: file.mimetype,
+            fileSizeBytes: file.size,
+            uploadedByDealerId: dealerId,
+          },
+        });
+        res.status(201).json(attachment);
+      } catch (error) {
+        handleError(error, res, "Upload attachment");
+      }
+    };
+  }
+
+  // DELETE /api/v1/dealer-portal/attachments/:id
+  async deleteAttachment(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const attachment = await prisma.attachment.findUnique({ where: { id } });
+      if (!attachment) return handleNotFoundError(res, "Attachment", "Delete attachment");
+
+      const { delegate, fkField } = ATTACHMENT_PARENT[attachment.kind as AttachmentKind];
+      const parentId = (attachment as any)[fkField];
+      const parent = await delegate.findFirst({ where: { id: parentId, dealerId } });
+      if (!parent) return handleNotFoundError(res, "Attachment", "Delete attachment");
+
+      await deleteFile(attachment.storagePath);
+      await prisma.attachment.delete({ where: { id } });
+      res.status(204).send();
+    } catch (error) {
+      handleError(error, res, "Delete attachment");
+    }
+  }
+
+  // ===========================================================================
+  // MODULE — Purchase invoices (dealer-logged, OCR-assisted)
+  // -----------------------------------------------------------------------------
+  // A flat log, no approval workflow. OCR (plain text only, tesseract.js) runs
+  // once at upload time against images only — a dealer sees the extracted
+  // text next to the photo and copies from it into the real fields below; it
+  // is never auto-filled. PDFs are stored and attached like any file but
+  // never OCR'd (ocrStatus: SKIPPED) — tesseract.js reads raster images, not
+  // PDFs, and rasterizing one here would mean a risky native-binary
+  // dependency for a feature that's explicitly scoped to plain text.
+  // ===========================================================================
+
+  // POST /api/v1/dealer-portal/purchase-invoices/ocr-preview — uploads the
+  // file and runs OCR; creates no DB row (the dealer hasn't filled the form
+  // yet — see createPurchaseInvoice below for the actual save).
+  async previewPurchaseInvoiceOcr(req: Request, res: Response) {
+    try {
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) return handleValidationError(res, "file is required", "file", "Preview purchase invoice");
+
+      const key = `purchase-invoices/ocr-preview/${Date.now()}_${sanitizeFileName(file.originalname)}`;
+      const { url, path: storagePath } = await uploadFile(file.buffer, key, file.mimetype);
+
+      let ocrExtractedText: string | null = null;
+      let ocrStatus: "DONE" | "FAILED" | "SKIPPED" = "SKIPPED";
+      if (file.mimetype?.startsWith("image/")) {
+        try {
+          ocrExtractedText = await extractText(file.buffer);
+          ocrStatus = "DONE";
+        } catch {
+          ocrStatus = "FAILED";
+        }
+      }
+
+      res.json({
+        fileUrl: url,
+        storagePath,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        ocrExtractedText,
+        ocrStatus,
+      });
+    } catch (error) {
+      handleError(error, res, "Preview purchase invoice OCR");
+    }
+  }
+
+  // GET /api/v1/dealer-portal/purchase-invoices
+  async listPurchaseInvoices(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const invoices = await prisma.dealerPurchaseInvoice.findMany({
+        where: { dealerId },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      });
+      res.json({ invoices });
+    } catch (error) {
+      handleError(error, res, "List purchase invoices");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/purchase-invoices — the dealer's manually
+  // filled fields, plus the file/OCR fields echoed straight back from the
+  // ocr-preview call (JSON body, not multipart — the file already landed in
+  // storage during preview).
+  async createPurchaseInvoice(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const b = req.body ?? {};
+      if (!b.vendorName || !b.invoiceNumber || !b.invoiceDate || b.amount == null) {
+        return handleValidationError(res, "vendorName, invoiceNumber, invoiceDate and amount are required", "body", "Create purchase invoice");
+      }
+      const invoice = await prisma.dealerPurchaseInvoice.create({
+        data: {
+          dealerId,
+          vendorName: b.vendorName,
+          vendorGstin: b.vendorGstin ?? null,
+          invoiceNumber: b.invoiceNumber,
+          invoiceDate: new Date(b.invoiceDate),
+          amount: String(b.amount),
+          category: b.category ?? "OTHER",
+          notes: b.notes ?? null,
+          fileUrl: b.fileUrl ?? null,
+          storagePath: b.storagePath ?? null,
+          fileName: b.fileName ?? null,
+          mimeType: b.mimeType ?? null,
+          ocrExtractedText: b.ocrExtractedText ?? null,
+          ocrStatus: b.ocrStatus ?? null,
+        },
+      });
+      res.status(201).json(invoice);
+    } catch (error) {
+      handleError(error, res, "Create purchase invoice");
+    }
+  }
+
+  // GET /api/v1/dealer-portal/purchase-invoices/:id
+  async getPurchaseInvoice(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const invoice = await prisma.dealerPurchaseInvoice.findFirst({ where: { id, dealerId } });
+      if (!invoice) return handleNotFoundError(res, "Purchase invoice", "Get purchase invoice");
+      res.json(invoice);
+    } catch (error) {
+      handleError(error, res, "Get purchase invoice");
+    }
+  }
+
+  // PATCH /api/v1/dealer-portal/purchase-invoices/:id
+  async updatePurchaseInvoice(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const id = parseInt(req.params.id as string);
+      const invoice = await prisma.dealerPurchaseInvoice.findFirst({ where: { id, dealerId } });
+      if (!invoice) return handleNotFoundError(res, "Purchase invoice", "Update purchase invoice");
+
+      const b = req.body ?? {};
+      const data: any = {};
+      if (b.vendorName !== undefined) data.vendorName = b.vendorName;
+      if (b.vendorGstin !== undefined) data.vendorGstin = b.vendorGstin;
+      if (b.invoiceNumber !== undefined) data.invoiceNumber = b.invoiceNumber;
+      if (b.invoiceDate !== undefined) data.invoiceDate = new Date(b.invoiceDate);
+      if (b.amount !== undefined) data.amount = String(b.amount);
+      if (b.category !== undefined) data.category = b.category;
+      if (b.notes !== undefined) data.notes = b.notes;
+      const updated = await prisma.dealerPurchaseInvoice.update({ where: { id }, data });
+      res.json(updated);
+    } catch (error) {
+      handleError(error, res, "Update purchase invoice");
+    }
+  }
 }

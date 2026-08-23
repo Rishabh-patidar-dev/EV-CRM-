@@ -25,6 +25,12 @@ const claimUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024, files: 5 },
 });
 
+// New generic Attachment uploads go through fileStorage.service.ts (Supabase
+// Storage / local-disk fallback), so this needs the buffer in memory rather
+// than multer writing straight to apps/api/uploads/warranty like the legacy
+// uploader above.
+const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
 const ADMINS = [UserRole.ADMIN, UserRole.SYSTEM_ADMIN];
 const plans = new WarrantyPlanController();
 const componentUnits = new ComponentUnitController();
@@ -54,6 +60,9 @@ claimRouter.post("/", requireRole(ADMINS), claims.create.bind(claims));
 claimRouter.get("/analytics/cost", requireRole(ADMINS), claims.costAnalytics.bind(claims));
 claimRouter.get("/:id", requireRole(ADMINS), claims.getById.bind(claims));
 claimRouter.post("/:id/documents", requireRole(ADMINS), claimUpload.array("files", 5), claims.uploadDocuments.bind(claims));
+claimRouter.get("/:id/attachments", requireRole(ADMINS), claims.listAttachments.bind(claims));
+claimRouter.post("/:id/attachments", requireRole(ADMINS), attachmentUpload.single("file"), claims.uploadAttachment.bind(claims));
+claimRouter.delete("/:id/attachments/:attachmentId", requireRole(ADMINS), claims.deleteAttachment.bind(claims));
 claimRouter.post("/:id/status", requireRole(ADMINS), claims.setStatus.bind(claims));
 claimRouter.post("/:claimId/supplier-recovery", requireRole(ADMINS), recoveries.create.bind(recoveries));
 

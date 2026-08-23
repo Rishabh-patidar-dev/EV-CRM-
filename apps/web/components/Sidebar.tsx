@@ -23,6 +23,7 @@ import {
   CheckSquare,
   AlertTriangle,
   FileText,
+  Receipt,
 } from "lucide-react";
 import Logo from "./Logo";
 
@@ -68,6 +69,7 @@ const NAV: NavEntry[] = [
       { href: "/order-management/Close", label: "Close Orders", icon: AlertTriangle },
       { href: "/order-management/invoices", label: "Invoices", icon: FileText },
       { href: "/purchase-management", label: "Purchase Management", icon: ShoppingCart, badge: "new" },
+      { href: "/purchase-management/dealer-invoices", label: "Dealer Purchase Invoices", icon: Receipt },
       { href: "/dealer-compliance", label: "Compliance & Renewals", icon: ShieldCheck },
     ],
   },

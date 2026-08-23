@@ -15,6 +15,11 @@ import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { adjudicateClaim, submitWarrantyClaim } from "../services/warrantyAdjudication.service.js";
+import { uploadFile, deleteFile } from "../services/fileStorage.service.js";
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
 
 // -----------------------------------------------------------------------------
 export class WarrantyPlanController {
@@ -290,6 +295,72 @@ export class WarrantyClaimController {
       res.status(201).json(updated);
     } catch (error) {
       handleError(error, res, "Upload claim documents");
+    }
+  }
+
+  // GET /api/v1/warranty-claims/:id/attachments — staff-side counterpart of
+  // the dealer-portal generic Attachment endpoints (dealerPortal.controller.ts),
+  // duplicated rather than shared because staff auth (crm_session, req.user)
+  // and dealer auth (dealer_session, req.dealerPortal) are different trust
+  // domains with no common middleware to hang a shared handler off of. Staff
+  // can see/manage any dealer's claim attachments; no dealerId scoping here.
+  async listAttachments(req: Request, res: Response) {
+    try {
+      const claimId = parseInt(req.params.id as string);
+      const attachments = await prisma.attachment.findMany({
+        where: { kind: "WARRANTY_CLAIM", warrantyClaimId: claimId },
+        orderBy: { createdAt: "desc" },
+      });
+      res.json({ attachments });
+    } catch (error) {
+      handleError(error, res, "List claim attachments");
+    }
+  }
+
+  // POST /api/v1/warranty-claims/:id/attachments (multipart, field "file")
+  async uploadAttachment(req: Request, res: Response) {
+    try {
+      const claimId = parseInt(req.params.id as string);
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) return handleValidationError(res, "file is required", "file", "Upload attachment");
+
+      const claim = await prisma.warrantyClaim.findUnique({ where: { id: claimId }, select: { id: true } });
+      if (!claim) return handleNotFoundError(res, "Warranty claim", "Upload attachment");
+
+      const key = `attachments/warranty_claim/${claimId}/${Date.now()}_${sanitizeFileName(file.originalname)}`;
+      const { url, path: storagePath } = await uploadFile(file.buffer, key, file.mimetype);
+
+      const attachment = await prisma.attachment.create({
+        data: {
+          kind: "WARRANTY_CLAIM",
+          warrantyClaimId: claimId,
+          fileName: file.originalname,
+          fileUrl: url,
+          storagePath,
+          mimeType: file.mimetype,
+          fileSizeBytes: file.size,
+          uploadedByUserId: (req as any).user?.id || null,
+        },
+      });
+      res.status(201).json(attachment);
+    } catch (error) {
+      handleError(error, res, "Upload attachment");
+    }
+  }
+
+  // DELETE /api/v1/warranty-claims/:id/attachments/:attachmentId
+  async deleteAttachment(req: Request, res: Response) {
+    try {
+      const claimId = parseInt(req.params.id as string);
+      const attachmentId = parseInt(req.params.attachmentId as string);
+      const attachment = await prisma.attachment.findFirst({ where: { id: attachmentId, warrantyClaimId: claimId } });
+      if (!attachment) return handleNotFoundError(res, "Attachment", "Delete attachment");
+
+      await deleteFile(attachment.storagePath);
+      await prisma.attachment.delete({ where: { id: attachmentId } });
+      res.status(204).send();
+    } catch (error) {
+      handleError(error, res, "Delete attachment");
     }
   }
 
