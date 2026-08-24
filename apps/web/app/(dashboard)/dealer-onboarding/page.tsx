@@ -62,19 +62,32 @@ export default function DealerOnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [activeStage, setActiveStage] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadBoard = useCallback(async () => {
-    const { data } = await apiClient.get("/api/v1/onboarding/board");
-    setBoard(data);
+    try {
+      const { data } = await apiClient.get("/api/v1/onboarding/board");
+      setBoard(data);
+    } catch (error) {
+      console.error("[DealerOnboardingPage] failed to load board:", error);
+    }
   }, []);
 
   const loadApps = useCallback(async (stage: string | null) => {
     setLoading(true);
+    setLoadError(null);
     try {
       const { data } = await apiClient.get("/api/v1/onboarding/applications", {
         params: { limit: 50, ...(stage ? { stage } : {}) },
       });
       setApps(data.applications ?? []);
+    } catch (error: any) {
+      // Previously uncaught here — a failed request left the list silently
+      // empty (spinner clears via finally, nothing else visible) with no
+      // trace of what actually went wrong. Surface it instead.
+      console.error("[DealerOnboardingPage] failed to load applications:", error);
+      setApps([]);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load applications. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -160,6 +173,15 @@ export default function DealerOnboardingPage() {
         {loading ? (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading applications…
+          </div>
+        ) : loadError ? (
+          <div className="rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-10 text-center text-[color:var(--zira-rejected)]">
+            {loadError}
+            <div className="mt-3">
+              <Button size="sm" variant="secondary" onClick={() => loadApps(activeStage)}>
+                <RefreshCw className="h-4 w-4" /> Retry
+              </Button>
+            </div>
           </div>
         ) : apps.length === 0 ? (
           <div className="rounded-[var(--radius)] border border-dashed border-border p-10 text-center text-muted-foreground">
