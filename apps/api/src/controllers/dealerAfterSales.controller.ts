@@ -11,6 +11,13 @@ import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber, normalizePhone } from "../services/dealerManagement.service.js";
+import { issueInvoice, resolveUnitPrice } from "../services/invoice.service.js";
+
+// Same demo-login guard as orderManagement.controller.ts's actingUserId.
+function actingUserId(req: Request): number | null {
+  const id = (req as any).user?.id;
+  return typeof id === "number" && id > 0 ? id : null;
+}
 
 // ------------------------------- FINANCE ------------------------------------
 export class FinanceController {
@@ -240,8 +247,9 @@ export class AfterSalesController {
       if (!id) return handleValidationError(res, "Request ID is required", "id", "Update spare request");
       const b = req.body ?? {};
 
+      let current: any = null;
       if (b.status !== undefined) {
-        const current = await prisma.sparePartRequest.findUnique({ where: { id }, select: { status: true } });
+        current = await prisma.sparePartRequest.findUnique({ where: { id } });
         if (!current) return handleNotFoundError(res, "Spare request", "Update spare request");
         if (current.status === "REQUESTED" && b.status === "APPROVED") {
           return handleValidationError(res, "Run Check Inventory before approving a requested order", "status", "Update spare request");
@@ -257,6 +265,28 @@ export class AfterSalesController {
       const data: any = {};
       for (const f of ["status", "quantity", "partCode"]) if (b[f] !== undefined) data[f] = b[f];
       if (b.status === "DISPATCHED") data.dispatchedAt = new Date();
+      if (b.status === "DELIVERED") data.deliveredAt = new Date();
+
+      // Same "invoice per status change" pattern as the vehicle stock-
+      // transfer PATCH (dealerInventory.controller.ts#update) — dispatch and
+      // delivery are each a real document the dealer must receive.
+      let invoice = null;
+      if (current && (b.status === "DISPATCHED" || b.status === "DELIVERED")) {
+        const unitPrice = await resolveUnitPrice("SPARE_PART", current);
+        const result = await prisma.$transaction(async (tx) => {
+          const request = await tx.sparePartRequest.update({ where: { id }, data });
+          const invoice = await issueInvoice(tx, {
+            type: "SPARE_PART", orderId: id, dealerId: current.dealerId, item: current.partName,
+            invoiceType: b.status === "DISPATCHED" ? "DISPATCH" : "DELIVERY",
+            requestedQuantity: current.quantity, fulfilledQuantity: current.quantity,
+            unitPrice, issuedById: actingUserId(req),
+          });
+          return { request, invoice };
+        });
+        res.json({ ...result.request, invoice: result.invoice });
+        return;
+      }
+
       const request = await prisma.sparePartRequest.update({ where: { id }, data });
       res.json(request);
     } catch (error: any) {

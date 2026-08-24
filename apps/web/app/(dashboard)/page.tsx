@@ -146,9 +146,6 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-[1500px] p-6">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Luxus Green Mobility</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Landing-page intake → dealer onboarding → live network operations → warranty, in one place.
-        </p>
       </header>
 
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-6">

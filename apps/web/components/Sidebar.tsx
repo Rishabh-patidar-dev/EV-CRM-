@@ -23,7 +23,6 @@ import {
   Mail,
   MessageCircle,
   CheckSquare,
-  AlertTriangle,
   FileText,
   Receipt,
 } from "lucide-react";
@@ -68,7 +67,6 @@ const NAV: NavEntry[] = [
       { href: "/dealer-management", label: "Dealer 360", icon: Building2 },
       { href: "/dealer-inventory", label: "Vehicle Inventory", icon: Warehouse },
       { href: "/order-management", label: "Order Management", icon: ListChecks, exactOnly: true },
-      { href: "/order-management/Close", label: "Close Orders", icon: AlertTriangle },
       { href: "/order-management/invoices", label: "Invoices", icon: FileText },
       { href: "/purchase-management", label: "Purchase Management", icon: ShoppingCart, badge: "new" },
       { href: "/purchase-management/dealer-invoices", label: "Dealer Purchase Invoices", icon: Receipt },

@@ -24,6 +24,7 @@ import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber, VEHICLE_CATALOG } from "../services/dealerManagement.service.js";
+import { issueInvoice, resolveUnitPrice, DEALER_INVOICE_SELECT } from "../services/invoice.service.js";
 
 type OrderRow = {
   id: number;
@@ -109,46 +110,6 @@ function groupKey(type: OrderKind, order: any): string {
   return type === "VEHICLE"
     ? `VEHICLE:${order.model}:${order.segment}`
     : `SPARE_PART:${String(order.partCode || order.partName).toLowerCase()}`;
-}
-
-// The document Order Management actually hands the dealer, following the
-// OEM's own flow chart: CONFIRMATION when stock covers the order (issued the
-// moment Check Inventory / a recheck approves it), OUT_OF_STOCK or PARTIAL
-// when staff send a Close Orders notice (see sendNotice below). Always
-// called inside the same transaction as the status change it documents —
-// `tx` must be the active transaction client, never the bare `prisma`.
-async function issueInvoice(
-  tx: any,
-  params: {
-    type: OrderKind;
-    orderId: number;
-    dealerId: number;
-    item: string;
-    invoiceType: "CONFIRMATION" | "OUT_OF_STOCK" | "PARTIAL";
-    requestedQuantity: number;
-    fulfilledQuantity: number;
-    expectedRestockDate?: Date | null;
-    message?: string | null;
-    issuedById: number | null;
-  }
-) {
-  const invoiceNumber = await generateSequenceNumber("INV", () => tx.invoice.count());
-  return tx.invoice.create({
-    data: {
-      invoiceNumber,
-      orderKind: params.type,
-      stockTransferRequestId: params.type === "VEHICLE" ? params.orderId : null,
-      sparePartRequestId: params.type === "SPARE_PART" ? params.orderId : null,
-      dealerId: params.dealerId,
-      type: params.invoiceType,
-      item: params.item,
-      requestedQuantity: params.requestedQuantity,
-      fulfilledQuantity: params.fulfilledQuantity,
-      expectedRestockDate: params.expectedRestockDate ?? null,
-      message: params.message ?? null,
-      issuedById: params.issuedById,
-    },
-  });
 }
 
 export class OrderManagementController {
@@ -451,6 +412,7 @@ export class OrderManagementController {
           const invoice = await issueInvoice(tx, {
             type, orderId: id, dealerId: order.dealerId, item: itemLabel(type, order),
             invoiceType: "CONFIRMATION", requestedQuantity, fulfilledQuantity: requestedQuantity,
+            unitPrice: await resolveUnitPrice(type, order),
             issuedById: actingUserId(req),
           });
           return { order: updated, notice: null, invoice };
@@ -612,6 +574,7 @@ export class OrderManagementController {
           type, orderId: id, dealerId: order.dealerId, item: itemLabel(type, order),
           invoiceType: offeredQuantity != null ? "PARTIAL" : "OUT_OF_STOCK",
           requestedQuantity: order.quantity, fulfilledQuantity: offeredQuantity ?? 0,
+          unitPrice: await resolveUnitPrice(type, order),
           expectedRestockDate, message, issuedById,
         });
         return { notice, invoice };
@@ -663,6 +626,7 @@ export class OrderManagementController {
         const invoice = await issueInvoice(tx, {
           type, orderId: id, dealerId: order.dealerId, item: itemLabel(type, order),
           invoiceType: "CONFIRMATION", requestedQuantity, fulfilledQuantity: requestedQuantity,
+          unitPrice: await resolveUnitPrice(type, order),
           issuedById,
         });
         return { updatedOrder, notice, invoice };
@@ -699,7 +663,7 @@ export class OrderManagementController {
       const [invoices, total] = await Promise.all([
         prisma.invoice.findMany({
           where,
-          include: { dealer: { select: DEALER_SELECT } },
+          include: { dealer: { select: DEALER_INVOICE_SELECT } },
           orderBy: { issuedAt: "desc" },
           skip: (pageNum - 1) * limitNum,
           take: limitNum,
@@ -726,12 +690,16 @@ export class OrderManagementController {
       const item = String(b.item ?? "").trim();
 
       if (!dealerId) return handleValidationError(res, "Choose a dealer", "dealerId", "Create invoice");
-      if (!["CONFIRMATION", "OUT_OF_STOCK", "PARTIAL", "CANCELLATION", "CUSTOM"].includes(type)) {
+      if (!["CONFIRMATION", "OUT_OF_STOCK", "PARTIAL", "CANCELLATION", "CUSTOM", "DISPATCH", "DELIVERY"].includes(type)) {
         return handleValidationError(res, "A valid invoice type is required", "type", "Create invoice");
       }
       if (!item) return handleValidationError(res, "A subject is required", "item", "Create invoice");
 
       const toIntOrNull = (v: unknown) => (v === undefined || v === null || v === "" ? null : parseInt(v as string));
+      const requestedQuantity = toIntOrNull(b.requestedQuantity);
+      const fulfilledQuantity = toIntOrNull(b.fulfilledQuantity);
+      const unitPrice = b.unitPrice !== undefined && b.unitPrice !== null && b.unitPrice !== "" ? parseFloat(b.unitPrice) : 0;
+      const totalAmount = unitPrice * (fulfilledQuantity || requestedQuantity || 0);
 
       const invoiceNumber = await generateSequenceNumber("INV", () => prisma.invoice.count());
       const invoice = await prisma.invoice.create({
@@ -740,13 +708,15 @@ export class OrderManagementController {
           dealerId,
           type: type as any,
           item,
-          requestedQuantity: toIntOrNull(b.requestedQuantity),
-          fulfilledQuantity: toIntOrNull(b.fulfilledQuantity),
+          requestedQuantity,
+          fulfilledQuantity,
+          unitPrice,
+          totalAmount,
           expectedRestockDate: b.expectedRestockDate ? new Date(b.expectedRestockDate) : null,
           message: b.message ? String(b.message) : null,
           issuedById: actingUserId(req),
         },
-        include: { dealer: { select: DEALER_SELECT } },
+        include: { dealer: { select: DEALER_INVOICE_SELECT } },
       });
       res.status(201).json(invoice);
     } catch (error) {

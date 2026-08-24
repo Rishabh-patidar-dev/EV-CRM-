@@ -18,6 +18,7 @@ import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber, VEHICLE_CATALOG } from "../services/dealerManagement.service.js";
+import { DEALER_INVOICE_SELECT } from "../services/invoice.service.js";
 import { submitWarrantyClaim } from "../services/warrantyAdjudication.service.js";
 import { segmentWhere } from "./campaignManagement.controller.js";
 import { registerComponentsForSale } from "../services/componentRegistration.service.js";
@@ -252,7 +253,12 @@ export class DealerPortalController {
   async listInvoices(req: Request, res: Response) {
     try {
       const { dealerId } = req.dealerPortal!;
-      const invoices = await prisma.invoice.findMany({ where: { dealerId }, orderBy: { issuedAt: "desc" }, take: 100 });
+      const invoices = await prisma.invoice.findMany({
+        where: { dealerId },
+        include: { dealer: { select: DEALER_INVOICE_SELECT } },
+        orderBy: { issuedAt: "desc" },
+        take: 100,
+      });
       res.json({ invoices });
     } catch (error) {
       handleError(error, res, "List dealer invoices");

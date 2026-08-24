@@ -842,6 +842,7 @@ model SparePartRequest {
   // past REQUESTED, i.e. once staff has actually looked at it).
   placedVia     OrderChannel           @default(STAFF) @map("placed_via")
   dispatchedAt  DateTime?              @map("dispatched_at")
+  deliveredAt   DateTime?              @map("delivered_at")
   notes         String?
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -954,6 +955,8 @@ enum InvoiceType {
   PARTIAL
   CANCELLATION
   CUSTOM
+  DISPATCH
+  DELIVERY
 }
 
 model Invoice {
@@ -980,6 +983,13 @@ model Invoice {
   requestedQuantity Int?   @map("requested_quantity")
   fulfilledQuantity Int?   @map("fulfilled_quantity")
 
+  // Snapshot pricing at issue time, same reasoning as item/quantity above —
+  // a later price-list change must never retroactively alter an already-
+  // issued invoice. unitPrice * (fulfilledQuantity ?? requestedQuantity ?? 0)
+  // = totalAmount, computed once in invoice.service.ts#issueInvoice.
+  unitPrice   Decimal @default(0) @map("unit_price")
+  totalAmount Decimal @default(0) @map("total_amount")
+
   expectedRestockDate DateTime? @map("expected_restock_date")
   message             String?
 
@@ -1002,6 +1012,10 @@ model SparePartInventory {
   partCode       String?  @unique @map("part_code")
   partName       String   @unique @map("part_name")
   quantityOnHand Int      @default(0) @map("quantity_on_hand")
+  // Manufacturer's sale price to a dealer for this part — 0 means "not
+  // catalogued yet"; invoice.service.ts falls back to a flat default so an
+  // invoice never shows an obviously-wrong ₹0 total for an unpriced part.
+  unitPrice      Decimal  @default(0) @map("unit_price")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

@@ -12,6 +12,15 @@ import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber } from "../services/dealerManagement.service.js";
 import { registerComponentsForSale } from "../services/componentRegistration.service.js";
+import { issueInvoice, resolveUnitPrice } from "../services/invoice.service.js";
+
+// The dev-only demo login issues user id 0, which has no matching users
+// row — issuedById is a real foreign key, so that id must never be written.
+// Same guard as orderManagement.controller.ts's actingUserId.
+function actingUserId(req: Request): number | null {
+  const id = (req as any).user?.id;
+  return typeof id === "number" && id > 0 ? id : null;
+}
 
 export class VehicleUnitController {
   // GET /api/v1/vehicle-units  (?dealerId=&status=&segment=&model=&search=&page=&limit=)
@@ -303,17 +312,37 @@ export class StockTransferController {
 
       const vehicleUnitIds: number[] = Array.isArray(b.vehicleUnitIds) ? b.vehicleUnitIds : [];
 
-      const updated = await prisma.$transaction(async (tx) => {
+      // Dispatch and delivery are each a real business document the dealer
+      // must receive (card + downloadable PDF in DMS) — issued the moment
+      // the status actually flips, same "invoice per status change" pattern
+      // Order Management already uses for CONFIRMATION/OUT_OF_STOCK/PARTIAL.
+      const unitPrice = (b.status === "DISPATCHED" || b.status === "DELIVERED")
+        ? await resolveUnitPrice("VEHICLE", transfer)
+        : 0;
+
+      const { updated, invoice } = await prisma.$transaction(async (tx) => {
         if (b.status === "DELIVERED" && vehicleUnitIds.length > 0) {
           await tx.vehicleUnit.updateMany({
             where: { id: { in: vehicleUnitIds } },
             data: { dealerId: transfer.dealerId, status: "ALLOCATED", allocatedAt: new Date() },
           });
         }
-        return tx.stockTransferRequest.update({ where: { id }, data });
+        const updated = await tx.stockTransferRequest.update({ where: { id }, data });
+
+        let invoice = null;
+        if (b.status === "DISPATCHED" || b.status === "DELIVERED") {
+          invoice = await issueInvoice(tx, {
+            type: "VEHICLE", orderId: id, dealerId: transfer.dealerId,
+            item: `${transfer.model} (${transfer.segment})`,
+            invoiceType: b.status === "DISPATCHED" ? "DISPATCH" : "DELIVERY",
+            requestedQuantity: transfer.quantity, fulfilledQuantity: transfer.quantity,
+            unitPrice, issuedById: actingUserId(req),
+          });
+        }
+        return { updated, invoice };
       });
 
-      res.json(updated);
+      res.json({ ...updated, invoice });
     } catch (error) {
       handleError(error, res, "Update stock transfer");
     }

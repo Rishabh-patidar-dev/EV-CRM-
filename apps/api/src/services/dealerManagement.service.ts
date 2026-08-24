@@ -30,35 +30,39 @@ import { prisma } from "@repo/db";
 export const VEHICLE_SEGMENTS = ["L5", "L3", "CUSTOMISED"] as const;
 export type VehicleSegment = (typeof VEHICLE_SEGMENTS)[number];
 
-export const PRODUCT_CATALOG: Record<VehicleSegment, { model: string; application: string }[]> = {
+// unitPrice = ex-showroom price the OEM invoices a dealer at, in INR. No
+// separate price-list table exists in the schema (nothing in the SRS asked
+// for OEM-configurable pricing) — this catalog is the single source of
+// truth invoice.service.ts reads from for vehicle-order invoices.
+export const PRODUCT_CATALOG: Record<VehicleSegment, { model: string; application: string; unitPrice: number }[]> = {
   L5: [
-    { model: "LX Lifter", application: "Heavy cargo / logistics" },
-    { model: "LX Spark", application: "Premium city passenger" },
-    { model: "LX Speedo", application: "Goods delivery / e-commerce" },
-    { model: "LX Soorma", application: "Shared mobility / premium" },
-    { model: "LX Nirmal", application: "Municipal waste / garbage" },
-    { model: "LX TEV DLX", application: "Premium municipal waste / garbage" },
-    { model: "LX TEV Mega", application: "Heavy-duty municipal waste / garbage" },
+    { model: "LX Lifter", application: "Heavy cargo / logistics", unitPrice: 385000 },
+    { model: "LX Spark", application: "Premium city passenger", unitPrice: 415000 },
+    { model: "LX Speedo", application: "Goods delivery / e-commerce", unitPrice: 365000 },
+    { model: "LX Soorma", application: "Shared mobility / premium", unitPrice: 425000 },
+    { model: "LX Nirmal", application: "Municipal waste / garbage", unitPrice: 395000 },
+    { model: "LX TEV DLX", application: "Premium municipal waste / garbage", unitPrice: 445000 },
+    { model: "LX TEV Mega", application: "Heavy-duty municipal waste / garbage", unitPrice: 495000 },
   ],
   L3: [
-    { model: "Queen EV", application: "Daily commute passenger" },
-    { model: "LX DV", application: "Smart cargo loader" },
-    { model: "LX EV Cargo", application: "Closed-body delivery" },
-    { model: "Vikas Swachh", application: "Urban sanitation (tipper)" },
-    { model: "Queen EV DLX", application: "Premium daily commute passenger" },
-    { model: "Queen Mini DLX", application: "Compact passenger" },
-    { model: "LX EV DLX", application: "Premium closed-body delivery" },
-    { model: "LX EV 1.5 S.DLX", application: "Compact closed-body delivery" },
-    { model: "LX DV DLX", application: "Premium smart cargo loader" },
-    { model: "LX DV Mega", application: "Heavy-duty smart cargo loader" },
+    { model: "Queen EV", application: "Daily commute passenger", unitPrice: 155000 },
+    { model: "LX DV", application: "Smart cargo loader", unitPrice: 175000 },
+    { model: "LX EV Cargo", application: "Closed-body delivery", unitPrice: 185000 },
+    { model: "Vikas Swachh", application: "Urban sanitation (tipper)", unitPrice: 210000 },
+    { model: "Queen EV DLX", application: "Premium daily commute passenger", unitPrice: 175000 },
+    { model: "Queen Mini DLX", application: "Compact passenger", unitPrice: 145000 },
+    { model: "LX EV DLX", application: "Premium closed-body delivery", unitPrice: 205000 },
+    { model: "LX EV 1.5 S.DLX", application: "Compact closed-body delivery", unitPrice: 165000 },
+    { model: "LX DV DLX", application: "Premium smart cargo loader", unitPrice: 195000 },
+    { model: "LX DV Mega", application: "Heavy-duty smart cargo loader", unitPrice: 225000 },
   ],
   CUSTOMISED: [
-    { model: "LX Foodcart", application: "Street food & beverages" },
-    { model: "LX Nursery", application: "Mobile garden centre" },
-    { model: "Milk Van", application: "Cold / dairy transport" },
-    { model: "Cylinder Van", application: "LPG cylinder distribution" },
-    { model: "Vegetable Cart", application: "Mobile mandi" },
-    { model: "Chicken Van", application: "Poultry transport" },
+    { model: "LX Foodcart", application: "Street food & beverages", unitPrice: 285000 },
+    { model: "LX Nursery", application: "Mobile garden centre", unitPrice: 295000 },
+    { model: "Milk Van", application: "Cold / dairy transport", unitPrice: 315000 },
+    { model: "Cylinder Van", application: "LPG cylinder distribution", unitPrice: 305000 },
+    { model: "Vegetable Cart", application: "Mobile mandi", unitPrice: 265000 },
+    { model: "Chicken Van", application: "Poultry transport", unitPrice: 275000 },
   ],
 };
 
@@ -70,9 +74,22 @@ export const ALL_MODELS: string[] = Object.values(PRODUCT_CATALOG).flatMap((rows
 /** {model, segment} pairs — the exact shape Check Inventory matches on, so
  * any order-placement dropdown built from this can never submit a model
  * name or segment combination Check Inventory won't recognise. */
-export const VEHICLE_CATALOG: { model: string; segment: VehicleSegment; application: string }[] = (
-  Object.entries(PRODUCT_CATALOG) as [VehicleSegment, { model: string; application: string }[]][]
-).flatMap(([segment, rows]) => rows.map((r) => ({ model: r.model, segment, application: r.application })));
+export const VEHICLE_CATALOG: { model: string; segment: VehicleSegment; application: string; unitPrice: number }[] = (
+  Object.entries(PRODUCT_CATALOG) as [VehicleSegment, { model: string; application: string; unitPrice: number }[]][]
+).flatMap(([segment, rows]) => rows.map((r) => ({ model: r.model, segment, application: r.application, unitPrice: r.unitPrice })));
+
+// Fallback for a model that somehow isn't in the catalog (a legacy order
+// placed before a catalog edit) — keeps an invoice showing a plausible
+// total instead of ₹0.
+const DEFAULT_VEHICLE_UNIT_PRICE = 200000;
+const DEFAULT_SPARE_PART_UNIT_PRICE = 2500;
+
+/** Ex-showroom unit price for a vehicle model, by exact name match. */
+export function vehicleUnitPrice(model: string): number {
+  return VEHICLE_CATALOG.find((v) => v.model === model)?.unitPrice ?? DEFAULT_VEHICLE_UNIT_PRICE;
+}
+
+export { DEFAULT_SPARE_PART_UNIT_PRICE };
 
 // ---------------------------------------------------------------------------
 // Normalisation helpers — states/districts arrive in many spellings/cases.
