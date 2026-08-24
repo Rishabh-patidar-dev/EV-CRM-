@@ -37,9 +37,23 @@ function setCookie(res: Response, token: string) {
   });
 }
 
-/** Verifies the dealer_session cookie, returns the applicationId or null. */
+/**
+ * Verifies the dealer session, returns the applicationId or null. Checks the
+ * dealer_session cookie first, falling back to an `Authorization: Bearer`
+ * header carrying the same JWT. The bearer path exists because Ev Landing
+ * and DMS are each on their own separate deployed domain from this API —
+ * the cookie is inherently a cross-site (third-party) cookie in that setup,
+ * which modern browsers increasingly block by default regardless of
+ * SameSite=None;Secure being set correctly. A frontend that hit that
+ * blocking would see login/signup succeed (the response body and Set-Cookie
+ * both arrive fine) but then silently fail to stay signed in on the very
+ * next request, because the browser never actually stored/sent the cookie.
+ * Storing the token client-side (localStorage) and sending it as a header
+ * sidesteps cookie policy entirely — headers aren't subject to any of it.
+ */
 export function verifyDealerSession(req: Request): number | null {
-  const token = req.cookies?.[COOKIE_NAME];
+  const bearer = req.get("authorization");
+  const token = req.cookies?.[COOKIE_NAME] || (bearer?.startsWith("Bearer ") ? bearer.slice(7) : undefined);
   if (!token || !JWT_SECRET) return null;
   try {
     const payload = jwt.verify(token, JWT_SECRET) as unknown as { sub: number };
@@ -124,7 +138,10 @@ export class DealerAuthController {
 
       const token = sign(application.id, application.username!);
       setCookie(res, token);
-      res.status(201).json({ ok: true, applicationId: application.id, publicId: application.publicId });
+      // Cookie AND token in the body — the frontend stores the token itself
+      // and sends it as a Bearer header on every subsequent call, since the
+      // cookie alone can silently fail cross-site (see verifyDealerSession).
+      res.status(201).json({ ok: true, applicationId: application.id, publicId: application.publicId, token });
     } catch (error) {
       handleError(error, res, "Dealer signup");
     }
@@ -149,7 +166,7 @@ export class DealerAuthController {
 
       const token = sign(application.id, application.username!);
       setCookie(res, token);
-      res.json({ ok: true, applicationId: application.id, publicId: application.publicId });
+      res.json({ ok: true, applicationId: application.id, publicId: application.publicId, token });
     } catch (error) {
       handleError(error, res, "Dealer login");
     }
