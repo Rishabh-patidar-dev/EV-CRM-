@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import apiClient from "@/lib/api/client";
+import { ORDER_MGMT_LAST_SEEN_KEY } from "./orderManagementSeen";
 import {
   LayoutDashboard,
   Workflow,
@@ -96,6 +98,7 @@ const DEFAULT_OPEN = new Set(["leads", "campaigns", "dealer", "warranty", "intel
 export default function Sidebar() {
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Set<string>>(DEFAULT_OPEN);
+  const [newOrderMarker, setNewOrderMarker] = useState(false);
 
   const toggleGroup = (id: string) => {
     setOpenGroups((prev) => {
@@ -104,6 +107,32 @@ export default function Sidebar() {
       return next;
     });
   };
+
+  // Re-checks on every route change (not just mount) — Sidebar persists
+  // across navigation within the dashboard shell, so this is the only
+  // moment it can notice the order-management page just cleared the
+  // localStorage "last seen" marker (see order-management/page.tsx).
+  useEffect(() => {
+    let active = true;
+    apiClient
+      .get("/api/v1/order-management/new-count")
+      .then(({ data }) => {
+        if (!active) return;
+        const latest = data?.latestCreatedAt;
+        if (!latest) return setNewOrderMarker(false);
+        let lastSeen: string | null = null;
+        try {
+          lastSeen = localStorage.getItem(ORDER_MGMT_LAST_SEEN_KEY);
+        } catch {
+          // private-mode/unavailable storage — treat as never seen
+        }
+        setNewOrderMarker(!lastSeen || new Date(latest) > new Date(lastSeen));
+      })
+      .catch(() => {
+        // non-critical UI indicator — a failed check just leaves it as-is
+      });
+    return () => { active = false; };
+  }, [pathname]);
 
   return (
     <aside className="synkro-sidebar flex w-72 shrink-0 flex-col border-r">
@@ -137,6 +166,7 @@ export default function Sidebar() {
                       key={item.href}
                       {...item}
                       active={pathname === item.href || (!item.exactOnly && !!pathname?.startsWith(item.href + "/"))}
+                      liveIndicator={item.href === "/order-management" && newOrderMarker}
                     />
                   ))}
                 </div>
@@ -160,7 +190,8 @@ function SidebarLink({
   active,
   badge,
   badgeTone,
-}: NavItem & { active?: boolean }) {
+  liveIndicator,
+}: NavItem & { active?: boolean; liveIndicator?: boolean }) {
   return (
     <Link
       href={href}
@@ -168,7 +199,15 @@ function SidebarLink({
     >
       <Icon className="h-4 w-4 shrink-0" />
       <span className="truncate flex-1">{label}</span>
-      {badge && badgeTone === "dev" ? (
+      {liveIndicator ? (
+        <span
+          className="shrink-0 text-base font-bold leading-none"
+          style={{ color: "var(--zira-approved)" }}
+          title="New order placed by a dealer — not yet checked"
+        >
+          *
+        </span>
+      ) : badge && badgeTone === "dev" ? (
         <span className="flex shrink-0 items-center gap-1.5" title="Under development">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--zira-rejected)]" />
         </span>

@@ -309,6 +309,10 @@
 	background-color: color-mix(in srgb, var(--zira-rejected) 12%, transparent);
 	color: var(--zira-rejected);
 }
+.badge-info {
+	background-color: color-mix(in srgb, var(--zira-info) 12%, transparent);
+	color: var(--zira-info);
+}
 
 /* ----------------------------------------------------------------------------
    Elevated card + trend primitives — the "structured SaaS" surface used by

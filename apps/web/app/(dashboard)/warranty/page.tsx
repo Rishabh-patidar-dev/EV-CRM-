@@ -19,21 +19,19 @@ import { StatCard } from "@/components/ui/StatCard";
 import ChartCard from "@/components/charts/ChartCard";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 const COMPONENT_TYPES = ["BATTERY", "MOTOR", "CONTROLLER", "CHARGER", "CHASSIS", "BRAKES"];
 const CLAIM_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "INFO_REQUESTED", "APPROVED", "IN_REPAIR", "REIMBURSED", "RECOVERY", "REJECTED", "CLOSED"];
 
-const STATUS_BADGE: Record<string, string> = {
-  SUBMITTED: "bg-secondary text-secondary-foreground",
-  UNDER_REVIEW: "badge-pending",
-  INFO_REQUESTED: "badge-pending",
-  APPROVED: "badge-approved",
-  IN_REPAIR: "badge-pending",
-  REIMBURSED: "badge-approved",
-  RECOVERY: "badge-pending",
-  REJECTED: "badge-rejected",
-  CLOSED: "bg-muted text-muted-foreground",
-};
+function claimStatusTone(status: string): BadgeTone {
+  if (status === "APPROVED" || status === "REIMBURSED") return "approved";
+  if (status === "REJECTED") return "rejected";
+  if (status === "SUBMITTED" || status === "CLOSED") return "neutral";
+  return "pending"; // UNDER_REVIEW, INFO_REQUESTED, IN_REPAIR, RECOVERY
+}
 
 interface Dealer { id: number; dealerCode: string; legalName: string; tradeName?: string | null }
 
@@ -148,15 +146,15 @@ function CoverageTab() {
             className="w-full rounded-[var(--radius)] border border-border bg-card py-2.5 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
-        <button onClick={check} disabled={loading} className="rounded-[var(--radius)] bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        <Button onClick={check} disabled={loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-        </button>
+        </Button>
       </div>
 
       {error && <div className="badge-rejected rounded-[var(--radius)] px-3 py-2 text-sm">{error}</div>}
 
       {result && (
-        <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+        <Card>
           {result.vehicle && (
             <div className="mb-4">
               <div className="text-xs uppercase tracking-wide text-muted-foreground">Vehicle</div>
@@ -192,7 +190,7 @@ function CoverageTab() {
               ))
             )}
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -235,12 +233,9 @@ function ClaimsTab({ dealers, onChanged, initialDealerId }: { dealers: Dealer[];
           <option value="">All statuses</option>
           {CLAIM_STATUSES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
         </select>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
+        <Button onClick={() => setShowForm((v) => !v)} className="ml-auto">
           <Plus className="h-4 w-4" /> New claim
-        </button>
+        </Button>
       </div>
 
       {showForm && <NewClaimForm dealers={dealers} onDone={() => { setShowForm(false); load(); onChanged(); }} />}
@@ -267,7 +262,7 @@ function ClaimsTab({ dealers, onChanged, initialDealerId }: { dealers: Dealer[];
                   <td className="px-4 py-3 font-mono text-xs">{c.claimNumber}</td>
                   <td className="px-4 py-3">{c.dealer?.tradeName || c.dealer?.legalName}</td>
                   <td className="px-4 py-3">{c.customerName}</td>
-                  <td className="px-4 py-3"><span className={`${STATUS_BADGE[c.status] ?? "bg-muted"} rounded-full px-2 py-0.5 text-xs`}>{c.status.replace("_", " ")}</span></td>
+                  <td className="px-4 py-3"><Badge status={c.status} tone={claimStatusTone(c.status)} /></td>
                   <td className="px-4 py-3" />
                 </tr>
               ))
@@ -316,17 +311,17 @@ function NewClaimForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () => vo
 
   if (result) {
     return (
-      <div className="mb-4 rounded-[var(--radius)] border border-primary/40 bg-card p-4 text-sm">
+      <Card padding="compact" className="mb-4 border-primary/40 text-sm">
         <p className="font-medium">Claim {result.claimNumber} submitted — auto-adjudicated to <b>{result.status.replace("_", " ")}</b>.</p>
         <p className="mt-1 text-xs text-muted-foreground">{result.adjudication?.reasons?.join(" ")}</p>
         <ClaimDocumentUpload claimId={result.id} />
-        <button onClick={onDone} className="mt-3 rounded-[var(--radius)] border border-border px-3 py-1.5 text-xs hover:bg-accent">Done</button>
-      </div>
+        <Button variant="secondary" size="sm" onClick={onDone} className="mt-3">Done</Button>
+      </Card>
     );
   }
 
   return (
-    <div className="mb-4 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <select value={form.dealerId} onChange={(e) => setForm({ ...form, dealerId: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm">
           <option value="">Select dealer…</option>
@@ -350,11 +345,11 @@ function NewClaimForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () => vo
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3">
-        <button disabled={saving || !form.dealerId || !form.customerName || !form.issueDescription} onClick={submit} className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        <Button size="sm" disabled={saving || !form.dealerId || !form.customerName || !form.issueDescription} onClick={submit}>
           {saving ? "Submitting…" : "Submit claim (auto-adjudicated)"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -398,13 +393,9 @@ function ClaimDocumentUpload({ claimId }: { claimId: number }) {
           onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           className="text-xs"
         />
-        <button
-          onClick={upload}
-          disabled={uploading || files.length === 0}
-          className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
-        >
+        <Button size="sm" onClick={upload} disabled={uploading || files.length === 0}>
           {uploading ? "Uploading…" : `Upload ${files.length || ""}`}
-        </button>
+        </Button>
       </div>
       {error && <p className="mt-1.5 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       {uploaded.length > 0 && (
@@ -451,12 +442,12 @@ function PlansTab() {
   return (
     <div>
       <div className="mb-4 flex justify-end">
-        <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+        <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="h-4 w-4" /> New plan
-        </button>
+        </Button>
       </div>
       {showForm && (
-        <div className="mb-4 rounded-[var(--radius)] border border-border bg-card p-4">
+        <Card padding="compact" className="mb-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <input placeholder="Plan name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
             <input placeholder="Vehicle model (e.g. Vikas Lifter)" value={form.vehicleModel} onChange={(e) => setForm({ ...form, vehicleModel: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
@@ -469,8 +460,8 @@ function PlansTab() {
             <input placeholder="Approved chargers, comma-separated" value={form.approvedChargers} onChange={(e) => setForm({ ...form, approvedChargers: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm md:col-span-2" />
           </div>
           {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
-          <button disabled={!form.name || !form.vehicleModel || !form.termMonths} onClick={submit} className="mt-3 rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">Create plan</button>
-        </div>
+          <Button size="sm" disabled={!form.name || !form.vehicleModel || !form.termMonths} onClick={submit} className="mt-3">Create plan</Button>
+        </Card>
       )}
       <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
         <table className="w-full text-sm">
@@ -507,6 +498,12 @@ function PlansTab() {
 // ---------------------------------------------------------------------------
 // Supplier recovery
 // ---------------------------------------------------------------------------
+function recoveryStatusTone(status: string): BadgeTone {
+  if (status === "RECOVERED") return "approved";
+  if (status === "WRITTEN_OFF") return "rejected";
+  return "pending";
+}
+
 function RecoveryTab() {
   const [recoveries, setRecoveries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -554,12 +551,12 @@ function RecoveryTab() {
                 <td className="px-4 py-3">{r.supplierName}</td>
                 <td className="px-4 py-3">{r.componentType}</td>
                 <td className="px-4 py-3">₹{Number(r.amount).toLocaleString("en-IN")}</td>
-                <td className="px-4 py-3"><span className={`${r.status === "RECOVERED" ? "badge-approved" : r.status === "WRITTEN_OFF" ? "badge-rejected" : "badge-pending"} rounded-full px-2 py-0.5 text-xs`}>{r.status}</span></td>
+                <td className="px-4 py-3"><Badge status={r.status} tone={recoveryStatusTone(r.status)} /></td>
                 <td className="px-4 py-3 text-right">
                   {r.status === "OPEN" && (
                     <div className="flex justify-end gap-1.5">
-                      <button onClick={() => setStatus(r.id, "RECOVERED")} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">Recovered</button>
-                      <button onClick={() => setStatus(r.id, "WRITTEN_OFF")} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">Write off</button>
+                      <Button size="sm" variant="secondary" onClick={() => setStatus(r.id, "RECOVERED")}>Recovered</Button>
+                      <Button size="sm" variant="secondary" onClick={() => setStatus(r.id, "WRITTEN_OFF")}>Write off</Button>
                     </div>
                   )}
                 </td>

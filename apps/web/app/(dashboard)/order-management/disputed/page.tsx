@@ -19,6 +19,8 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, AlertTriangle, Send, RefreshCcw, Mail, CheckCircle2, XCircle, Clock, Target, ArrowUpDown } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import Modal from "@/components/ui/Modal";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 
 interface Dispute {
   id: number;
@@ -115,19 +117,14 @@ export default function CloseOrdersPage() {
             <p className="mt-1 text-sm text-muted-foreground">Orders short on manufacturer stock — the dealer gets no confirmation until you send them a notice.</p>
           </div>
         </div>
-        <button
+        <Button
+          variant={sortMode === "bestFit" ? "primary" : "secondary"}
           onClick={() => setSortMode((m) => (m === "bestFit" ? "recent" : "bestFit"))}
-          className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius)] border px-3.5 py-2 text-sm font-medium transition-colors"
-          style={
-            sortMode === "bestFit"
-              ? { background: "var(--primary)", borderColor: "var(--primary)", color: "var(--primary-foreground)" }
-              : { borderColor: "var(--border)" }
-          }
           title="Rank orders competing for the same stock by which one you can best fulfil right now"
         >
           {sortMode === "bestFit" ? <Target className="h-4 w-4" /> : <ArrowUpDown className="h-4 w-4" />}
           {sortMode === "bestFit" ? "Sorted: best fit" : "Sort: best fit"}
-        </button>
+        </Button>
       </header>
 
       <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
@@ -171,9 +168,7 @@ export default function CloseOrdersPage() {
                   <td className="px-4 py-3 text-muted-foreground">{d.dealer?.state ?? "—"}</td>
                   <td className="px-4 py-3">{d.item} × {d.quantity}</td>
                   <td className="px-4 py-3">
-                    <span className="badge-rejected rounded-full px-2 py-0.5 text-xs font-medium tabular-nums">
-                      {d.liveAvailableQuantity} / {d.quantity} in stock
-                    </span>
+                    <Badge label={`${d.liveAvailableQuantity} / ${d.quantity} in stock`} tone="rejected" className="tabular-nums" />
                     <div className="mt-1 text-[11px] text-muted-foreground">short by {d.shortfall}</div>
                   </td>
                   <td className="px-4 py-3">
@@ -194,20 +189,12 @@ export default function CloseOrdersPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col items-end gap-1.5">
-                      <button
-                        onClick={() => setNoticeTarget(d)}
-                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium hover:bg-accent"
-                        style={{ borderColor: "var(--primary)", color: "var(--primary)" }}
-                      >
+                      <Button size="sm" variant="secondary" onClick={() => setNoticeTarget(d)}>
                         <Send className="h-3 w-3" /> {d.notice?.status === "SENT" ? "Resend notice" : "Send notice"}
-                      </button>
-                      <button
-                        onClick={() => recheck(d)}
-                        disabled={resolvingId === d.id}
-                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent disabled:opacity-60"
-                      >
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => recheck(d)} disabled={resolvingId === d.id}>
                         <RefreshCcw className={`h-3 w-3 ${resolvingId === d.id ? "animate-spin" : ""}`} /> Recheck stock
-                      </button>
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -222,10 +209,21 @@ export default function CloseOrdersPage() {
   );
 }
 
+function dealerResponseTone(response: "PENDING" | "ACCEPTED" | "DECLINED"): BadgeTone {
+  if (response === "ACCEPTED") return "approved";
+  if (response === "DECLINED") return "rejected";
+  return "neutral";
+}
+
 function DealerResponseBadge({ response }: { response: "PENDING" | "ACCEPTED" | "DECLINED" }) {
-  if (response === "ACCEPTED") return <div className="flex items-center gap-1 text-[#1f9d55]"><CheckCircle2 className="h-3 w-3" /> Dealer accepted</div>;
-  if (response === "DECLINED") return <div className="flex items-center gap-1" style={{ color: "var(--zira-rejected)" }}><XCircle className="h-3 w-3" /> Dealer declined</div>;
-  return <div className="flex items-center gap-1 text-muted-foreground"><Clock className="h-3 w-3" /> Awaiting dealer</div>;
+  const Icon = response === "ACCEPTED" ? CheckCircle2 : response === "DECLINED" ? XCircle : Clock;
+  const label = response === "ACCEPTED" ? "Dealer accepted" : response === "DECLINED" ? "Dealer declined" : "Awaiting dealer";
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Icon className="h-3 w-3" />
+      <Badge label={label} tone={dealerResponseTone(response)} />
+    </span>
+  );
 }
 
 function SendNoticeModal({ dispute, onClose, onSent }: { dispute: Dispute | null; onClose: () => void; onSent: () => void }) {
@@ -333,13 +331,9 @@ function SendNoticeModal({ dispute, onClose, onSent }: { dispute: Dispute | null
           />
         </div>
 
-        <button
-          onClick={submit}
-          disabled={submitting || !offerValid}
-          className="w-full rounded-[var(--radius)] bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
+        <Button onClick={submit} disabled={submitting || !offerValid} className="w-full">
           {submitting ? "Sending…" : "Send notice"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

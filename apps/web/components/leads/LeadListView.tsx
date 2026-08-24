@@ -12,6 +12,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Users, UserCheck, Gauge, Plus, Import, ClipboardCheck } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 type LeadStatus = "OPEN" | "WORKING" | "QUALIFIED" | "UNQUALIFIED" | "NURTURING" | "CONVERTED";
 export type LeadListMode = "all" | "assigned" | "unassigned";
@@ -42,13 +45,13 @@ interface UserOption {
   lastName?: string | null;
 }
 
-const STATUS_STYLES: Record<LeadStatus, string> = {
-  OPEN: "bg-secondary text-secondary-foreground",
-  WORKING: "bg-secondary text-secondary-foreground",
-  QUALIFIED: "badge-approved",
-  UNQUALIFIED: "badge-rejected",
-  NURTURING: "badge-pending",
-  CONVERTED: "badge-approved",
+const LEAD_STATUS_TONE: Record<LeadStatus, BadgeTone> = {
+  OPEN: "neutral",
+  WORKING: "neutral",
+  QUALIFIED: "approved",
+  UNQUALIFIED: "rejected",
+  NURTURING: "pending",
+  CONVERTED: "approved",
 };
 
 const STATUS_OPTIONS: LeadStatus[] = ["OPEN", "WORKING", "QUALIFIED", "UNQUALIFIED", "NURTURING", "CONVERTED"];
@@ -110,12 +113,9 @@ export default function LeadListView({ mode, title, subtitle }: { mode: LeadList
         {mode === "all" && (
           <div className="flex gap-2">
             <ImportCsvButton onDone={load} />
-            <button
-              onClick={() => setShowCreate((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-            >
+            <Button onClick={() => setShowCreate((v) => !v)}>
               <Plus className="h-4 w-4" /> New lead
-            </button>
+            </Button>
           </div>
         )}
       </header>
@@ -152,7 +152,8 @@ export default function LeadListView({ mode, title, subtitle }: { mode: LeadList
             <option value="">Assign to…</option>
             {users.map((u) => <option key={u.id} value={u.id}>{displayName(u)}</option>)}
           </select>
-          <button
+          <Button
+            size="sm"
             disabled={!bulkOwnerId}
             onClick={async () => {
               await apiClient.post("/api/v1/leads/assign-bulk", { leadIds: Array.from(checked), ownerId: bulkOwnerId });
@@ -160,11 +161,10 @@ export default function LeadListView({ mode, title, subtitle }: { mode: LeadList
               setBulkOwnerId("");
               load();
             }}
-            className="rounded-[var(--radius)] bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
           >
             Assign selected
-          </button>
-          <button onClick={() => setChecked(new Set())} className="ml-auto text-xs text-muted-foreground hover:text-foreground">Clear</button>
+          </Button>
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setChecked(new Set())}>Clear</Button>
         </section>
       )}
 
@@ -220,16 +220,17 @@ export default function LeadListView({ mode, title, subtitle }: { mode: LeadList
                   <td className="px-4 py-3 tabular-nums">{l.score}</td>
                   <td className="px-4 py-3 text-muted-foreground">{l.owner ? displayName(l.owner) : "Unassigned"}</td>
                   <td className="px-4 py-3">
-                    <span className={`${STATUS_STYLES[l.status]} rounded-full px-2 py-0.5 text-xs`}>{l.status}</span>
+                    <Badge status={l.status} tone={LEAD_STATUS_TONE[l.status] ?? "neutral"} />
                   </td>
                   <td className="px-4 py-3 text-right">
                     {!l.owner && (
-                      <button
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         onClick={async (e) => { e.stopPropagation(); await apiClient.put(`/api/v1/leads/${l.id}/claim`, {}); load(); }}
-                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent"
                       >
                         <ClipboardCheck className="h-3 w-3" /> Claim
-                      </button>
+                      </Button>
                     )}
                   </td>
                 </tr>
@@ -261,7 +262,7 @@ function CreateLeadForm({ users, onDone }: { users: UserOption[]; onDone: () => 
   };
 
   return (
-    <div className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-6">
       <h3 className="mb-3 text-sm font-semibold">New lead</h3>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <input placeholder="First name" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
@@ -278,15 +279,11 @@ function CreateLeadForm({ users, onDone }: { users: UserOption[]; onDone: () => 
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3">
-        <button
-          disabled={saving || !form.firstName || !form.email}
-          onClick={submit}
-          className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        >
+        <Button size="sm" disabled={saving || !form.firstName || !form.email} onClick={submit}>
           {saving ? "Saving…" : "Create lead"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -317,18 +314,18 @@ function ImportCsvButton({ onDone }: { onDone: () => void }) {
   return (
     <div className="relative">
       <input ref={inputRef} type="file" accept=".csv" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-      <button
+      <Button
+        variant="secondary"
         onClick={pick}
         disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-border px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
         title="Import a CSV of leads — download the template first from GET /api/v1/leads/import/template-csv"
       >
         <Import className="h-4 w-4" /> {busy ? "Importing…" : "Import CSV"}
-      </button>
+      </Button>
       {result && (
         <div className="absolute right-0 top-full z-10 mt-1 w-64 rounded-[var(--radius)] border border-border bg-card p-3 text-xs shadow-md">
           <p><b>{result.insertedCount}</b> imported, <b>{result.skippedCount}</b> skipped.</p>
-          <button onClick={() => setResult(null)} className="mt-2 text-muted-foreground hover:text-foreground">Dismiss</button>
+          <Button variant="ghost" size="sm" className="mt-2 px-0" onClick={() => setResult(null)}>Dismiss</Button>
         </div>
       )}
     </div>
@@ -337,9 +334,9 @@ function ImportCsvButton({ onDone }: { onDone: () => void }) {
 
 function KpiCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact">
       <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">{icon}{label}</div>
       <div className="text-2xl font-semibold">{value}</div>
-    </div>
+    </Card>
   );
 }

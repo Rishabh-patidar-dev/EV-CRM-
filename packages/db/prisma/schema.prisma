@@ -411,6 +411,13 @@ model DealerApplication {
   stage  OnboardingStage   @default(APPLICATION)
   status ApplicationStatus @default(IN_PROGRESS)
 
+  // Free-text reason behind the current status, set whenever staff put an
+  // application ON_HOLD or REJECTED (see onboarding.controller.ts#setStatus).
+  // Same pattern as WarrantyClaim.rejectionReason — this is what gets
+  // surfaced on the dealer's own dashboard and emailed to them, instead of
+  // being buried in the internal OnboardingStageEvent log only staff see.
+  rejectionReason String? @map("rejection_reason")
+
   assignedTeam String? @default("NETWORK_EXPANSION") @map("assigned_team")
   assignedToId Int?    @map("assigned_to_id")
   assignedTo   User?   @relation("ApplicationAssignee", fields: [assignedToId], references: [id])
@@ -454,6 +461,12 @@ model DealerApplicationDocument {
   status  DocumentStatus @default(PENDING)
   fileUrl String?        @map("file_url")
   notes   String?
+
+  // Plain-text OCR preview (image uploads only — same tesseract.js pipeline
+  // as DealerPurchaseInvoice), reusing the OcrStatus enum already defined
+  // for that feature.
+  ocrExtractedText String?    @map("ocr_extracted_text")
+  ocrStatus        OcrStatus? @map("ocr_status")
 
   verifiedById Int?      @map("verified_by_id")
   verifiedBy   User?     @relation("AppDocVerifier", fields: [verifiedById], references: [id])

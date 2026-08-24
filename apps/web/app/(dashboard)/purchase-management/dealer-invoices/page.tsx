@@ -14,6 +14,7 @@ import Link from "next/link";
 import { ArrowLeft, Receipt, IndianRupee, Scan, FileText, Loader2 } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { StatCard } from "@/components/ui/StatCard";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
 
 interface DealerInvoice {
   id: number;
@@ -31,10 +32,10 @@ interface DealerInvoice {
   dealer: { id: number; dealerCode: string; legalName: string };
 }
 
-const CATEGORY_BADGE: Record<string, string> = {
-  VEHICLE_STOCK: "bg-secondary text-secondary-foreground",
-  SPARE_PARTS: "bg-[#e6f0fd] text-[#2a6fdb]",
-  OTHER: "bg-muted text-muted-foreground",
+const CATEGORY_TONE: Record<string, BadgeTone> = {
+  VEHICLE_STOCK: "neutral",
+  SPARE_PARTS: "info",
+  OTHER: "neutral",
 };
 
 function resolveUrl(fileUrl: string) {
@@ -110,7 +111,7 @@ export default function DealerInvoicesPage() {
                     <td className="px-4 py-3 font-mono text-xs">{inv.invoiceNumber}</td>
                     <td className="px-4 py-3">{new Date(inv.invoiceDate).toLocaleDateString()}</td>
                     <td className="px-4 py-3 tabular-nums">₹{Number(inv.amount).toLocaleString("en-IN")}</td>
-                    <td className="px-4 py-3"><span className={`${CATEGORY_BADGE[inv.category] ?? "bg-muted"} rounded-full px-2 py-0.5 text-xs`}>{inv.category.replace("_", " ")}</span></td>
+                    <td className="px-4 py-3"><Badge status={inv.category} tone={CATEGORY_TONE[inv.category] ?? "neutral"} /></td>
                     <td className="px-4 py-3">
                       {inv.fileUrl ? (
                         <a href={resolveUrl(inv.fileUrl)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-xs font-medium text-primary hover:underline">View</a>

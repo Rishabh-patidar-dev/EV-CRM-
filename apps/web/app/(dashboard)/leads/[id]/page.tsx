@@ -13,18 +13,21 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, Users, Building2, MessageSquarePlus, Mail, Phone } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 type LeadStatus = "OPEN" | "WORKING" | "QUALIFIED" | "UNQUALIFIED" | "NURTURING" | "CONVERTED";
 
 interface UserOption { id: number; firstName: string; lastName?: string | null }
 
-const STATUS_STYLES: Record<LeadStatus, string> = {
-  OPEN: "bg-secondary text-secondary-foreground",
-  WORKING: "bg-secondary text-secondary-foreground",
-  QUALIFIED: "badge-approved",
-  UNQUALIFIED: "badge-rejected",
-  NURTURING: "badge-pending",
-  CONVERTED: "badge-approved",
+const LEAD_STATUS_TONE: Record<LeadStatus, BadgeTone> = {
+  OPEN: "neutral",
+  WORKING: "neutral",
+  QUALIFIED: "approved",
+  UNQUALIFIED: "rejected",
+  NURTURING: "pending",
+  CONVERTED: "approved",
 };
 
 const STATUS_OPTIONS: LeadStatus[] = ["OPEN", "WORKING", "QUALIFIED", "UNQUALIFIED", "NURTURING", "CONVERTED"];
@@ -96,7 +99,7 @@ export default function LeadDetailPage() {
       </Link>
 
       {/* Header */}
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-[var(--radius)] border border-border bg-card p-5">
+      <Card className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Users className="h-5 w-5 shrink-0 text-primary" />
@@ -108,8 +111,8 @@ export default function LeadDetailPage() {
             {data.companyName && <span>{data.companyName}</span>}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <span className={`${STATUS_STYLES[data.status as LeadStatus] ?? "bg-muted"} rounded-full px-2.5 py-1 text-xs font-medium`}>{data.status}</span>
-            <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{data.source}</span>
+            <Badge status={data.status} tone={LEAD_STATUS_TONE[data.status as LeadStatus] ?? "neutral"} />
+            <Badge label={data.source} tone="neutral" />
           </div>
         </div>
 
@@ -124,21 +127,17 @@ export default function LeadDetailPage() {
               <Building2 className="h-4 w-4" /> Dealer application {data.dealerApplication.publicId.slice(0, 8)} · {data.dealerApplication.stage.replace(/_/g, " ")}
             </Link>
           ) : (
-            <button
-              onClick={convertToDealer}
-              disabled={converting}
-              className="flex items-center justify-center gap-2 rounded-[var(--radius)] border border-dashed border-border px-4 py-2.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
-            >
+            <Button variant="secondary" onClick={convertToDealer} disabled={converting}>
               <Building2 className="h-4 w-4" /> {converting ? "Converting…" : "This lead is a potential dealer — start onboarding"}
-            </button>
+            </Button>
           )}
         </div>
-      </header>
+      </Card>
 
       {/* Body: score/status/owner (left) + remarks/activity (right), both fully expanded */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_420px]">
         <div className="space-y-5">
-          <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+          <Card>
             <SectionTitle>Score</SectionTitle>
             <div className="mt-3 grid grid-cols-3 gap-3 max-w-md">
               <ScoreCell label="Total" value={data.score} />
@@ -148,9 +147,9 @@ export default function LeadDetailPage() {
             {Array.isArray(data.missingFields) && data.missingFields.length > 0 && (
               <p className="mt-2 text-xs text-muted-foreground">Missing: {data.missingFields.join(", ")}</p>
             )}
-          </div>
+          </Card>
 
-          <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+          <Card>
             <SectionTitle>Status</SectionTitle>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {STATUS_OPTIONS.map((s) => (
@@ -163,9 +162,9 @@ export default function LeadDetailPage() {
                 </button>
               ))}
             </div>
-          </div>
+          </Card>
 
-          <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+          <Card>
             <SectionTitle>Owner</SectionTitle>
             <select
               value={data.owner?.id ?? ""}
@@ -175,17 +174,17 @@ export default function LeadDetailPage() {
               <option value="">Unassigned</option>
               {users.map((u) => <option key={u.id} value={u.id}>{displayName(u)}</option>)}
             </select>
-          </div>
+          </Card>
 
           {data.dealerAssignment && (
-            <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+            <Card>
               <SectionTitle>Routed to dealer</SectionTitle>
               <p className="mt-2 text-sm">{data.dealerAssignment.dealer?.legalName} <span className="text-xs text-muted-foreground">({data.dealerAssignment.status})</span></p>
-            </div>
+            </Card>
           )}
         </div>
 
-        <aside className="rounded-[var(--radius)] border border-border bg-card p-5">
+        <Card>
           <SectionTitle>Remarks</SectionTitle>
           <div className="mt-3 flex gap-2">
             <input
@@ -208,7 +207,7 @@ export default function LeadDetailPage() {
             ))}
             {(data.remarks ?? []).length === 0 && <li className="text-xs text-muted-foreground">No remarks yet — every status change and note is logged here.</li>}
           </ul>
-        </aside>
+        </Card>
       </div>
     </div>
   );

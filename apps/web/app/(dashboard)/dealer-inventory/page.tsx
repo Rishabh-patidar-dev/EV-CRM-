@@ -15,25 +15,28 @@ import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
 import { VEHICLE_IMAGES } from "@/lib/vehicleCatalog";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 const UNIT_STATUSES = ["IN_TRANSIT", "IN_STOCK", "ALLOCATED", "DEMO", "SOLD", "SERVICE_HOLD", "DAMAGED"];
 const TRANSFER_STATUSES = ["REQUESTED", "APPROVED", "DISPATCHED", "DELIVERED", "REJECTED", "CANCELLED"];
 const SEGMENTS = ["L5", "L3", "CUSTOMISED"];
 
-const STATUS_BADGE: Record<string, string> = {
-  IN_STOCK: "badge-approved",
-  ALLOCATED: "badge-pending",
-  DEMO: "badge-pending",
-  SOLD: "badge-approved",
-  IN_TRANSIT: "badge-pending",
-  SERVICE_HOLD: "badge-rejected",
-  DAMAGED: "badge-rejected",
-  REQUESTED: "badge-pending",
-  APPROVED: "badge-pending",
-  DISPATCHED: "badge-pending",
-  DELIVERED: "badge-approved",
-  REJECTED: "badge-rejected",
-  CANCELLED: "badge-rejected",
+const STATUS_TONE: Record<string, BadgeTone> = {
+  IN_STOCK: "approved",
+  ALLOCATED: "pending",
+  DEMO: "pending",
+  SOLD: "approved",
+  IN_TRANSIT: "pending",
+  SERVICE_HOLD: "rejected",
+  DAMAGED: "rejected",
+  REQUESTED: "pending",
+  APPROVED: "pending",
+  DISPATCHED: "pending",
+  DELIVERED: "approved",
+  REJECTED: "rejected",
+  CANCELLED: "rejected",
 };
 
 interface Dealer {
@@ -147,18 +150,12 @@ function DealerInventoryInner() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowTransferForm((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-border px-3 py-2 text-sm hover:bg-accent"
-          >
+          <Button variant="secondary" onClick={() => setShowTransferForm((v) => !v)}>
             <Truck className="h-4 w-4" /> Request stock
-          </button>
-          <button
-            onClick={() => setShowUnitForm((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-          >
+          </Button>
+          <Button onClick={() => setShowUnitForm((v) => !v)}>
             <Plus className="h-4 w-4" /> Register unit
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -212,35 +209,35 @@ function DealerInventoryInner() {
       {/* KPI row */}
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {UNIT_STATUSES.map((s) => (
-          <div key={s} className="rounded-[var(--radius)] border border-border bg-card p-3">
+          <Card key={s} padding="compact">
             <div className="text-[11px] text-muted-foreground">{s.replace("_", " ")}</div>
             <div className="text-xl font-semibold">{byStatus[s] ?? 0}</div>
-          </div>
+          </Card>
         ))}
       </section>
 
       {/* BI dashboard — stock mix + dealer demand, all derived from the units
           and stock-transfer requests already in the tables below. */}
       <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+        <Card padding="compact">
           <h2 className="mb-3 text-sm font-semibold">Stock by status</h2>
           {Object.values(byStatus).some((v) => v > 0) ? (
             <DonutChart data={UNIT_STATUSES.map((s) => ({ label: s.replace("_", " "), value: byStatus[s] ?? 0 }))} centerLabel="units" />
           ) : (
             <p className="py-8 text-center text-xs text-muted-foreground">No units on record yet.</p>
           )}
-        </div>
+        </Card>
 
-        <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+        <Card padding="compact">
           <h2 className="mb-3 text-sm font-semibold">Live stock by model</h2>
           {analytics && analytics.stockByModel.length > 0 ? (
             <DonutChart data={analytics.stockByModel} centerLabel="in network" />
           ) : (
             <p className="py-8 text-center text-xs text-muted-foreground">No stock on record yet.</p>
           )}
-        </div>
+        </Card>
 
-        <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+        <Card padding="compact">
           <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
             <MapPin className="h-3.5 w-3.5" /> Dealer stock orders by zone
           </h2>
@@ -249,9 +246,9 @@ function DealerInventoryInner() {
           ) : (
             <p className="py-8 text-center text-xs text-muted-foreground">No stock transfer requests yet.</p>
           )}
-        </div>
+        </Card>
 
-        <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+        <Card padding="compact">
           <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
             <TrendingUp className="h-3.5 w-3.5" /> Most-ordered model, by zone
           </h2>
@@ -268,7 +265,7 @@ function DealerInventoryInner() {
           ) : (
             <p className="py-8 text-center text-xs text-muted-foreground">No zone demand data yet.</p>
           )}
-        </div>
+        </Card>
       </section>
 
       {showUnitForm && <RegisterUnitForm dealers={dealers} onDone={() => { setShowUnitForm(false); refresh(); }} />}
@@ -330,7 +327,7 @@ function DealerInventoryInner() {
                   <td className="px-4 py-3">{u.model}{u.isDemoUnit && <span className="ml-1.5 text-xs text-muted-foreground">(demo)</span>}</td>
                   <td className="px-4 py-3">{u.segment}</td>
                   <td className="px-4 py-3">{u.dealer ? (u.dealer.tradeName || u.dealer.legalName) : "OEM warehouse"}</td>
-                  <td className="px-4 py-3"><span className={`${STATUS_BADGE[u.status] ?? "bg-muted"} rounded-full px-2 py-0.5 text-xs`}>{u.status.replace("_", " ")}</span></td>
+                  <td className="px-4 py-3"><Badge status={u.status} tone={STATUS_TONE[u.status] ?? "neutral"} /></td>
                 </tr>
               ))
             )}
@@ -363,7 +360,7 @@ function DealerInventoryInner() {
                     <td className="px-4 py-3 font-mono text-xs">{t.requestNumber}</td>
                     <td className="px-4 py-3">{t.dealer?.tradeName || t.dealer?.legalName || dealerLabel(t.dealerId)}</td>
                     <td className="px-4 py-3">{t.model} × {t.quantity} <span className="text-muted-foreground">({t.segment})</span></td>
-                    <td className="px-4 py-3"><span className={`${STATUS_BADGE[t.status] ?? "bg-muted"} rounded-full px-2 py-0.5 text-xs`}>{t.status}</span></td>
+                    <td className="px-4 py-3"><Badge status={t.status} tone={STATUS_TONE[t.status] ?? "neutral"} /></td>
                     <td className="px-4 py-3 text-right">
                       <TransferActions status={t.status} onAdvance={(s) => updateTransferStatus(t.id, s)} />
                     </td>
@@ -384,13 +381,13 @@ function TransferActions({ status, onAdvance }: { status: string; onAdvance: (st
   if (!next) return null;
   return (
     <div className="flex justify-end gap-1.5">
-      <button onClick={() => onAdvance(next)} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+      <Button size="sm" variant="secondary" onClick={() => onAdvance(next)}>
         Mark {next.toLowerCase()}
-      </button>
+      </Button>
       {status === "REQUESTED" && (
-        <button onClick={() => onAdvance("REJECTED")} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+        <Button size="sm" variant="secondary" onClick={() => onAdvance("REJECTED")}>
           Reject
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -418,7 +415,7 @@ function RegisterUnitForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () =
   };
 
   return (
-    <div className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-6">
       <h3 className="mb-3 text-sm font-semibold">Register a new vehicle unit</h3>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <input placeholder="VIN / chassis no." value={form.vin} onChange={(e) => setForm({ ...form, vin: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
@@ -434,15 +431,11 @@ function RegisterUnitForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () =
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3 flex gap-2">
-        <button
-          disabled={saving || !form.vin || !form.model}
-          onClick={submit}
-          className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        >
+        <Button size="sm" disabled={saving || !form.vin || !form.model} onClick={submit}>
           {saving ? "Saving…" : "Register unit"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -465,7 +458,7 @@ function RequestStockForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () =
   };
 
   return (
-    <div className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-6">
       <h3 className="mb-3 text-sm font-semibold">Request stock for a dealer</h3>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <select value={form.dealerId} onChange={(e) => setForm({ ...form, dealerId: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm">
@@ -480,14 +473,10 @@ function RequestStockForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () =
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3 flex gap-2">
-        <button
-          disabled={saving || !form.dealerId || !form.model}
-          onClick={submit}
-          className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        >
+        <Button size="sm" disabled={saving || !form.dealerId || !form.model} onClick={submit}>
           {saving ? "Sending…" : "Send request"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }

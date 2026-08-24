@@ -17,6 +17,8 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, PackageCheck, PackageX, Warehouse, ClipboardList, CheckCircle2, AlertTriangle } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { StatCard } from "@/components/ui/StatCard";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 interface CheckResult {
   order: {
@@ -109,7 +111,7 @@ export default function CheckInventoryPage() {
         </p>
       </header>
 
-      <div className="mb-4 rounded-[var(--radius)] border border-border bg-card p-4">
+      <Card padding="compact" className="mb-4">
         <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <div>
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Order</div>
@@ -128,7 +130,7 @@ export default function CheckInventoryPage() {
             <div className="mt-0.5">{order.item}</div>
           </div>
         </div>
-      </div>
+      </Card>
 
       <section className="mb-4 grid grid-cols-2 gap-3">
         <StatCard icon={<ClipboardList className="h-3.5 w-3.5" />} label="Dealer requested" value={requestedQuantity} tone="blue" />
@@ -156,7 +158,7 @@ export default function CheckInventoryPage() {
       {error && <p className="mb-4 rounded-[var(--radius)] border px-3.5 py-2.5 text-sm" style={{ borderColor: "var(--destructive)", color: "var(--destructive)" }}>{error}</p>}
 
       {decided ? (
-        <div className="flex items-center gap-3 rounded-[var(--radius)] border border-border bg-card p-4">
+        <Card padding="compact" className="flex items-center gap-3">
           {decided.sufficient ? (
             <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: "#1f9d55" }} />
           ) : (
@@ -171,17 +173,13 @@ export default function CheckInventoryPage() {
           >
             {decided.sufficient ? "Back to Order Management" : "Go to Close Orders"}
           </Link>
-        </div>
+        </Card>
       ) : alreadyDecided ? (
         <p className="text-sm text-muted-foreground">This order is already <span className="font-medium text-foreground">{order.status}</span> — no further action needed here.</p>
       ) : (
-        <button
-          onClick={runCheck}
-          disabled={running}
-          className="w-full rounded-[var(--radius)] bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
+        <Button onClick={runCheck} disabled={running} className="w-full">
           {running ? "Checking…" : "Run inventory check"}
-        </button>
+        </Button>
       )}
     </div>
   );

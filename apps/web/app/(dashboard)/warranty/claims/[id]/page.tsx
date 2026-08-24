@@ -14,18 +14,16 @@ import { useParams } from "next/navigation";
 import { ArrowLeft, AlertTriangle, ChevronRight, Battery, PackageSearch, Loader2 } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { AttachmentUpload } from "@/components/ui/AttachmentUpload";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
-const STATUS_BADGE: Record<string, string> = {
-  SUBMITTED: "bg-secondary text-secondary-foreground",
-  UNDER_REVIEW: "badge-pending",
-  INFO_REQUESTED: "badge-pending",
-  APPROVED: "badge-approved",
-  IN_REPAIR: "badge-pending",
-  REIMBURSED: "badge-approved",
-  RECOVERY: "badge-pending",
-  REJECTED: "badge-rejected",
-  CLOSED: "bg-muted text-muted-foreground",
-};
+function claimStatusTone(status: string): BadgeTone {
+  if (status === "APPROVED" || status === "REIMBURSED") return "approved";
+  if (status === "REJECTED") return "rejected";
+  if (status === "SUBMITTED" || status === "CLOSED") return "neutral";
+  return "pending"; // UNDER_REVIEW, INFO_REQUESTED, IN_REPAIR, RECOVERY
+}
 
 const NEXT_STATUS: Record<string, string[]> = {
   UNDER_REVIEW: ["APPROVED", "REJECTED"],
@@ -87,12 +85,12 @@ export default function ClaimDetailPage() {
       </Link>
 
       {/* Header */}
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-[var(--radius)] border border-border bg-card p-5">
+      <Card className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <PackageSearch className="h-5 w-5 shrink-0 text-primary" />
             <h1 className="font-mono text-xl font-semibold tracking-tight">{claim.claimNumber}</h1>
-            <span className={`${STATUS_BADGE[claim.status] ?? "bg-muted"} rounded-full px-2.5 py-1 text-xs font-medium`}>{claim.status.replace("_", " ")}</span>
+            <Badge status={claim.status} tone={claimStatusTone(claim.status)} />
           </div>
           <p className="mt-2 text-sm">{claim.customerName}{claim.customerPhone ? ` · ${claim.customerPhone}` : ""}</p>
           <p className="text-sm text-muted-foreground">{claim.issueDescription}</p>
@@ -113,29 +111,29 @@ export default function ClaimDetailPage() {
             <div className="text-xs text-muted-foreground">Approved</div>
           </div>
         </div>
-      </header>
+      </Card>
 
       {/* Body: adjudication + actions (wide) + timeline (narrow), both fully expanded */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
         <div className="space-y-5">
           {claim.adjudicationNotes && (
-            <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+            <Card>
               <div className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <AlertTriangle className="h-3.5 w-3.5" /> Adjudication
               </div>
               <p className="text-sm leading-relaxed">{claim.adjudicationNotes}</p>
               {claim.voidReason && <p className="mt-2 text-sm font-medium text-[color:var(--zira-rejected)]">Void: {claim.voidReason}</p>}
-            </div>
+            </Card>
           )}
 
-          <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+          <Card>
             <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Actions</div>
             {claim.status === "UNDER_REVIEW" && (
               <div className="max-w-md space-y-2">
                 <input placeholder="Approved amount" value={approvedAmount} onChange={(e) => setApprovedAmount(e.target.value)} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
                 <div className="flex gap-2">
-                  <button onClick={() => setStatus("APPROVED", { approvedAmount: approvedAmount ? Number(approvedAmount) : claim.claimAmount })} className="flex-1 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Approve</button>
-                  <button onClick={() => setStatus("REJECTED", { rejectionReason: rejectionReason || "Manual review rejection" })} className="flex-1 rounded-[var(--radius)] border border-border px-3 py-2 text-sm hover:bg-accent">Reject</button>
+                  <Button className="flex-1" onClick={() => setStatus("APPROVED", { approvedAmount: approvedAmount ? Number(approvedAmount) : claim.claimAmount })}>Approve</Button>
+                  <Button variant="secondary" className="flex-1" onClick={() => setStatus("REJECTED", { rejectionReason: rejectionReason || "Manual review rejection" })}>Reject</Button>
                 </div>
                 <input placeholder="Rejection reason (if rejecting)" value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
               </div>
@@ -143,30 +141,30 @@ export default function ClaimDetailPage() {
             {claim.status !== "UNDER_REVIEW" && (NEXT_STATUS[claim.status]?.length ?? 0) > 0 && (
               <div className="flex max-w-md flex-wrap gap-2">
                 {NEXT_STATUS[claim.status]?.map((s) => (
-                  <button key={s} onClick={() => setStatus(s)} className="inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+                  <Button key={s} onClick={() => setStatus(s)}>
                     Mark {s.replace("_", " ").toLowerCase()} <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
             {claim.status !== "UNDER_REVIEW" && !(NEXT_STATUS[claim.status]?.length) && (
               <p className="text-sm text-muted-foreground">No further action pending on this claim.</p>
             )}
-          </div>
+          </Card>
 
           {claim.status === "REIMBURSED" && !claim.supplierRecovery && (
             <div className="max-w-md rounded-[var(--radius)] border border-dashed border-border bg-card p-5">
               <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Open supplier recovery?</div>
               <input placeholder="Supplier name" value={recoverySupplier} onChange={(e) => setRecoverySupplier(e.target.value)} className="mb-2 w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
               <input placeholder="Recovery amount" value={recoveryAmount} onChange={(e) => setRecoveryAmount(e.target.value)} className="mb-2 w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
-              <button onClick={openRecovery} className="w-full rounded-[var(--radius)] border border-border px-3 py-2 text-sm hover:bg-accent">Open recovery case</button>
+              <Button variant="secondary" className="w-full" onClick={openRecovery}>Open recovery case</Button>
             </div>
           )}
 
           <AttachmentUpload basePath={`/api/v1/warranty-claims/${claimId}`} />
         </div>
 
-        <aside className="rounded-[var(--radius)] border border-border bg-card p-5">
+        <aside className="card-elevated p-5">
           <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Timeline</div>
           <ol className="space-y-3">
             {(claim.events ?? []).map((e: any) => (

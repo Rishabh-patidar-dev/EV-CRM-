@@ -11,6 +11,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Users } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 const STATUS_OPTIONS = ["OPEN", "WORKING", "QUALIFIED", "UNQUALIFIED", "NURTURING", "CONVERTED"];
 const SOURCE_OPTIONS = ["IMPORT", "LANDING_PAGE", "MANUAL"];
@@ -65,12 +67,9 @@ export default function SegmentsPage() {
             Saved filters over your leads — used as the audience for Email and WhatsApp campaigns. Membership is always live, never a stale snapshot.
           </p>
         </div>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
+        <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="h-4 w-4" /> New segment
-        </button>
+        </Button>
       </header>
 
       {showForm && <NewSegmentForm onDone={() => { setShowForm(false); load(); }} />}
@@ -82,7 +81,7 @@ export default function SegmentsPage() {
           <p className="text-sm text-muted-foreground">No segments yet — create one to target a campaign.</p>
         ) : (
           segments.map((s) => (
-            <div key={s.id} className="card-elevated p-4">
+            <Card key={s.id} padding="compact">
               <div className="mb-2 flex items-start justify-between gap-2">
                 <h2 className="font-semibold">{s.name}</h2>
                 <button onClick={() => remove(s.id)} className="shrink-0 text-muted-foreground hover:text-[color:var(--zira-rejected)]" title="Delete segment">
@@ -94,7 +93,7 @@ export default function SegmentsPage() {
               <div className="flex items-center gap-1.5 text-sm font-medium">
                 <Users className="h-3.5 w-3.5 text-primary" /> {s.memberCount} leads
               </div>
-            </div>
+            </Card>
           ))
         )}
       </div>
@@ -121,7 +120,7 @@ function NewSegmentForm({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-6">
       <h3 className="mb-3 text-sm font-semibold">New segment</h3>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <input placeholder="Segment name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm md:col-span-2" />
@@ -138,14 +137,10 @@ function NewSegmentForm({ onDone }: { onDone: () => void }) {
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3">
-        <button
-          disabled={saving || !form.name}
-          onClick={submit}
-          className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        >
+        <Button size="sm" disabled={saving || !form.name} onClick={submit}>
           {saving ? "Saving…" : "Create segment"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }

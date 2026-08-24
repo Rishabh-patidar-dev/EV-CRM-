@@ -13,6 +13,9 @@ import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ShieldCheck, BellRing, Plus, Loader2 } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 const DOC_TYPES = [
   "DEALER_AGREEMENT", "TRADE_LICENSE", "GST_CERTIFICATE", "INSURANCE_POLICY",
@@ -20,11 +23,11 @@ const DOC_TYPES = [
 ];
 const STATUSES = ["EXPIRED", "EXPIRING_SOON", "VALID", "MISSING"];
 
-const STATUS_BADGE: Record<string, string> = {
-  VALID: "badge-approved",
-  EXPIRING_SOON: "badge-pending",
-  EXPIRED: "badge-rejected",
-  MISSING: "badge-rejected",
+const STATUS_TONE: Record<string, BadgeTone> = {
+  VALID: "approved",
+  EXPIRING_SOON: "pending",
+  EXPIRED: "rejected",
+  MISSING: "rejected",
 };
 
 interface Dealer {
@@ -93,12 +96,9 @@ function DealerComplianceInner() {
             Dealer agreements, licenses, insurance and statutory NOCs — tracked to expiry.
           </p>
         </div>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
+        <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="h-4 w-4" /> Add / update record
-        </button>
+        </Button>
       </header>
 
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -156,16 +156,17 @@ function DealerComplianceInner() {
                   <td className="px-4 py-3">{r.docType.replace(/_/g, " ")}</td>
                   <td className="px-4 py-3 text-muted-foreground">{r.docNumber ?? "—"}</td>
                   <td className="px-4 py-3">{r.expiresAt ? new Date(r.expiresAt).toLocaleDateString() : "—"}</td>
-                  <td className="px-4 py-3"><span className={`${STATUS_BADGE[r.status] ?? "bg-muted"} rounded-full px-2 py-0.5 text-xs`}>{r.status.replace("_", " ")}</span></td>
+                  <td className="px-4 py-3"><Badge status={r.status} tone={STATUS_TONE[r.status] ?? "neutral"} /></td>
                   <td className="px-4 py-3 text-right">
                     {(r.status === "EXPIRED" || r.status === "EXPIRING_SOON") && (
-                      <button
+                      <Button
+                        size="sm"
+                        variant="secondary"
                         onClick={() => sendReminder(r.id)}
-                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent"
                         title={r.reminderSentAt ? `Last reminded ${new Date(r.reminderSentAt).toLocaleDateString()}` : "Send renewal reminder"}
                       >
                         <BellRing className="h-3 w-3" /> Remind
-                      </button>
+                      </Button>
                     )}
                   </td>
                 </tr>
@@ -197,7 +198,7 @@ function ComplianceForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () => 
   };
 
   return (
-    <div className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-6">
       <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="h-4 w-4" /> Add or update a compliance record</h3>
       <p className="mb-3 text-xs text-muted-foreground">One record per dealer + document type — saving again updates the existing one.</p>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -214,14 +215,10 @@ function ComplianceForm({ dealers, onDone }: { dealers: Dealer[]; onDone: () => 
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3">
-        <button
-          disabled={saving || !form.dealerId}
-          onClick={submit}
-          className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        >
+        <Button size="sm" disabled={saving || !form.dealerId} onClick={submit}>
           {saving ? "Saving…" : "Save record"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }

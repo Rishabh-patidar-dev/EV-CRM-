@@ -17,6 +17,7 @@ router.use(requireAuth);
 router.get("/orders", requireRole(ORDER_DESK), controller.list.bind(controller));
 router.get("/analytics", requireRole(ORDER_DESK), controller.analytics.bind(controller));
 router.get("/zones", requireRole(ORDER_DESK), controller.zones.bind(controller));
+router.get("/new-count", requireRole(ORDER_DESK), controller.newCount.bind(controller));
 router.get("/invoices", requireRole(ORDER_DESK), controller.listInvoices.bind(controller));
 router.post("/invoices", requireRole(ORDER_DESK), controller.createInvoice.bind(controller));
 router.get("/vehicle-catalog", requireRole(ORDER_DESK), controller.vehicleCatalog.bind(controller));

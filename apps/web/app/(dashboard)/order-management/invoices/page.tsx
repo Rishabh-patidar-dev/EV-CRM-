@@ -18,6 +18,8 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, FileText, Printer, CheckCircle2, AlertTriangle, PackageMinus, XCircle, MessageSquare, Plus } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import Modal from "@/components/ui/Modal";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 
 type InvoiceType = "CONFIRMATION" | "OUT_OF_STOCK" | "PARTIAL" | "CANCELLATION" | "CUSTOM";
 
@@ -41,13 +43,19 @@ interface DealerOption {
   tradeName: string | null;
 }
 
-const TYPE_META: Record<InvoiceType, { label: string; icon: typeof FileText; badge: string }> = {
-  CONFIRMATION: { label: "Order confirmed", icon: CheckCircle2, badge: "badge-approved" },
-  PARTIAL: { label: "Partial fulfillment", icon: PackageMinus, badge: "badge-pending" },
-  OUT_OF_STOCK: { label: "Out of stock", icon: AlertTriangle, badge: "badge-rejected" },
-  CANCELLATION: { label: "Order cancellation", icon: XCircle, badge: "badge-rejected" },
-  CUSTOM: { label: "General notice", icon: MessageSquare, badge: "badge-pending" },
+const TYPE_META: Record<InvoiceType, { label: string; icon: typeof FileText }> = {
+  CONFIRMATION: { label: "Order confirmed", icon: CheckCircle2 },
+  PARTIAL: { label: "Partial fulfillment", icon: PackageMinus },
+  OUT_OF_STOCK: { label: "Out of stock", icon: AlertTriangle },
+  CANCELLATION: { label: "Order cancellation", icon: XCircle },
+  CUSTOM: { label: "General notice", icon: MessageSquare },
 };
+
+function invoiceTypeTone(type: InvoiceType): BadgeTone {
+  if (type === "CONFIRMATION") return "approved";
+  if (type === "OUT_OF_STOCK" || type === "CANCELLATION") return "rejected";
+  return "pending"; // PARTIAL, CUSTOM
+}
 
 function printInvoice(inv: InvoiceRow) {
   const w = window.open("", "_blank", "width=640,height=760");
@@ -124,12 +132,9 @@ export default function InvoicesPage() {
             <option value="CANCELLATION">Order cancellation</option>
             <option value="CUSTOM">General notice</option>
           </select>
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius)] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-          >
+          <Button onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4" /> Create invoice
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -159,8 +164,9 @@ export default function InvoicesPage() {
                   <tr key={inv.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 font-mono text-xs">{inv.invoiceNumber}</td>
                     <td className="px-4 py-3">
-                      <span className={`${meta.badge} inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs`}>
-                        <Icon className="h-3 w-3" /> {meta.label}
+                      <span className="inline-flex items-center gap-1">
+                        <Icon className="h-3 w-3" />
+                        <Badge label={meta.label} tone={invoiceTypeTone(inv.type)} />
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -174,12 +180,9 @@ export default function InvoicesPage() {
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{new Date(inv.issuedAt).toLocaleDateString()}</td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => printInvoice(inv)}
-                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent"
-                      >
+                      <Button size="sm" variant="secondary" onClick={() => printInvoice(inv)}>
                         <Printer className="h-3 w-3" /> View / print
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 );
@@ -323,13 +326,9 @@ function CreateInvoiceModal({ open, onClose, onCreated }: { open: boolean; onClo
           <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
         </div>
 
-        <button
-          onClick={handleSubmit}
-          disabled={submitting}
-          className="w-full rounded-[var(--radius)] bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
+        <Button onClick={handleSubmit} disabled={submitting} className="w-full">
           {submitting ? "Sending…" : "Send invoice"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

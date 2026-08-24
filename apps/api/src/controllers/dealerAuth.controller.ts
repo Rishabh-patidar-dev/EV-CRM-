@@ -15,6 +15,8 @@ import jwt from "jsonwebtoken";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { ONBOARDING_DOC_CATALOG } from "../services/applicationRouting.service.js";
+import { uploadFile } from "../services/fileStorage.service.js";
+import { extractText } from "../services/ocr.service.js";
 
 const JWT_SECRET = process.env.JWT_DEALER_SECRET;
 const COOKIE_NAME = "dealer_session";
@@ -216,9 +218,24 @@ export class DealerAuthController {
         return handleValidationError(res, "That document isn't part of the current stage's checklist", "docKey", "Upload dealer document");
       }
 
+      const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const key = `dealer-applications/${applicationId}/${application.stage}/${docKey}/${Date.now()}_${sanitizedName}`;
+      const { url } = await uploadFile(file.buffer, key, file.mimetype);
+
+      let ocrExtractedText: string | null = null;
+      let ocrStatus: "DONE" | "FAILED" | "SKIPPED" = "SKIPPED";
+      if (file.mimetype?.startsWith("image/")) {
+        try {
+          ocrExtractedText = await extractText(file.buffer);
+          ocrStatus = "DONE";
+        } catch {
+          ocrStatus = "FAILED";
+        }
+      }
+
       const updated = await prisma.dealerApplicationDocument.update({
         where: { id: doc.id },
-        data: { status: "UPLOADED", fileUrl: `/uploads/dealer-applications/${file.filename}`, notes: null },
+        data: { status: "UPLOADED", fileUrl: url, notes: null, ocrExtractedText, ocrStatus },
       });
 
       res.status(201).json({ ok: true, document: updated });

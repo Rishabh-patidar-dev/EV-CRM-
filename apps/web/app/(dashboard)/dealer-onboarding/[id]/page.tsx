@@ -12,9 +12,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
-  ArrowLeft, Building2, FileCheck2, Loader2, ChevronRight, Mail, Phone, MapPin, Landmark, Eye,
+  ArrowLeft, Building2, FileCheck2, Loader2, ChevronRight, Mail, Phone, MapPin, Landmark, Eye, PauseCircle, XCircle, ScanText,
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 // Documents can come from two upload paths with two different fileUrl
 // shapes: the dealer portal (/dashboard) stores a path relative to this
@@ -40,28 +43,20 @@ const STAGE_META: Record<string, { short: string; n: number }> = {
 
 const STAGE_ORDER = Object.keys(STAGE_META);
 
-const STATUS_STYLES: Record<string, string> = {
-  IN_PROGRESS: "bg-secondary text-secondary-foreground",
-  ON_HOLD: "bg-[color:var(--zira-pending)]/15 text-[color:var(--zira-pending)]",
-  APPROVED: "bg-[color:var(--zira-approved)]/15 text-[color:var(--zira-approved)]",
-  REJECTED: "bg-[color:var(--zira-rejected)]/15 text-[color:var(--zira-rejected)]",
-  WITHDRAWN: "bg-muted text-muted-foreground",
+const STATUS_TONE: Record<string, BadgeTone> = {
+  IN_PROGRESS: "neutral",
+  ON_HOLD: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+  WITHDRAWN: "neutral",
 };
 
-const DOC_STATUS_STYLES: Record<string, string> = {
-  PENDING: "bg-muted text-muted-foreground",
-  UPLOADED: "bg-[color:var(--zira-info)]/15 text-[color:var(--zira-info)]",
-  VERIFIED: "bg-[color:var(--zira-approved)]/15 text-[color:var(--zira-approved)]",
-  REJECTED: "bg-[color:var(--zira-rejected)]/15 text-[color:var(--zira-rejected)]",
+const DOC_STATUS_TONE: Record<string, BadgeTone> = {
+  PENDING: "neutral",
+  UPLOADED: "info",
+  VERIFIED: "approved",
+  REJECTED: "rejected",
 };
-
-function Badge({ label, className }: { label: string; className: string }) {
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${className}`}>
-      {label.replaceAll("_", " ")}
-    </span>
-  );
-}
 
 export default function ApplicationDetailPage() {
   const params = useParams();
@@ -70,6 +65,11 @@ export default function ApplicationDetailPage() {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  const [appAction, setAppAction] = useState<"hold" | "reject" | null>(null);
+  const [appReason, setAppReason] = useState("");
+  const [docRejectId, setDocRejectId] = useState<number | null>(null);
+  const [docReason, setDocReason] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,9 +95,29 @@ export default function ApplicationDetailPage() {
     }
   };
 
-  const verifyDoc = async (docId: number, status: string) => {
-    await apiClient.patch(`/api/v1/onboarding/documents/${docId}`, { status });
+  const verifyDoc = async (docId: number, status: string, notes?: string) => {
+    await apiClient.patch(`/api/v1/onboarding/documents/${docId}`, { status, ...(notes && { notes }) });
     await load();
+  };
+
+  const submitAppAction = async () => {
+    if (!appAction || !appReason.trim()) return;
+    setBusy(true);
+    try {
+      await apiClient.post(`/api/v1/onboarding/applications/${id}/${appAction}`, { note: appReason.trim() });
+      setAppAction(null);
+      setAppReason("");
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitDocReject = async () => {
+    if (!docRejectId || !docReason.trim()) return;
+    await verifyDoc(docRejectId, "REJECTED", docReason.trim());
+    setDocRejectId(null);
+    setDocReason("");
   };
 
   if (loading || !data) {
@@ -120,7 +140,7 @@ export default function ApplicationDetailPage() {
       </Link>
 
       {/* Header */}
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-[var(--radius)] border border-border bg-card p-5">
+      <Card className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Building2 className="h-5 w-5 shrink-0 text-primary" />
@@ -136,30 +156,62 @@ export default function ApplicationDetailPage() {
             {data.gstin && <span className="inline-flex items-center gap-1.5"><Landmark className="h-3.5 w-3.5" /> GST {data.gstin}</span>}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Badge label={STAGE_META[data.stage]?.short ?? data.stage} className="bg-primary/10 text-primary" />
-            <Badge label={data.status} className={STATUS_STYLES[data.status] ?? "bg-muted"} />
-            {data.utmSource && <Badge label={`via ${data.utmSource}`} className="bg-muted text-muted-foreground" />}
+            <Badge label={STAGE_META[data.stage]?.short ?? data.stage} tone="info" />
+            <Badge status={data.status} tone={STATUS_TONE[data.status] ?? "neutral"} />
+            {data.utmSource && <Badge label={`via ${data.utmSource}`} tone="neutral" />}
           </div>
+          {(data.status === "ON_HOLD" || data.status === "REJECTED") && data.rejectionReason && (
+            <p className="mt-3 max-w-lg rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              {data.status === "REJECTED" ? "Rejection reason: " : "Hold reason: "}{data.rejectionReason}
+            </p>
+          )}
         </div>
 
-        <button
-          disabled={busy || data.status === "APPROVED" || data.status === "REJECTED"}
-          onClick={advance}
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--radius)] bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50"
-        >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
-          Advance to next stage
-        </button>
-      </header>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              disabled={busy || data.status === "APPROVED" || data.status === "REJECTED" || data.status === "WITHDRAWN"}
+              onClick={() => setAppAction(appAction === "hold" ? null : "hold")}
+            >
+              <PauseCircle className="h-4 w-4" /> Put on hold
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy || data.status === "APPROVED" || data.status === "REJECTED" || data.status === "WITHDRAWN"}
+              onClick={() => setAppAction(appAction === "reject" ? null : "reject")}
+            >
+              <XCircle className="h-4 w-4" /> Reject application
+            </Button>
+            <Button disabled={busy || data.status === "APPROVED" || data.status === "REJECTED"} onClick={advance}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
+              Advance to next stage
+            </Button>
+          </div>
+          {appAction && (
+            <div className="w-80 rounded-[var(--radius)] border border-border bg-card p-3">
+              <textarea
+                autoFocus
+                value={appReason}
+                onChange={(e) => setAppReason(e.target.value)}
+                placeholder={`Reason for ${appAction === "hold" ? "putting this on hold" : "rejecting this application"}…`}
+                rows={2}
+                className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+              />
+              <div className="mt-2 flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => { setAppAction(null); setAppReason(""); }}>Cancel</Button>
+                <Button size="sm" disabled={busy || !appReason.trim()} onClick={submitAppAction}>Confirm</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
 
       {/* Body: documents (wide) + timeline (narrow), both fully expanded */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-5">
           {docsByStage.map(({ stage, docs }) => (
-            <div
-              key={stage}
-              className={`rounded-[var(--radius)] border bg-card p-5 ${stage === data.stage ? "border-primary" : "border-border"}`}
-            >
+            <Card key={stage} className={stage === data.stage ? "border-primary" : ""}>
               <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
                 <FileCheck2 className="h-4 w-4" /> Stage {STAGE_META[stage]?.n} · {STAGE_META[stage]?.short}
                 {stage === data.stage && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">Current</span>}
@@ -172,8 +224,11 @@ export default function ApplicationDetailPage() {
                         {d.label}
                         {d.required && <span className="ml-1 text-[color:var(--zira-rejected)]">*</span>}
                       </span>
-                      <Badge label={d.status} className={DOC_STATUS_STYLES[d.status] ?? "bg-muted"} />
+                      <Badge status={d.status} tone={DOC_STATUS_TONE[d.status] ?? "neutral"} />
                     </div>
+                    {d.status === "REJECTED" && d.notes && (
+                      <p className="mt-1.5 text-xs text-[color:var(--zira-rejected)]">{d.notes}</p>
+                    )}
                     {d.fileUrl && (
                       <a
                         href={resolveFileUrl(d.fileUrl)}
@@ -184,20 +239,37 @@ export default function ApplicationDetailPage() {
                         <Eye className="h-3 w-3" /> View document
                       </a>
                     )}
+                    {d.ocrExtractedText && <DocOcrPreview text={d.ocrExtractedText} />}
                     {d.status !== "VERIFIED" && (
                       <div className="mt-2 flex gap-2">
-                        <button onClick={() => verifyDoc(d.id, "VERIFIED")} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
-                          Mark verified
-                        </button>
-                        <button onClick={() => verifyDoc(d.id, "REJECTED")} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => verifyDoc(d.id, "VERIFIED")}>
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => setDocRejectId(docRejectId === d.id ? null : d.id)}>
                           Reject
-                        </button>
+                        </Button>
+                      </div>
+                    )}
+                    {docRejectId === d.id && (
+                      <div className="mt-2 rounded-md border border-border bg-muted/30 p-2">
+                        <textarea
+                          autoFocus
+                          value={docReason}
+                          onChange={(e) => setDocReason(e.target.value)}
+                          placeholder="Reason for rejecting this document…"
+                          rows={2}
+                          className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+                        />
+                        <div className="mt-1.5 flex justify-end gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => { setDocRejectId(null); setDocReason(""); }}>Cancel</Button>
+                          <Button size="sm" disabled={!docReason.trim()} onClick={submitDocReject}>Confirm reject</Button>
+                        </div>
                       </div>
                     )}
                   </div>
                 ))}
               </div>
-            </div>
+            </Card>
           ))}
           {docsByStage.length === 0 && (
             <div className="rounded-[var(--radius)] border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
@@ -206,7 +278,7 @@ export default function ApplicationDetailPage() {
           )}
         </div>
 
-        <aside className="rounded-[var(--radius)] border border-border bg-card p-5">
+        <aside className="card-elevated p-5">
           <h3 className="mb-3 text-sm font-semibold">Timeline</h3>
           <ol className="space-y-3">
             {(data.stageHistory ?? []).map((e: any) => (
@@ -226,6 +298,18 @@ export default function ApplicationDetailPage() {
           </ol>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function DocOcrPreview({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2">
+      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground">
+        <ScanText className="h-3 w-3" /> {open ? "Hide" : "Show"} extracted text
+      </button>
+      {open && <p className="mt-1.5 max-h-24 overflow-y-auto rounded-md bg-muted/40 p-2 text-[11px] text-muted-foreground">{text}</p>}
     </div>
   );
 }

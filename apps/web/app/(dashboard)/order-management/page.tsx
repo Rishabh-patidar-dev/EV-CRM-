@@ -11,7 +11,7 @@
 // trend, fulfillment rate, and a filterable combined order list with the
 // same inline status-advance actions.
 // ============================================================================
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus, MapPin, Bell, SearchCheck, AlertTriangle } from "lucide-react";
 import apiClient from "@/lib/api/client";
@@ -20,7 +20,11 @@ import BarChart from "@/components/charts/BarChart";
 import ChartCard from "@/components/charts/ChartCard";
 import TargetBarChart from "@/components/charts/TargetBarChart";
 import { StatCard } from "@/components/ui/StatCard";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import CreateOrderModal from "@/components/orders/CreateOrderModal";
+import { ORDER_MGMT_LAST_SEEN_KEY } from "@/components/orderManagementSeen";
 
 // REQUESTED isn't in this map — it doesn't advance via the generic PATCH
 // anymore, it goes through the Check Inventory flow (see the action cell
@@ -68,8 +72,21 @@ export default function OrderManagementPage() {
   const [zoneFilter, setZoneFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [sortBy, setSortBy] = useState<"recent" | "item">("recent");
   const [createOpen, setCreateOpen] = useState(false);
   const listRef = useRef<HTMLElement>(null);
+
+  // Marks "staff has looked at the order list" — clears the green-asterisk
+  // indicator next to Order Management in the sidebar (see Sidebar.tsx),
+  // which re-checks this on every route change.
+  useEffect(() => {
+    try {
+      localStorage.setItem(ORDER_MGMT_LAST_SEEN_KEY, new Date().toISOString());
+    } catch {
+      // localStorage unavailable (private mode etc.) — the indicator just
+      // won't clear locally, not worth surfacing an error for.
+    }
+  }, []);
 
   const loadAnalytics = useCallback(async () => {
     const { data } = await apiClient.get("/api/v1/order-management/analytics");
@@ -119,6 +136,11 @@ export default function OrderManagementPage() {
 
   const zones = Array.from(new Set((analytics?.ordersByZone ?? []).map((z) => z.label))).sort();
 
+  const sortedOrders = useMemo(() => {
+    if (sortBy === "item") return [...orders].sort((a, b) => a.item.localeCompare(b.item));
+    return orders;
+  }, [orders, sortBy]);
+
   return (
     <div className="mx-auto max-w-[1700px] p-6">
       <header className="mb-6 flex items-start justify-between gap-4">
@@ -142,13 +164,10 @@ export default function OrderManagementPage() {
               </span>
             )}
           </Link>
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-          >
+          <Button onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4" />
             Create order
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -227,7 +246,7 @@ export default function OrderManagementPage() {
               {analytics.oldestOpenOrders.map((o) => (
                 <li key={`${o.type}-${o.orderNumber}`} className="flex items-center justify-between gap-2 text-xs">
                   <span className="min-w-0 flex-1 truncate">{o.orderNumber} · {o.dealer} ({o.zone}) · {o.item}</span>
-                  <OrderStatusBadge status={o.status} />
+                  <Badge status={o.status} tone={orderStatusTone(o.status)} />
                   <span className={`shrink-0 rounded-full px-2 py-0.5 tabular-nums ${o.daysOpen > 7 ? "badge-rejected" : "bg-accent text-accent-foreground"}`}>{o.daysOpen}d</span>
                 </li>
               ))}
@@ -239,14 +258,14 @@ export default function OrderManagementPage() {
       </section>
 
       <section className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+        <Card padding="compact">
           <h2 className="mb-3 text-sm font-semibold">Most-ordered vehicle model, by zone</h2>
           <TopByZoneList rows={analytics?.topVehicleModelByZone ?? []} empty="No vehicle stock orders yet." />
-        </div>
-        <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+        </Card>
+        <Card padding="compact">
           <h2 className="mb-3 text-sm font-semibold">Most-ordered spare part, by zone</h2>
           <TopByZoneList rows={analytics?.topSparePartByZone ?? []} empty="No spare part orders yet." />
-        </div>
+        </Card>
       </section>
 
       {/* Orders by zone — click a card to filter the list below to that zone.
@@ -300,6 +319,10 @@ export default function OrderManagementPage() {
           <option value="">All statuses</option>
           {ORDER_STATUSES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
         </select>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "recent" | "item")} className="rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm">
+          <option value="recent">Sort: Most recent</option>
+          <option value="item">Sort: Item name</option>
+        </select>
       </section>
 
       {/* combined order list */}
@@ -319,10 +342,10 @@ export default function OrderManagementPage() {
           <tbody>
             {loading ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
-            ) : orders.length === 0 ? (
+            ) : sortedOrders.length === 0 ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No orders match these filters.</td></tr>
             ) : (
-              orders.map((o) => (
+              sortedOrders.map((o) => (
                 <tr key={`${o.type}-${o.id}`} className="border-b border-border last:border-0">
                   <td className="px-4 py-3 font-mono text-xs">{o.orderNumber}</td>
                   <td className="px-4 py-3">
@@ -337,7 +360,7 @@ export default function OrderManagementPage() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{o.dealer?.state ?? "—"}</td>
                   <td className="px-4 py-3">{o.item} × {o.quantity}</td>
-                  <td className="px-4 py-3"><OrderStatusBadge status={o.status} /></td>
+                  <td className="px-4 py-3"><Badge status={o.status} tone={orderStatusTone(o.status)} /></td>
                   <td className="px-4 py-3 text-right">
                     {o.status === "REQUESTED" ? (
                       <Link
@@ -354,9 +377,9 @@ export default function OrderManagementPage() {
                       </Link>
                     ) : (
                       FLOW[o.status] && (
-                        <button onClick={() => advance(o, FLOW[o.status])} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => advance(o, FLOW[o.status])}>
                           Mark {FLOW[o.status].toLowerCase()}
-                        </button>
+                        </Button>
                       )
                     )}
                   </td>
@@ -385,7 +408,8 @@ function TopByZoneList({ rows, empty }: { rows: { zone: string; topItem: string;
   );
 }
 
-function OrderStatusBadge({ status }: { status: string }) {
-  const style = status === "DELIVERED" ? "badge-approved" : status === "REJECTED" || status === "CANCELLED" || status === "Close" ? "badge-rejected" : "badge-pending";
-  return <span className={`${style} shrink-0 rounded-full px-2 py-0.5 text-xs`}>{status.replace("_", " ")}</span>;
+function orderStatusTone(status: string): BadgeTone {
+  if (status === "DELIVERED") return "approved";
+  if (status === "REJECTED" || status === "CANCELLED" || status === "Close") return "rejected";
+  return "pending";
 }

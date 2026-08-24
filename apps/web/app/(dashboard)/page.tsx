@@ -24,6 +24,7 @@ import BarChart from "@/components/charts/BarChart";
 import LineChart from "@/components/charts/LineChart";
 import ChartCard from "@/components/charts/ChartCard";
 import { StatCard } from "@/components/ui/StatCard";
+import { Card } from "@/components/ui/Card";
 import AIInsightsPanel, { type Insight } from "@/components/ui/AIInsightsPanel";
 
 interface DealerStats {
@@ -228,7 +229,7 @@ export default function DashboardPage() {
       </section>
 
       {complianceAlerts != null && complianceAlerts > 0 && (
-        <div className="mt-6 flex items-center gap-2 rounded-[var(--radius)] border border-border bg-card p-4 text-sm">
+        <Card padding="compact" className="mt-6 flex items-center gap-2 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: "var(--zira-pending)" }} />
           <span>
             {complianceAlerts} dealer compliance document{complianceAlerts === 1 ? "" : "s"} expired or expiring soon —{" "}
@@ -237,7 +238,7 @@ export default function DashboardPage() {
             </Link>
             .
           </span>
-        </div>
+        </Card>
       )}
     </div>
   );

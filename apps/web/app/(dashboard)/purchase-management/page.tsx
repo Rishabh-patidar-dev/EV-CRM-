@@ -16,6 +16,9 @@ import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import ChartCard from "@/components/charts/ChartCard";
 import { StatCard } from "@/components/ui/StatCard";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 const SEGMENTS = ["L5", "L3", "CUSTOMISED"];
 const CATEGORIES = ["BATTERY_PACK", "BMS", "MOTOR", "CONTROLLER", "CHASSIS", "BODY", "ELECTRICAL", "TYRES", "MISC"];
@@ -66,18 +69,18 @@ interface PurchaseOrder {
   receivedAt: string | null;
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  ORDERED: "badge-pending",
-  IN_TRANSIT: "badge-pending",
-  PARTIALLY_RECEIVED: "badge-pending",
-  RECEIVED: "badge-approved",
-  CANCELLED: "badge-rejected",
+const STATUS_TONE: Record<string, BadgeTone> = {
+  ORDERED: "pending",
+  IN_TRANSIT: "pending",
+  PARTIALLY_RECEIVED: "pending",
+  RECEIVED: "approved",
+  CANCELLED: "rejected",
 };
 
-const PAYMENT_BADGE: Record<string, string> = {
-  UNPAID: "badge-rejected",
-  PARTIAL: "badge-pending",
-  PAID: "badge-approved",
+const PAYMENT_TONE: Record<string, BadgeTone> = {
+  UNPAID: "rejected",
+  PARTIAL: "pending",
+  PAID: "approved",
 };
 
 function Stars({ rating }: { rating: number }) {
@@ -156,18 +159,12 @@ export default function PurchaseManagementPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowVendorForm((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
-          >
+          <Button variant="secondary" onClick={() => setShowVendorForm((v) => !v)}>
             <Plus className="h-4 w-4" /> New vendor
-          </button>
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-          >
+          </Button>
+          <Button onClick={() => setShowForm((v) => !v)}>
             <Plus className="h-4 w-4" /> New purchase order
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -240,18 +237,18 @@ export default function PurchaseManagementPage() {
                     <td className="px-4 py-2.5"><Stars rating={v.qualityRating} /></td>
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{v._count?.purchaseOrders ?? 0}</td>
                     <td className="px-4 py-2.5">
-                      <span className={`${v.status === "ACTIVE" ? "badge-approved" : "badge-rejected"} rounded-full px-2 py-0.5 text-xs`}>{v.status}</span>
+                      <Badge status={v.status} tone={v.status === "ACTIVE" ? "approved" : "rejected"} />
                       {v.status === "BLACKLISTED" && v.blacklistReason && <span className="ml-1.5 text-xs text-muted-foreground">— {v.blacklistReason}</span>}
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       {v.status === "ACTIVE" ? (
-                        <button onClick={() => blacklistVendor(v)} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => blacklistVendor(v)}>
                           <Ban className="h-3 w-3" /> Blacklist
-                        </button>
+                        </Button>
                       ) : (
-                        <button onClick={() => reactivateVendor(v)} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => reactivateVendor(v)}>
                           <CheckCircle2 className="h-3 w-3" /> Reactivate
-                        </button>
+                        </Button>
                       )}
                     </td>
                   </tr>
@@ -306,29 +303,29 @@ export default function PurchaseManagementPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 tabular-nums">₹{Number(o.unitCost).toLocaleString("en-IN")}</td>
-                  <td className="px-4 py-3"><span className={`${STATUS_BADGE[o.status] ?? "bg-muted"} rounded-full px-2 py-0.5 text-xs`}>{o.status.replace(/_/g, " ")}</span></td>
-                  <td className="px-4 py-3"><span className={`${PAYMENT_BADGE[o.paymentStatus] ?? "bg-muted"} rounded-full px-2 py-0.5 text-xs`}>{o.paymentStatus}</span></td>
+                  <td className="px-4 py-3"><Badge status={o.status} tone={STATUS_TONE[o.status] ?? "neutral"} /></td>
+                  <td className="px-4 py-3"><Badge status={o.paymentStatus} tone={PAYMENT_TONE[o.paymentStatus] ?? "neutral"} /></td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-1.5">
                       {o.status === "ORDERED" && (
-                        <button onClick={() => advance(o, "IN_TRANSIT")} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => advance(o, "IN_TRANSIT")}>
                           Mark in transit
-                        </button>
+                        </Button>
                       )}
                       {(o.status === "ORDERED" || o.status === "IN_TRANSIT" || o.status === "PARTIALLY_RECEIVED") && (
-                        <button onClick={() => setReceivingOrder(o)} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => setReceivingOrder(o)}>
                           <Truck className="h-3 w-3" /> Receive goods
-                        </button>
+                        </Button>
                       )}
                       {o.paymentStatus !== "PAID" && o.status !== "CANCELLED" && (
-                        <button onClick={() => setPayingOrder(o)} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => setPayingOrder(o)}>
                           <IndianRupee className="h-3 w-3" /> Pay
-                        </button>
+                        </Button>
                       )}
                       {(o.status === "ORDERED" || o.status === "IN_TRANSIT") && (
-                        <button onClick={() => advance(o, "CANCELLED")} className="rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => advance(o, "CANCELLED")}>
                           Cancel
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </td>
@@ -376,7 +373,7 @@ function NewVendorForm({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-6">
       <h3 className="mb-3 text-sm font-semibold">New vendor</h3>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <input placeholder="Vendor / supplier name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
@@ -389,11 +386,11 @@ function NewVendorForm({ onDone }: { onDone: () => void }) {
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3 flex gap-2">
-        <button disabled={saving || !form.name} onClick={submit} className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        <Button size="sm" disabled={saving || !form.name} onClick={submit}>
           {saving ? "Saving…" : "Create vendor"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -423,7 +420,7 @@ function NewPurchaseOrderForm({ vendors, onDone }: { vendors: Vendor[]; onDone: 
   };
 
   return (
-    <div className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-6">
       <h3 className="mb-3 text-sm font-semibold">New purchase order</h3>
       {vendors.length === 0 ? (
         <p className="text-xs text-muted-foreground">Add an active vendor first — purchase orders must be raised against one.</p>
@@ -442,17 +439,13 @@ function NewPurchaseOrderForm({ vendors, onDone }: { vendors: Vendor[]; onDone: 
           </div>
           {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
           <div className="mt-3 flex gap-2">
-            <button
-              disabled={saving || !form.model || !form.unitCost}
-              onClick={submit}
-              className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            >
+            <Button size="sm" disabled={saving || !form.model || !form.unitCost} onClick={submit}>
               {saving ? "Saving…" : "Create purchase order"}
-            </button>
+            </Button>
           </div>
         </>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -483,7 +476,7 @@ function ReceiveGoodsModal({ order, onClose, onDone }: { order: PurchaseOrder; o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-sm rounded-[var(--radius)] border border-border bg-card p-5">
+      <Card className="w-full max-w-sm">
         <h3 className="mb-1 text-sm font-semibold">Receive goods — {order.poNumber}</h3>
         <p className="mb-3 text-xs text-muted-foreground">{order.model} · {remaining} of {order.quantity} still outstanding</p>
         <div className="space-y-3">
@@ -508,12 +501,12 @@ function ReceiveGoodsModal({ order, onClose, onDone }: { order: PurchaseOrder; o
         </div>
         {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-[var(--radius)] border border-border px-3 py-1.5 text-sm hover:bg-accent">Cancel</button>
-          <button disabled={saving || (qualityResult === "REJECT" && !rejectionReason)} onClick={submit} className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
+          <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={saving || (qualityResult === "REJECT" && !rejectionReason)} onClick={submit}>
             {saving ? "Recording…" : "Record GRN"}
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
@@ -540,19 +533,19 @@ function RecordPaymentModal({ order, onClose, onDone }: { order: PurchaseOrder; 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-sm rounded-[var(--radius)] border border-border bg-card p-5">
+      <Card className="w-full max-w-sm">
         <h3 className="mb-1 text-sm font-semibold">Record payment — {order.poNumber}</h3>
         <p className="mb-3 text-xs text-muted-foreground">₹{Number(order.amountPaid).toLocaleString("en-IN")} paid of ₹{total.toLocaleString("en-IN")} · ₹{outstanding.toLocaleString("en-IN")} outstanding</p>
         <label className="mb-1 block text-xs font-medium text-muted-foreground">Amount (₹)</label>
         <input type="number" min={1} max={outstanding} value={amount} onChange={(e) => setAmount(Math.min(outstanding, Math.max(1, Number(e.target.value) || 1)))} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
         {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-[var(--radius)] border border-border px-3 py-1.5 text-sm hover:bg-accent">Cancel</button>
-          <button disabled={saving} onClick={submit} className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
+          <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={saving} onClick={submit}>
             {saving ? "Recording…" : "Record payment"}
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

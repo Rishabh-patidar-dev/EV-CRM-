@@ -20,6 +20,7 @@ import {
   STAGE_ORDER,
   stageIndex,
 } from "../services/applicationRouting.service.js";
+import { sendApplicationStatusEmail, sendDocumentRejectedEmail } from "../services/email.service.js";
 
 export class OnboardingController {
   /** GET /api/v1/onboarding/applications?stage=&status=&search=&page=&limit= */
@@ -274,16 +275,27 @@ export class OnboardingController {
       if (!id) return handleValidationError(res, "Application ID required", "id", "Set status");
       const actorId = (req as any).user?.id ?? null;
 
-      const app = await prisma.dealerApplication.findUnique({ where: { id }, select: { stage: true } });
+      const app = await prisma.dealerApplication.findUnique({
+        where: { id },
+        select: { stage: true, email: true, contactName: true, legalName: true },
+      });
       if (!app) return handleNotFoundError(res, "Dealer Application", "Set status");
+      const reason: string | undefined = req.body?.note;
 
       const updated = await prisma.$transaction(async (tx) => {
-        const next = await tx.dealerApplication.update({ where: { id }, data: { status } });
+        const next = await tx.dealerApplication.update({
+          where: { id },
+          data: { status, rejectionReason: reason ?? null },
+        });
         await tx.onboardingStageEvent.create({
-          data: { applicationId: id, fromStage: app.stage, toStage: app.stage, actorId, note: `Status → ${status}${req.body?.note ? `: ${req.body.note}` : ""}` },
+          data: { applicationId: id, fromStage: app.stage, toStage: app.stage, actorId, note: `Status → ${status}${reason ? `: ${reason}` : ""}` },
         });
         return next;
       });
+
+      if (reason) {
+        void sendApplicationStatusEmail(app.email, app.contactName || app.legalName, status as "ON_HOLD" | "REJECTED", reason);
+      }
       res.json(updated);
     } catch (error) {
       handleError(error, res, "Set status");
@@ -311,8 +323,20 @@ export class OnboardingController {
           ...(notes !== undefined && { notes }),
           ...(status === "VERIFIED" && { verifiedById: actorId, verifiedAt: new Date() }),
         },
+        include: { application: { select: { email: true, contactName: true, legalName: true } } },
       });
-      res.json(doc);
+
+      if (status === "REJECTED" && notes) {
+        void sendDocumentRejectedEmail(
+          doc.application.email,
+          doc.application.contactName || doc.application.legalName,
+          doc.label,
+          notes
+        );
+      }
+
+      const { application: _omit, ...safeDoc } = doc;
+      res.json(safeDoc);
     } catch (error: any) {
       if (error.code === "P2025") return handleNotFoundError(res, "Document", "Update document");
       handleError(error, res, "Update document");

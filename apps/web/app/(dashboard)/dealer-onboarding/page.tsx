@@ -18,6 +18,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import CreateDealerModal from "@/components/orders/CreateDealerModal";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 
 // ---- Stage metadata (labels mirror the 8-stage onboarding pipeline) ----------
 const STAGE_META: Record<string, { short: string; n: number }> = {
@@ -45,21 +47,13 @@ type Application = {
   utmSource?: string | null;
 };
 
-const STATUS_STYLES: Record<string, string> = {
-  IN_PROGRESS: "bg-secondary text-secondary-foreground",
-  ON_HOLD: "bg-[color:var(--zira-pending)]/15 text-[color:var(--zira-pending)]",
-  APPROVED: "bg-[color:var(--zira-approved)]/15 text-[color:var(--zira-approved)]",
-  REJECTED: "bg-[color:var(--zira-rejected)]/15 text-[color:var(--zira-rejected)]",
-  WITHDRAWN: "bg-muted text-muted-foreground",
+const STATUS_TONE: Record<string, BadgeTone> = {
+  IN_PROGRESS: "neutral",
+  ON_HOLD: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+  WITHDRAWN: "neutral",
 };
-
-function Badge({ label, className }: { label: string; className: string }) {
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${className}`}>
-      {label.replaceAll("_", " ")}
-    </span>
-  );
-}
 
 export default function DealerOnboardingPage() {
   const router = useRouter();
@@ -112,18 +106,12 @@ export default function DealerOnboardingPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-          >
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4" /> Create dealer
-          </button>
-          <button
-            onClick={refresh}
-            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm transition-colors hover:bg-accent"
-          >
+          </Button>
+          <Button size="sm" variant="secondary" onClick={refresh}>
             <RefreshCw className="h-4 w-4" /> Refresh
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -145,7 +133,7 @@ export default function DealerOnboardingPage() {
                     setActiveStage(next);
                     loadApps(next);
                   }}
-                  className={`min-w-[9rem] shrink-0 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                  className={`min-w-[9rem] shrink-0 rounded-[var(--radius)] border px-3 py-2.5 text-left transition-colors ${
                     isActive
                       ? "border-primary bg-primary/5"
                       : "border-border bg-card hover:bg-accent"
@@ -174,7 +162,7 @@ export default function DealerOnboardingPage() {
             <Loader2 className="h-4 w-4 animate-spin" /> Loading applications…
           </div>
         ) : apps.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-10 text-center text-muted-foreground">
+          <div className="rounded-[var(--radius)] border border-dashed border-border p-10 text-center text-muted-foreground">
             No applications{activeStage ? ` in ${STAGE_META[activeStage]?.short}` : ""} yet.
           </div>
         ) : (
@@ -183,7 +171,7 @@ export default function DealerOnboardingPage() {
               <button
                 key={a.id}
                 onClick={() => router.push(`/dealer-onboarding/${a.id}`)}
-                className="flex items-center justify-between rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-accent"
+                className="flex items-center justify-between rounded-[var(--radius)] border border-border bg-card p-4 text-left transition-colors hover:bg-accent"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -206,8 +194,8 @@ export default function DealerOnboardingPage() {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <Badge label={STAGE_META[a.stage]?.short ?? a.stage} className="bg-secondary text-secondary-foreground" />
-                  <Badge label={a.status} className={STATUS_STYLES[a.status] ?? "bg-muted"} />
+                  <Badge label={STAGE_META[a.stage]?.short ?? a.stage} tone="neutral" />
+                  <Badge status={a.status} tone={STATUS_TONE[a.status] ?? "neutral"} />
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 </div>
               </button>

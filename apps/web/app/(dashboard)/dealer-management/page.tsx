@@ -16,6 +16,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Users, MapPin, Wallet, Wrench, Search, ArrowUpRight } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
 
 // ---- types (kept local; mirror the API responses) ----
 type Tier = "STANDARD" | "PREMIUM" | "FLAGSHIP";
@@ -46,12 +48,12 @@ interface Stats {
   byState: { state: string; count: number }[];
 }
 
-const STATUS_STYLES: Record<OpStatus, string> = {
-  ACTIVE: "badge-approved",
-  ONBOARDING: "badge-pending",
-  ON_HOLD: "badge-pending",
-  SUSPENDED: "badge-rejected",
-  TERMINATED: "badge-rejected",
+const STATUS_TONE: Record<OpStatus, BadgeTone> = {
+  ACTIVE: "approved",
+  ONBOARDING: "pending",
+  ON_HOLD: "pending",
+  SUSPENDED: "rejected",
+  TERMINATED: "rejected",
 };
 
 const TIER_LABEL: Record<Tier, string> = {
@@ -176,7 +178,7 @@ export default function DealerManagementPage() {
                   <td className="px-4 py-3">{d.state}</td>
                   <td className="px-4 py-3">{TIER_LABEL[d.tier]}</td>
                   <td className="px-4 py-3">
-                    <span className={`${STATUS_STYLES[d.status]} px-2 py-0.5 rounded-full text-xs`}>{d.status.replace("_", " ")}</span>
+                    <Badge status={d.status} tone={STATUS_TONE[d.status]} />
                   </td>
                   <td className="px-4 py-3 text-right"><ArrowUpRight className="w-4 h-4 text-muted-foreground inline" /></td>
                 </tr>
@@ -194,10 +196,10 @@ export default function DealerManagementPage() {
 // ---------------------------------------------------------------------------
 function KpiCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact">
       <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">{icon}{label}</div>
       <div className="text-2xl font-semibold">{value}</div>
-    </div>
+    </Card>
   );
 }
 

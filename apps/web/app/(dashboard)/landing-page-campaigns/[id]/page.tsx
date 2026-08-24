@@ -14,15 +14,17 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, Megaphone, Copy, Check, Loader2 } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
 
 type CampaignStatus = "ACTIVE" | "PAUSED" | "SCHEDULED" | "CLOSED" | "ARCHIVED";
 
-const STATUS_STYLES: Record<CampaignStatus, string> = {
-  ACTIVE: "badge-approved",
-  PAUSED: "badge-pending",
-  SCHEDULED: "bg-secondary text-secondary-foreground",
-  CLOSED: "bg-muted text-muted-foreground",
-  ARCHIVED: "bg-muted text-muted-foreground",
+const STATUS_TONE: Record<CampaignStatus, BadgeTone> = {
+  ACTIVE: "approved",
+  PAUSED: "pending",
+  SCHEDULED: "info",
+  CLOSED: "neutral",
+  ARCHIVED: "neutral",
 };
 
 export default function CampaignDetailPage() {
@@ -64,7 +66,7 @@ export default function CampaignDetailPage() {
       </Link>
 
       {/* Header */}
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-[var(--radius)] border border-border bg-card p-5">
+      <Card className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Megaphone className="h-5 w-5 shrink-0 text-primary" />
@@ -72,15 +74,15 @@ export default function CampaignDetailPage() {
           </div>
           {data.description && <p className="mt-1 text-sm text-muted-foreground">{data.description}</p>}
           <div className="mt-3">
-            <span className={`${STATUS_STYLES[data.status as CampaignStatus] ?? "bg-muted"} rounded-full px-2.5 py-1 text-xs font-medium`}>{data.status}</span>
+            <Badge status={data.status} tone={STATUS_TONE[data.status as CampaignStatus] ?? "neutral"} />
           </div>
         </div>
-      </header>
+      </Card>
 
       {/* Body: webhook + GTM contract (wide) + attributed leads (narrow), both fully expanded */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_420px]">
         <div className="space-y-5">
-          <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+          <Card>
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Unique ID (webhook contract)</div>
             <div className="mt-2 flex items-center gap-2">
               <code className="block flex-1 break-all rounded bg-muted px-3 py-2 text-xs">{data.uniqueId}</code>
@@ -91,9 +93,9 @@ export default function CampaignDetailPage() {
             <p className="mt-2 text-xs text-muted-foreground">
               Sent as <code>landing_page_campaign_id</code> in <code>POST /api/v1/ingest/landing-page</code>.
             </p>
-          </div>
+          </Card>
 
-          <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+          <Card>
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">GTM container</div>
             {data.gtmContainerId ? (
               <code className="mt-2 block break-all rounded bg-muted px-3 py-2 text-xs">{data.gtmContainerId}</code>
@@ -105,9 +107,9 @@ export default function CampaignDetailPage() {
               the landing page should push <code>{"{event:'ev_vikas_submission', intent, campaign_id}"}</code> to
               <code> window.dataLayer</code> so GTM can fire the conversion tag.
             </p>
-          </div>
+          </Card>
 
-          <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+          <Card>
             <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent dealer applications</div>
             <ul className="space-y-2">
               {(data.applications ?? []).map((a: any) => (
@@ -118,10 +120,10 @@ export default function CampaignDetailPage() {
               ))}
               {(data.applications ?? []).length === 0 && <li className="text-xs text-muted-foreground">No dealer applications yet.</li>}
             </ul>
-          </div>
+          </Card>
         </div>
 
-        <aside className="rounded-[var(--radius)] border border-border bg-card p-5">
+        <aside className="card-elevated p-5">
           <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent enquiries</div>
           <ul className="space-y-2">
             {(data.enquiries ?? []).map((e: any) => (

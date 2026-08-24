@@ -186,6 +186,28 @@ export class OrderManagementController {
     }
   }
 
+  // GET /api/v1/order-management/new-count — total count of REQUESTED-status
+  // orders placed via DMS across both order types, plus the most recent one's
+  // timestamp. Backs the sidebar's "new order" indicator (components/Sidebar.tsx),
+  // which compares latestCreatedAt against a client-local "last seen" marker.
+  async newCount(_req: Request, res: Response) {
+    try {
+      const where = { status: "REQUESTED" as const, placedVia: "DMS" as const };
+      const [transferCount, spareCount, latestTransfer, latestSpare] = await Promise.all([
+        prisma.stockTransferRequest.count({ where }),
+        prisma.sparePartRequest.count({ where }),
+        prisma.stockTransferRequest.findFirst({ where, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+        prisma.sparePartRequest.findFirst({ where, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+      ]);
+      const latest = [latestTransfer?.createdAt, latestSpare?.createdAt]
+        .filter((d): d is Date => !!d)
+        .sort((a, b) => b.getTime() - a.getTime())[0];
+      res.json({ count: transferCount + spareCount, latestCreatedAt: latest ?? null });
+    } catch (error) {
+      handleError(error, res, "Order management new-count");
+    }
+  }
+
   // GET /api/v1/order-management/orders
   //   ?zone=&status=&type=VEHICLE|SPARE_PART&dealerId=&page=&limit=
   async list(req: Request, res: Response) {

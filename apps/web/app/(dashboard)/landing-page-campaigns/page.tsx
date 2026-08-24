@@ -12,6 +12,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Copy, Check, ExternalLink } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 type CampaignStatus = "ACTIVE" | "PAUSED" | "SCHEDULED" | "CLOSED" | "ARCHIVED";
 
@@ -35,12 +38,12 @@ interface Stats {
   totalApplications: number;
 }
 
-const STATUS_STYLES: Record<CampaignStatus, string> = {
-  ACTIVE: "badge-approved",
-  PAUSED: "badge-pending",
-  SCHEDULED: "bg-secondary text-secondary-foreground",
-  CLOSED: "bg-muted text-muted-foreground",
-  ARCHIVED: "bg-muted text-muted-foreground",
+const STATUS_TONE: Record<CampaignStatus, BadgeTone> = {
+  ACTIVE: "approved",
+  PAUSED: "pending",
+  SCHEDULED: "info",
+  CLOSED: "neutral",
+  ARCHIVED: "neutral",
 };
 
 export default function LandingPageCampaignsPage() {
@@ -82,12 +85,9 @@ export default function LandingPageCampaignsPage() {
             Every campaign's unique ID is what the external landing page sends back with each submission — that's the whole integration contract.
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
+        <Button onClick={() => setShowCreate((v) => !v)}>
           <Plus className="h-4 w-4" /> New campaign
-        </button>
+        </Button>
       </header>
 
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -137,7 +137,7 @@ export default function LandingPageCampaignsPage() {
                   </td>
                   <td className="px-4 py-3 tabular-nums">{c._count?.enquiries ?? 0}</td>
                   <td className="px-4 py-3 tabular-nums">{c._count?.applications ?? 0}</td>
-                  <td className="px-4 py-3"><span className={`${STATUS_STYLES[c.status]} rounded-full px-2 py-0.5 text-xs`}>{c.status}</span></td>
+                  <td className="px-4 py-3"><Badge status={c.status} tone={STATUS_TONE[c.status]} /></td>
                 </tr>
               ))
             )}
@@ -169,19 +169,19 @@ function CreateCampaignForm({ onDone }: { onDone: () => void }) {
 
   if (created) {
     return (
-      <div className="mb-6 rounded-[var(--radius)] border border-primary/40 bg-card p-4">
+      <Card padding="compact" className="mb-6 border-primary/40">
         <p className="text-sm font-medium">"{created.name}" created.</p>
         <p className="mt-1 text-xs text-muted-foreground">Hand this unique ID to whoever builds the landing page — it goes in every webhook payload:</p>
         <code className="mt-2 block break-all rounded bg-muted px-2 py-1.5 text-xs">{created.uniqueId}</code>
-        <button onClick={onDone} className="mt-3 inline-flex items-center gap-1 rounded-[var(--radius)] border border-border px-3 py-1.5 text-xs hover:bg-accent">
+        <Button variant="secondary" size="sm" className="mt-3" onClick={onDone}>
           <ExternalLink className="h-3.5 w-3.5" /> Done
-        </button>
-      </div>
+        </Button>
+      </Card>
     );
   }
 
   return (
-    <div className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-6">
       <h3 className="mb-3 text-sm font-semibold">New campaign</h3>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <input placeholder="Campaign name (e.g. Dealer Expansion — Q1 2026 Google Ads)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
@@ -190,19 +190,19 @@ function CreateCampaignForm({ onDone }: { onDone: () => void }) {
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3">
-        <button disabled={saving || !form.name} onClick={submit} className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        <Button size="sm" disabled={saving || !form.name} onClick={submit}>
           {saving ? "Creating…" : "Create campaign"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
 function KpiCard({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-2xl font-semibold">{value}</div>
-    </div>
+    </Card>
   );
 }

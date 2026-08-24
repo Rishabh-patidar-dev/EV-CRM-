@@ -153,13 +153,18 @@ export class IngestController {
       console.log("📇 Existing open application reused:", existing.publicId);
       // Don't drop documents just because this is a repeat submission —
       // attach anything newly uploaded to the checklist rows it already has.
-      const uploaded: { docKey: string; url?: string; path?: string }[] = Array.isArray(body.uploadedDocuments)
+      const uploaded: { docKey: string; url?: string; path?: string; ocrExtractedText?: string; ocrStatus?: string }[] = Array.isArray(body.uploadedDocuments)
         ? body.uploadedDocuments
         : [];
       for (const d of uploaded) {
         await prisma.dealerApplicationDocument.updateMany({
           where: { applicationId: existing.id, stage: existing.stage, docKey: d.docKey },
-          data: { status: "UPLOADED", fileUrl: d.url || d.path || null },
+          data: {
+            status: "UPLOADED",
+            fileUrl: d.url || d.path || null,
+            ocrExtractedText: d.ocrExtractedText ?? null,
+            ocrStatus: (d.ocrStatus as "DONE" | "FAILED" | "SKIPPED" | undefined) ?? null,
+          },
         });
       }
       return {
@@ -224,7 +229,7 @@ export class IngestController {
       // fileUrl right away, instead of a blank PENDING row — this is what
       // makes an upload show up in the onboarding pipeline immediately.
       const specs = ONBOARDING_DOC_CATALOG["APPLICATION"];
-      const uploaded: { docKey: string; label?: string; path?: string; url?: string }[] = Array.isArray(body.uploadedDocuments)
+      const uploaded: { docKey: string; label?: string; path?: string; url?: string; ocrExtractedText?: string; ocrStatus?: string }[] = Array.isArray(body.uploadedDocuments)
         ? body.uploadedDocuments
         : [];
       const uploadedByKey = new Map(uploaded.map((d) => [d.docKey, d]));
@@ -238,7 +243,14 @@ export class IngestController {
               docKey: s.docKey,
               label: s.label,
               required: s.required ?? true,
-              ...(match ? { status: "UPLOADED" as const, fileUrl: match.url || match.path || null } : {}),
+              ...(match
+                ? {
+                    status: "UPLOADED" as const,
+                    fileUrl: match.url || match.path || null,
+                    ocrExtractedText: match.ocrExtractedText ?? null,
+                    ocrStatus: (match.ocrStatus as "DONE" | "FAILED" | "SKIPPED" | undefined) ?? null,
+                  }
+                : {}),
             };
           }),
         });

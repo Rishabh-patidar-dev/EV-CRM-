@@ -10,6 +10,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Plus, Send, Calendar } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 export type CampaignChannel = "EMAIL" | "WHATSAPP";
 
@@ -32,10 +35,10 @@ interface Campaign {
   audienceCount: number | null;
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  DRAFT: "bg-secondary text-secondary-foreground",
-  SCHEDULED: "badge-pending",
-  SENT: "badge-approved",
+const STATUS_TONE: Record<string, BadgeTone> = {
+  DRAFT: "neutral",
+  SCHEDULED: "pending",
+  SENT: "approved",
 };
 
 export default function CampaignListView({ channel, title, subtitle }: { channel: CampaignChannel; title: string; subtitle: string }) {
@@ -72,12 +75,9 @@ export default function CampaignListView({ channel, title, subtitle }: { channel
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
         </div>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius)] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
+        <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="h-4 w-4" /> New campaign
-        </button>
+        </Button>
       </header>
 
       {showForm && <NewCampaignForm channel={channel} segments={segments} onDone={() => { setShowForm(false); load(); }} />}
@@ -106,19 +106,19 @@ export default function CampaignListView({ channel, title, subtitle }: { channel
                     {c.subject && <div className="text-xs text-muted-foreground">{c.subject}</div>}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{c.segment?.name ?? "—"}</td>
-                  <td className="px-4 py-3"><span className={`${STATUS_STYLES[c.status]} rounded-full px-2 py-0.5 text-xs`}>{c.status}</span></td>
+                  <td className="px-4 py-3"><Badge status={c.status} tone={STATUS_TONE[c.status]} /></td>
                   <td className="px-4 py-3 tabular-nums">{c.audienceCount ?? (c.segment ? segments.find((s) => s.id === c.segment!.id)?.memberCount ?? "—" : "—")}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-1.5">
                       {c.status === "DRAFT" && (
-                        <button onClick={() => setStatus(c.id, "SCHEDULED")} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => setStatus(c.id, "SCHEDULED")}>
                           <Calendar className="h-3 w-3" /> Schedule
-                        </button>
+                        </Button>
                       )}
                       {c.status !== "SENT" && (
-                        <button onClick={() => setStatus(c.id, "SENT")} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-accent">
+                        <Button size="sm" variant="secondary" onClick={() => setStatus(c.id, "SENT")}>
                           <Send className="h-3 w-3" /> Send now
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </td>
@@ -151,7 +151,7 @@ function NewCampaignForm({ channel, segments, onDone }: { channel: CampaignChann
   };
 
   return (
-    <div className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+    <Card padding="compact" className="mb-6">
       <h3 className="mb-3 text-sm font-semibold">New {channel === "EMAIL" ? "email" : "WhatsApp"} campaign</h3>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <input placeholder="Campaign name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
@@ -166,14 +166,10 @@ function NewCampaignForm({ channel, segments, onDone }: { channel: CampaignChann
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3">
-        <button
-          disabled={saving || !form.name || !form.message}
-          onClick={submit}
-          className="rounded-[var(--radius)] bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        >
+        <Button size="sm" disabled={saving || !form.name || !form.message} onClick={submit}>
           {saving ? "Saving…" : "Create campaign"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }

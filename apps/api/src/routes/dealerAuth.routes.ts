@@ -1,20 +1,11 @@
 import { Router } from "express";
 import multer from "multer";
-import path from "path";
-import fs from "fs";
-import { fileURLToPath } from "url";
 import { DealerAuthController } from "../controllers/dealerAuth.controller.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadsDir = path.join(__dirname, "..", "..", "uploads", "dealer-applications");
-fs.mkdirSync(uploadsDir, { recursive: true });
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (_req, file, cb) => cb(null, `${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`),
-  }),
-  limits: { fileSize: 10 * 1024 * 1024 },
-});
+// memoryStorage — same pattern as the purchase-invoice upload route.
+// uploadDocument() hands the buffer to fileStorage.service.ts, which
+// itself branches on Supabase Storage vs. local-disk fallback.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = Router();
 const c = new DealerAuthController();
