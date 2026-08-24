@@ -113,11 +113,9 @@ export default function ClaimDetailPage() {
         </div>
       </Card>
 
-      {/* Body: adjudication + actions (wide) + timeline (narrow). items-start
-          keeps each column sized to its own content instead of stretching
-          the narrow timeline to match a taller main column. */}
-      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_380px]">
-        <div className="space-y-5">
+      {/* Adjudication/actions, then Timeline below — always stacked, never a
+          side-by-side split. */}
+      <div className="space-y-5">
           {claim.adjudicationNotes && (
             <Card>
               <div className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -164,21 +162,20 @@ export default function ClaimDetailPage() {
           )}
 
           <AttachmentUpload basePath={`/api/v1/warranty-claims/${claimId}`} />
-        </div>
 
-        <aside className="card-elevated sticky top-6 p-5">
-          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Timeline</div>
-          <ol className="space-y-3">
-            {(claim.events ?? []).map((e: any) => (
-              <li key={e.id} className="text-sm">
-                <div className="font-medium">{e.fromStatus ? `${e.fromStatus} → ` : ""}{e.toStatus}</div>
-                {e.note && <div className="text-muted-foreground">{e.note}</div>}
-                <div className="text-xs text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</div>
-              </li>
-            ))}
-            {(claim.events ?? []).length === 0 && <li className="text-xs text-muted-foreground">No events logged yet.</li>}
-          </ol>
-        </aside>
+          <div className="card-elevated p-5">
+            <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Timeline</div>
+            <ol className="space-y-3">
+              {(claim.events ?? []).map((e: any) => (
+                <li key={e.id} className="text-sm">
+                  <div className="font-medium">{e.fromStatus ? `${e.fromStatus} → ` : ""}{e.toStatus}</div>
+                  {e.note && <div className="text-muted-foreground">{e.note}</div>}
+                  <div className="text-xs text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</div>
+                </li>
+              ))}
+              {(claim.events ?? []).length === 0 && <li className="text-xs text-muted-foreground">No events logged yet.</li>}
+            </ol>
+          </div>
       </div>
     </div>
   );

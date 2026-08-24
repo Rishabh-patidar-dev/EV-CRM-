@@ -79,11 +79,9 @@ export default function CampaignDetailPage() {
         </div>
       </Card>
 
-      {/* Body: webhook + GTM contract (wide) + attributed leads (narrow).
-          items-start keeps each column sized to its own content instead of
-          stretching the narrow column to match a taller main column. */}
-      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_420px]">
-        <div className="space-y-5">
+      {/* Webhook/GTM contract + attributed leads, then enquiries below —
+          always stacked, never a side-by-side split. */}
+      <div className="space-y-5">
           <Card>
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Unique ID (webhook contract)</div>
             <div className="mt-2 flex items-center gap-2">
@@ -123,20 +121,19 @@ export default function CampaignDetailPage() {
               {(data.applications ?? []).length === 0 && <li className="text-xs text-muted-foreground">No dealer applications yet.</li>}
             </ul>
           </Card>
-        </div>
 
-        <aside className="card-elevated sticky top-6 p-5">
-          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent enquiries</div>
-          <ul className="space-y-2">
-            {(data.enquiries ?? []).map((e: any) => (
-              <li key={e.id} className="flex items-center justify-between text-sm">
-                <span>{e.lead?.firstName} {e.lead?.lastName ?? ""}</span>
-                <span className="text-xs text-muted-foreground">{e.status}</span>
-              </li>
-            ))}
-            {(data.enquiries ?? []).length === 0 && <li className="text-xs text-muted-foreground">No enquiries yet.</li>}
-          </ul>
-        </aside>
+          <div className="card-elevated p-5">
+            <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent enquiries</div>
+            <ul className="space-y-2">
+              {(data.enquiries ?? []).map((e: any) => (
+                <li key={e.id} className="flex items-center justify-between text-sm">
+                  <span>{e.lead?.firstName} {e.lead?.lastName ?? ""}</span>
+                  <span className="text-xs text-muted-foreground">{e.status}</span>
+                </li>
+              ))}
+              {(data.enquiries ?? []).length === 0 && <li className="text-xs text-muted-foreground">No enquiries yet.</li>}
+            </ul>
+          </div>
       </div>
     </div>
   );

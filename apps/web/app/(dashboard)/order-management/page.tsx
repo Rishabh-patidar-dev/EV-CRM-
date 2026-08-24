@@ -11,9 +11,9 @@
 // trend, fulfillment rate, and a filterable combined order list with the
 // same inline status-advance actions.
 // ============================================================================
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus, MapPin, Bell, SearchCheck, AlertTriangle } from "lucide-react";
+import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus, MapPin, Bell, SearchCheck, AlertTriangle, LayoutGrid, List as ListIcon } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
@@ -74,7 +74,16 @@ export default function OrderManagementPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "item">("recent");
   const [createOpen, setCreateOpen] = useState(false);
-  const listRef = useRef<HTMLElement>(null);
+  // Two sub-views under one Order Management page (not separate sidebar
+  // entries) — Overview (KPIs/charts) and List (the filterable order
+  // table), so finding a specific order doesn't mean scrolling past every
+  // chart first. Reads an initial ?tab=list deep link (used by the Check
+  // Inventory page's "Back to Order List") without pulling in
+  // useSearchParams, which would need a Suspense boundary here.
+  const [tab, setTab] = useState<"overview" | "list">(() => {
+    if (typeof window === "undefined") return "overview";
+    return new URLSearchParams(window.location.search).get("tab") === "list" ? "list" : "overview";
+  });
 
   // Marks "staff has looked at the order list" — clears the green-asterisk
   // indicator next to Order Management in the sidebar (see Sidebar.tsx),
@@ -105,7 +114,8 @@ export default function OrderManagementPage() {
 
   const selectZone = (zone: string) => {
     setZoneFilter((current) => (current === zone ? "" : zone));
-    listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setTab("list");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const loadOrders = useCallback(async () => {
@@ -173,6 +183,24 @@ export default function OrderManagementPage() {
 
       <CreateOrderModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={refresh} />
 
+      {/* Sub-view switcher — not sidebar entries, just two views of this one page */}
+      <div className="mb-6 inline-flex items-center gap-1 rounded-[var(--radius)] border border-border bg-card p-1">
+        <button
+          onClick={() => setTab("overview")}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${tab === "overview" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          <LayoutGrid className="h-3.5 w-3.5" /> Order Overview
+        </button>
+        <button
+          onClick={() => setTab("list")}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${tab === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          <ListIcon className="h-3.5 w-3.5" /> Order List
+        </button>
+      </div>
+
+      {tab === "overview" && (
+      <>
       {/* KPI row */}
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <StatCard icon={<ListChecks className="h-3.5 w-3.5" />} label="Total orders" value={analytics?.totalOrders ?? "—"} />
@@ -308,9 +336,13 @@ export default function OrderManagementPage() {
           )}
         </div>
       </section>
+      </>
+      )}
 
+      {tab === "list" && (
+      <>
       {/* filters */}
-      <section ref={listRef} className="mb-4 flex flex-wrap items-center gap-2">
+      <section className="mb-4 flex flex-wrap items-center gap-2">
         <select value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)} className="rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm">
           <option value="">All zones</option>
           {zones.map((z) => <option key={z} value={z}>{z}</option>)}
@@ -394,6 +426,8 @@ export default function OrderManagementPage() {
           </tbody>
         </table>
       </div>
+      </>
+      )}
     </div>
   );
 }

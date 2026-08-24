@@ -12,7 +12,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
-  ArrowLeft, Building2, FileCheck2, Loader2, ChevronRight, Mail, Phone, MapPin, Landmark, Eye, PauseCircle, XCircle, ScanText,
+  ArrowLeft, Building2, FileCheck2, Loader2, ChevronRight, Mail, Phone, MapPin, Landmark, Eye, PauseCircle, XCircle, ScanText, CheckCircle2,
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
@@ -120,6 +120,27 @@ export default function ApplicationDetailPage() {
     setDocReason("");
   };
 
+  // Bulk shortcut for the current stage: approve every uploaded document at
+  // once and move straight to the next stage, instead of clicking Approve
+  // on each document then Advance separately. Only ever called when every
+  // document is already uploaded (button is disabled otherwise).
+  const approveStage = async (docs: any[]) => {
+    setBusy(true);
+    try {
+      await Promise.all(
+        docs.filter((d: any) => d.status !== "VERIFIED").map((d: any) =>
+          apiClient.patch(`/api/v1/onboarding/documents/${d.id}`, { status: "VERIFIED" })
+        )
+      );
+      await apiClient.post(`/api/v1/onboarding/applications/${id}/advance`, {});
+      await load();
+    } catch (e: any) {
+      alert(e?.response?.data?.message ?? "Could not approve this stage.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading || !data) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center text-sm text-muted-foreground">
@@ -207,12 +228,11 @@ export default function ApplicationDetailPage() {
         </div>
       </Card>
 
-      {/* Body: documents (wide) + timeline (narrow). items-start keeps each
-          column sized to its own content instead of Grid's default stretch
-          behavior, which was blowing the near-empty Timeline card up to
-          match the much taller document grid next to it. */}
-      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_360px]">
-        <div className="space-y-5">
+      {/* Documents, then Timeline below — always stacked, never a side-by-side
+          split (a split layout here made the sparse Timeline card look
+          broken next to the much taller document grid, and reads worse on
+          anything narrower than a very wide monitor). */}
+      <div className="space-y-5">
           {docsByStage.map(({ stage, docs }) => (
             <Card key={stage} className={stage === data.stage ? "border-primary" : ""}>
               <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
@@ -272,6 +292,23 @@ export default function ApplicationDetailPage() {
                   </div>
                 ))}
               </div>
+              {stage === data.stage && (
+                <div className="mt-4 border-t border-border pt-4">
+                  <Button
+                    className="w-full"
+                    disabled={busy || docs.some((d: any) => d.status === "PENDING") || data.status === "APPROVED" || data.status === "REJECTED"}
+                    onClick={() => approveStage(docs)}
+                  >
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    Approve stage &amp; advance
+                  </Button>
+                  {docs.some((d: any) => d.status === "PENDING") && (
+                    <p className="mt-1.5 text-center text-xs text-muted-foreground">
+                      Waiting on {docs.filter((d: any) => d.status === "PENDING").length} document{docs.filter((d: any) => d.status === "PENDING").length === 1 ? "" : "s"} to be uploaded.
+                    </p>
+                  )}
+                </div>
+              )}
             </Card>
           ))}
           {docsByStage.length === 0 && (
@@ -279,27 +316,26 @@ export default function ApplicationDetailPage() {
               No documents seeded for this application yet.
             </div>
           )}
-        </div>
 
-        <aside className="card-elevated sticky top-6 p-5">
-          <h3 className="mb-3 text-sm font-semibold">Timeline</h3>
-          <ol className="space-y-3">
-            {(data.stageHistory ?? []).map((e: any) => (
-              <li key={e.id} className="flex gap-3 text-sm">
-                <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
-                <div>
-                  <div className="font-medium">
-                    {e.fromStage ? `${STAGE_META[e.fromStage]?.short ?? e.fromStage} → ` : ""}
-                    {STAGE_META[e.toStage]?.short ?? e.toStage}
+          <div className="card-elevated p-5">
+            <h3 className="mb-3 text-sm font-semibold">Timeline</h3>
+            <ol className="space-y-3">
+              {(data.stageHistory ?? []).map((e: any) => (
+                <li key={e.id} className="flex gap-3 text-sm">
+                  <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                  <div>
+                    <div className="font-medium">
+                      {e.fromStage ? `${STAGE_META[e.fromStage]?.short ?? e.fromStage} → ` : ""}
+                      {STAGE_META[e.toStage]?.short ?? e.toStage}
+                    </div>
+                    {e.note && <div className="text-muted-foreground">{e.note}</div>}
+                    <div className="text-xs text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</div>
                   </div>
-                  {e.note && <div className="text-muted-foreground">{e.note}</div>}
-                  <div className="text-xs text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</div>
-                </div>
-              </li>
-            ))}
-            {(data.stageHistory ?? []).length === 0 && <li className="text-xs text-muted-foreground">No stage transitions yet.</li>}
-          </ol>
-        </aside>
+                </li>
+              ))}
+              {(data.stageHistory ?? []).length === 0 && <li className="text-xs text-muted-foreground">No stage transitions yet.</li>}
+            </ol>
+          </div>
       </div>
     </div>
   );

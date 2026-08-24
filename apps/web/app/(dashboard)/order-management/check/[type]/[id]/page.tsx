@@ -100,8 +100,8 @@ export default function CheckInventoryPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-6">
-      <Link href="/order-management" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Back to Order Management
+      <Link href="/order-management?tab=list" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> Back to Order List
       </Link>
 
       <header className="mb-6 mt-4">
@@ -165,21 +165,38 @@ export default function CheckInventoryPage() {
             <AlertTriangle className="h-5 w-5 shrink-0" style={{ color: "var(--zira-rejected)" }} />
           )}
           <div className="flex-1 text-sm">
-            {decided.sufficient ? "Order confirmed — the dealer will see it as Approved." : "Moved to Close Orders — send an out-of-stock notice from there."}
+            {decided.sufficient ? "Order approved — the dealer will see it as Approved." : "Moved to Close Orders — send an out-of-stock notice from there."}
           </div>
           <Link
-            href={decided.sufficient ? "/order-management" : "/order-management/Close"}
+            href={decided.sufficient ? "/order-management?tab=list" : "/order-management/Close"}
             className="shrink-0 rounded-[var(--radius)] border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent"
           >
-            {decided.sufficient ? "Back to Order Management" : "Go to Close Orders"}
+            {decided.sufficient ? "Back to Order List" : "Go to Close Orders"}
           </Link>
         </Card>
       ) : alreadyDecided ? (
-        <p className="text-sm text-muted-foreground">This order is already <span className="font-medium text-foreground">{order.status}</span> — no further action needed here.</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">This order is already <span className="font-medium text-foreground">{order.status}</span> — no further action needed here.</p>
+          <Link href="/order-management?tab=list" className="shrink-0 rounded-[var(--radius)] border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent">
+            Back to Order List
+          </Link>
+        </div>
       ) : (
-        <Button onClick={runCheck} disabled={running} className="w-full">
-          {running ? "Checking…" : "Run inventory check"}
-        </Button>
+        // Two distinct steps, not one bundled action: the comparison above
+        // is already "the check" (it ran the moment this page loaded) —
+        // this is the separate, deliberate approve/reject decision on top
+        // of it, with a plain way back for anyone who just came here to look.
+        <div className="flex gap-3">
+          <Link
+            href="/order-management?tab=list"
+            className="inline-flex items-center justify-center gap-1.5 rounded-[var(--radius)] border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to Order List
+          </Link>
+          <Button onClick={runCheck} disabled={running} className="flex-1" variant={sufficient ? "primary" : "destructive"}>
+            {running ? "Working…" : sufficient ? "Approve order" : "Move to Close Orders"}
+          </Button>
+        </div>
       )}
     </div>
   );

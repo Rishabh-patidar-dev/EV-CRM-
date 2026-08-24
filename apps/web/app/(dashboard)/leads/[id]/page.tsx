@@ -134,11 +134,9 @@ export default function LeadDetailPage() {
         </div>
       </Card>
 
-      {/* Body: score/status/owner (left) + remarks/activity (right).
-          items-start keeps each column sized to its own content instead of
-          stretching the shorter one to match the taller. */}
-      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_420px]">
-        <div className="space-y-5">
+      {/* Score/status/owner, then remarks/activity below — always stacked,
+          never a side-by-side split. */}
+      <div className="space-y-5">
           <Card>
             <SectionTitle>Score</SectionTitle>
             <div className="mt-3 grid grid-cols-3 gap-3 max-w-md">
@@ -184,9 +182,8 @@ export default function LeadDetailPage() {
               <p className="mt-2 text-sm">{data.dealerAssignment.dealer?.legalName} <span className="text-xs text-muted-foreground">({data.dealerAssignment.status})</span></p>
             </Card>
           )}
-        </div>
 
-        <Card className="sticky top-6">
+          <Card>
           <SectionTitle>Remarks</SectionTitle>
           <div className="mt-3 flex gap-2">
             <input
