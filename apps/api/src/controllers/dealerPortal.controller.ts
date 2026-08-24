@@ -23,6 +23,7 @@ import { segmentWhere } from "./campaignManagement.controller.js";
 import { registerComponentsForSale } from "../services/componentRegistration.service.js";
 import { uploadFile, deleteFile } from "../services/fileStorage.service.js";
 import { extractText } from "../services/ocr.service.js";
+import { parseInvoiceFields } from "../services/invoiceParsing.service.js";
 
 // GST rule: e-way bills are mandatory (and here, only generatable) once a
 // consignment's taxable value exceeds this statutory threshold.
@@ -1536,10 +1537,15 @@ export class DealerPortalController {
 
       let ocrExtractedText: string | null = null;
       let ocrStatus: "DONE" | "FAILED" | "SKIPPED" = "SKIPPED";
+      let suggested: ReturnType<typeof parseInvoiceFields> = {};
       if (file.mimetype?.startsWith("image/")) {
         try {
           ocrExtractedText = await extractText(file.buffer);
           ocrStatus = "DONE";
+          // Best-effort field guesses from the raw OCR text — free/offline
+          // pattern-matching, not real understanding, so these are always
+          // suggestions the dealer reviews, never auto-submitted.
+          suggested = parseInvoiceFields(ocrExtractedText);
         } catch {
           ocrStatus = "FAILED";
         }
@@ -1552,6 +1558,7 @@ export class DealerPortalController {
         mimeType: file.mimetype,
         ocrExtractedText,
         ocrStatus,
+        suggested,
       });
     } catch (error) {
       handleError(error, res, "Preview purchase invoice OCR");
