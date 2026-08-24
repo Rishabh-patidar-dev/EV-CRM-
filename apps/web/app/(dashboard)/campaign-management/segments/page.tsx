@@ -9,7 +9,7 @@
 // go stale. Used as the audience picker on Email/WhatsApp campaigns.
 // ============================================================================
 import React, { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Users } from "lucide-react";
+import { Plus, RefreshCw, Trash2, Users } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -31,12 +31,18 @@ export default function SegmentsPage() {
   const [segments, setSegments] = useState<SegmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const { data } = await apiClient.get("/api/v1/campaign-management/segments");
       setSegments(data.segments ?? []);
+    } catch (error: any) {
+      console.error("[SegmentsPage] failed to load segments:", error);
+      setSegments([]);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load segments. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -77,6 +83,15 @@ export default function SegmentsPage() {
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading segments…</p>
+        ) : loadError ? (
+          <div className="col-span-full rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-10 text-center text-[color:var(--zira-rejected)]">
+            {loadError}
+            <div className="mt-3">
+              <Button size="sm" variant="secondary" onClick={() => load()}>
+                <RefreshCw className="h-4 w-4" /> Retry
+              </Button>
+            </div>
+          </div>
         ) : segments.length === 0 ? (
           <p className="text-sm text-muted-foreground">No segments yet — create one to target a campaign.</p>
         ) : (

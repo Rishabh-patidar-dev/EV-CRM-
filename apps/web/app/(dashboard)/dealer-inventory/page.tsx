@@ -10,7 +10,7 @@
 // ============================================================================
 import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Warehouse, Plus, Search, Truck, Loader2, MapPin, TrendingUp, PackageSearch } from "lucide-react";
+import { Warehouse, Plus, Search, Truck, Loader2, MapPin, TrendingUp, PackageSearch, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
@@ -79,6 +79,7 @@ function DealerInventoryInner() {
   const [search, setSearch] = useState("");
   const [showUnitForm, setShowUnitForm] = useState(false);
   const [showTransferForm, setShowTransferForm] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadDealers = useCallback(async () => {
     const { data } = await apiClient.get("/api/v1/dealers", { params: { limit: 100 } });
@@ -114,8 +115,12 @@ function DealerInventoryInner() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       await Promise.all([loadUnits(), loadTransfers(), loadAnalytics(), loadSpareParts()]);
+    } catch (error: any) {
+      console.error("[DealerInventoryPage] failed to load inventory data:", error);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load inventory data. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -158,6 +163,17 @@ function DealerInventoryInner() {
           </Button>
         </div>
       </header>
+
+      {loadError && (
+        <div className="mb-6 rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-4 text-center text-[color:var(--zira-rejected)]">
+          {loadError}
+          <div className="mt-3">
+            <Button size="sm" variant="secondary" onClick={() => refresh()}>
+              <RefreshCw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Gallery — how much of each vehicle is actually left at the OEM
           warehouse right now (dealerId = null, IN_STOCK), the same number

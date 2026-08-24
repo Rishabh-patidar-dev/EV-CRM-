@@ -11,7 +11,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, AlertTriangle, ChevronRight, Battery, PackageSearch, Loader2 } from "lucide-react";
+import { ArrowLeft, AlertTriangle, ChevronRight, Battery, PackageSearch, Loader2, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { AttachmentUpload } from "@/components/ui/AttachmentUpload";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
@@ -40,14 +40,22 @@ export default function ClaimDetailPage() {
 
   const [claim, setClaim] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [approvedAmount, setApprovedAmount] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
   const [recoverySupplier, setRecoverySupplier] = useState("");
   const [recoveryAmount, setRecoveryAmount] = useState("");
 
   const load = useCallback(async () => {
-    const { data } = await apiClient.get(`/api/v1/warranty-claims/${claimId}`);
-    setClaim(data);
+    setLoadError(null);
+    try {
+      const { data } = await apiClient.get(`/api/v1/warranty-claims/${claimId}`);
+      setClaim(data);
+    } catch (error: any) {
+      console.error("[ClaimDetailPage] failed to load claim:", error);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load this claim. Try refreshing.");
+    }
   }, [claimId]);
 
   useEffect(() => {
@@ -56,8 +64,14 @@ export default function ClaimDetailPage() {
   }, [load]);
 
   const setStatus = async (status: string, extra: Record<string, any> = {}) => {
-    await apiClient.post(`/api/v1/warranty-claims/${claimId}/status`, { status, ...extra });
-    await load();
+    setError(null);
+    try {
+      await apiClient.post(`/api/v1/warranty-claims/${claimId}/status`, { status, ...extra });
+      await load();
+    } catch (error: any) {
+      console.error("[ClaimDetailPage] failed to update claim status:", error);
+      setError(error?.response?.data?.message || error?.message || "Could not update the claim status. Try again.");
+    }
   };
 
   const openRecovery = async () => {
@@ -69,6 +83,21 @@ export default function ClaimDetailPage() {
     });
     await setStatus("RECOVERY");
   };
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-[1600px] p-6">
+        <div className="rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-10 text-center text-[color:var(--zira-rejected)]">
+          {loadError}
+          <div className="mt-3">
+            <Button size="sm" variant="secondary" onClick={() => load()}>
+              <RefreshCw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !claim) {
     return (
@@ -128,6 +157,9 @@ export default function ClaimDetailPage() {
 
           <Card>
             <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Actions</div>
+            {error && (
+              <p className="mb-3 text-sm text-[color:var(--zira-rejected)]">{error}</p>
+            )}
             {claim.status === "UNDER_REVIEW" && (
               <div className="max-w-md space-y-2">
                 <input placeholder="Approved amount" value={approvedAmount} onChange={(e) => setApprovedAmount(e.target.value)} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />

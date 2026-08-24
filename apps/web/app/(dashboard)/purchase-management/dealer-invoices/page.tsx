@@ -11,10 +11,11 @@
 // ============================================================================
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Receipt, IndianRupee, Scan, FileText, Loader2 } from "lucide-react";
+import { ArrowLeft, Receipt, IndianRupee, Scan, FileText, Loader2, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { StatCard } from "@/components/ui/StatCard";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 
 interface DealerInvoice {
   id: number;
@@ -48,12 +49,18 @@ export default function DealerInvoicesPage() {
   const [invoices, setInvoices] = useState<DealerInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const { data } = await apiClient.get("/api/v1/purchase-management/dealer-invoices");
       setInvoices(data.invoices ?? []);
+    } catch (error: any) {
+      console.error("[DealerInvoicesPage] failed to load dealer invoices:", error);
+      setInvoices([]);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load dealer invoices. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -100,6 +107,17 @@ export default function DealerInvoicesPage() {
           <tbody>
             {loading ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
+            ) : loadError ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-[color:var(--zira-rejected)]">
+                  {loadError}
+                  <div className="mt-3">
+                    <Button size="sm" variant="secondary" onClick={() => load()}>
+                      <RefreshCw className="h-4 w-4" /> Retry
+                    </Button>
+                  </div>
+                </td>
+              </tr>
             ) : invoices.length === 0 ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No dealer has logged a purchase invoice yet.</td></tr>
             ) : (

@@ -13,7 +13,7 @@
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus, MapPin, Bell, SearchCheck, AlertTriangle, LayoutGrid, List as ListIcon } from "lucide-react";
+import { Package, Truck, ListChecks, Loader2, Clock, TrendingUp, Plus, MapPin, Bell, SearchCheck, AlertTriangle, LayoutGrid, List as ListIcon, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
@@ -68,6 +68,7 @@ export default function OrderManagementPage() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [CloseCount, setCloseCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [zoneFilter, setZoneFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -129,8 +130,12 @@ export default function OrderManagementPage() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       await Promise.all([loadAnalytics(), loadZones(), loadOrders(), loadCloseCount()]);
+    } catch (error: any) {
+      console.error("[OrderManagementPage] failed to refresh:", error);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load order management data. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -182,6 +187,17 @@ export default function OrderManagementPage() {
       </header>
 
       <CreateOrderModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={refresh} />
+
+      {loadError && (
+        <div className="mb-6 rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-4 text-center text-[color:var(--zira-rejected)]">
+          {loadError}
+          <div className="mt-2">
+            <Button size="sm" variant="secondary" onClick={() => refresh()}>
+              <RefreshCw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Sub-view switcher — not sidebar entries, just two views of this one page */}
       <div className="mb-6 inline-flex items-center gap-1 rounded-[var(--radius)] border border-border bg-card p-1">

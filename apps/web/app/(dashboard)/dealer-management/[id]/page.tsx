@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft, Users, MapPin, Wallet, Wrench, Target as TargetIcon,
-  TrendingUp, Package, Building2, Warehouse, ShieldCheck, ClipboardList, Truck, Mail, Phone,
+  TrendingUp, Package, Building2, Warehouse, ShieldCheck, ClipboardList, Truck, Mail, Phone, RefreshCw,
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
@@ -30,30 +30,70 @@ export default function DealerDetailPage() {
 
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const res = await apiClient.get(`/api/v1/dealers/${dealerId}`);
     setData(res.data);
   }, [dealerId]);
 
-  useEffect(() => {
+  const loadDealer = useCallback(() => {
     let active = true;
     setLoading(true);
+    setLoadError(null);
     apiClient.get(`/api/v1/dealers/${dealerId}`)
       .then((res) => { if (active) setData(res.data); })
+      .catch((error: any) => {
+        console.error("[DealerDetailPage] failed to load dealer:", error);
+        if (active) {
+          setLoadError(error?.response?.data?.message || error?.message || "Could not load this dealer. Try refreshing.");
+        }
+      })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [dealerId]);
 
+  useEffect(() => {
+    return loadDealer();
+  }, [loadDealer]);
+
   const advanceStockTransfer = async (id: number, status: string) => {
-    await apiClient.patch(`/api/v1/stock-transfers/${id}`, { status });
-    await reload();
+    setOrdersError(null);
+    try {
+      await apiClient.patch(`/api/v1/stock-transfers/${id}`, { status });
+      await reload();
+    } catch (error: any) {
+      console.error("[DealerDetailPage] failed to advance stock transfer:", error);
+      setOrdersError(error?.response?.data?.message || error?.message || "Could not update this stock order. Try again.");
+    }
   };
 
   const advanceSparePart = async (id: number, status: string) => {
-    await apiClient.patch(`/api/v1/spare-parts/${id}`, { status });
-    await reload();
+    setOrdersError(null);
+    try {
+      await apiClient.patch(`/api/v1/spare-parts/${id}`, { status });
+      await reload();
+    } catch (error: any) {
+      console.error("[DealerDetailPage] failed to advance spare part order:", error);
+      setOrdersError(error?.response?.data?.message || error?.message || "Could not update this spare part order. Try again.");
+    }
   };
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-[1600px] p-6">
+        <div className="rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-10 text-center text-[color:var(--zira-rejected)]">
+          {loadError}
+          <div className="mt-3">
+            <Button size="sm" variant="secondary" onClick={loadDealer}>
+              <RefreshCw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !data) {
     return <div className="p-6 text-sm text-muted-foreground">Loading dealer…</div>;
@@ -132,6 +172,9 @@ export default function DealerDetailPage() {
           orders (or vice versa), so these two lists are often very different
           lengths — without it, Grid's default stretch blows the shorter list's
           card up to match the taller one. */}
+      {ordersError && (
+        <p className="mb-3 text-sm text-[color:var(--zira-rejected)]">{ordersError}</p>
+      )}
       <section className="mb-5 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <Card>
           <SectionTitle icon={<Truck className="w-3.5 h-3.5" />}>Vehicle stock orders</SectionTitle>

@@ -9,12 +9,13 @@
 // attributed enquiries/applications can sit side by side instead of stacked
 // in a narrow column.
 // ============================================================================
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Megaphone, Copy, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, Megaphone, Copy, Check, Loader2, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 
 type CampaignStatus = "ACTIVE" | "PAUSED" | "SCHEDULED" | "CLOSED" | "ARCHIVED";
@@ -33,16 +34,28 @@ export default function CampaignDetailPage() {
 
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
+  const loadCampaign = useCallback(() => {
     let active = true;
     setLoading(true);
+    setLoadError(null);
     apiClient.get(`/api/v1/landing-page-campaigns/${id}`)
       .then((res) => { if (active) setData(res.data); })
+      .catch((error: any) => {
+        console.error("[CampaignDetailPage] failed to load campaign:", error);
+        if (active) {
+          setLoadError(error?.response?.data?.message || error?.message || "Could not load this campaign. Try refreshing.");
+        }
+      })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [id]);
+
+  useEffect(() => {
+    return loadCampaign();
+  }, [loadCampaign]);
 
   const copyId = () => {
     if (!data) return;
@@ -50,6 +63,21 @@ export default function CampaignDetailPage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-[1600px] p-6">
+        <div className="rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-10 text-center text-[color:var(--zira-rejected)]">
+          {loadError}
+          <div className="mt-3">
+            <Button size="sm" variant="secondary" onClick={loadCampaign}>
+              <RefreshCw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !data) {
     return (

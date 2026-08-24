@@ -11,7 +11,7 @@
 // sales record Vehicle Inventory already keeps.
 // ============================================================================
 import React, { useCallback, useEffect, useState } from "react";
-import { ShoppingCart, PackageCheck, TrendingDown, Wallet, Plus, Loader2, Star, Ban, CheckCircle2, Truck, IndianRupee } from "lucide-react";
+import { ShoppingCart, PackageCheck, TrendingDown, Wallet, Plus, Loader2, Star, Ban, CheckCircle2, Truck, IndianRupee, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import ChartCard from "@/components/charts/ChartCard";
@@ -98,6 +98,7 @@ export default function PurchaseManagementPage() {
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showVendorForm, setShowVendorForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
@@ -123,8 +124,12 @@ export default function PurchaseManagementPage() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       await Promise.all([loadAnalytics(), loadOrders(), loadVendors()]);
+    } catch (error: any) {
+      console.error("[PurchaseManagementPage] failed to refresh:", error);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load purchase management data. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -167,6 +172,17 @@ export default function PurchaseManagementPage() {
           </Button>
         </div>
       </header>
+
+      {loadError && (
+        <div className="mb-6 rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-4 text-center text-[color:var(--zira-rejected)]">
+          {loadError}
+          <div className="mt-2">
+            <Button size="sm" variant="secondary" onClick={() => refresh()}>
+              <RefreshCw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* KPI row */}
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">

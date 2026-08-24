@@ -206,15 +206,21 @@ function ClaimsTab({ dealers, onChanged, initialDealerId }: { dealers: Dealer[];
   const [statusFilter, setStatusFilter] = useState("");
   const [dealerFilter, setDealerFilter] = useState(initialDealerId ?? "");
   const [showForm, setShowForm] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const params: Record<string, string> = { limit: "50" };
       if (statusFilter) params.status = statusFilter;
       if (dealerFilter) params.dealerId = dealerFilter;
       const { data } = await apiClient.get("/api/v1/warranty-claims", { params });
       setClaims(data.claims ?? []);
+    } catch (error: any) {
+      console.error("[ClaimsTab] failed to load claims:", error);
+      setClaims([]);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load warranty claims. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -254,6 +260,15 @@ function ClaimsTab({ dealers, onChanged, initialDealerId }: { dealers: Dealer[];
           <tbody>
             {loading ? (
               <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
+            ) : loadError ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center text-[color:var(--zira-rejected)]">
+                  {loadError}
+                  <div className="mt-3">
+                    <Button size="sm" variant="secondary" onClick={() => load()}>Retry</Button>
+                  </div>
+                </td>
+              </tr>
             ) : claims.length === 0 ? (
               <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No warranty claims match these filters.</td></tr>
             ) : (
@@ -507,12 +522,18 @@ function recoveryStatusTone(status: string): BadgeTone {
 function RecoveryTab() {
   const [recoveries, setRecoveries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const { data } = await apiClient.get("/api/v1/supplier-recoveries");
       setRecoveries(data.recoveries ?? []);
+    } catch (error: any) {
+      console.error("[RecoveryTab] failed to load supplier recoveries:", error);
+      setRecoveries([]);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load supplier recoveries. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -541,6 +562,15 @@ function RecoveryTab() {
         <tbody>
           {loading ? (
             <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
+          ) : loadError ? (
+            <tr>
+              <td colSpan={7} className="px-4 py-10 text-center text-[color:var(--zira-rejected)]">
+                {loadError}
+                <div className="mt-3">
+                  <Button size="sm" variant="secondary" onClick={() => load()}>Retry</Button>
+                </div>
+              </td>
+            </tr>
           ) : recoveries.length === 0 ? (
             <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No supplier recovery cases yet — these open automatically from a reimbursed claim.</td></tr>
           ) : (

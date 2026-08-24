@@ -12,7 +12,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
-  ArrowLeft, Building2, FileCheck2, Loader2, ChevronRight, Mail, Phone, MapPin, Landmark, Eye, PauseCircle, XCircle, ScanText, CheckCircle2,
+  ArrowLeft, Building2, FileCheck2, Loader2, ChevronRight, Mail, Phone, MapPin, Landmark, Eye, PauseCircle, XCircle, ScanText, CheckCircle2, RefreshCw,
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
@@ -65,17 +65,23 @@ export default function ApplicationDetailPage() {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [appAction, setAppAction] = useState<"hold" | "reject" | null>(null);
   const [appReason, setAppReason] = useState("");
+  const [appActionError, setAppActionError] = useState<string | null>(null);
   const [docRejectId, setDocRejectId] = useState<number | null>(null);
   const [docReason, setDocReason] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await apiClient.get(`/api/v1/onboarding/applications/${id}`);
       setData(res.data);
+    } catch (error: any) {
+      console.error("[ApplicationDetailPage] failed to load application:", error);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load this application. Try again.");
     } finally {
       setLoading(false);
     }
@@ -103,11 +109,15 @@ export default function ApplicationDetailPage() {
   const submitAppAction = async () => {
     if (!appAction || !appReason.trim()) return;
     setBusy(true);
+    setAppActionError(null);
     try {
       await apiClient.post(`/api/v1/onboarding/applications/${id}/${appAction}`, { note: appReason.trim() });
       setAppAction(null);
       setAppReason("");
       await load();
+    } catch (error: any) {
+      console.error("[ApplicationDetailPage] failed to submit application action:", error);
+      setAppActionError(error?.response?.data?.message || error?.message || "Could not submit — try again.");
     } finally {
       setBusy(false);
     }
@@ -140,6 +150,17 @@ export default function ApplicationDetailPage() {
       setBusy(false);
     }
   };
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
+        <p className="text-sm text-[color:var(--zira-rejected)]">{loadError}</p>
+        <Button size="sm" variant="secondary" onClick={() => load()}>
+          <RefreshCw className="h-4 w-4" /> Retry
+        </Button>
+      </div>
+    );
+  }
 
   if (loading || !data) {
     return (
@@ -193,14 +214,14 @@ export default function ApplicationDetailPage() {
             <Button
               variant="secondary"
               disabled={busy || data.status === "APPROVED" || data.status === "REJECTED" || data.status === "WITHDRAWN"}
-              onClick={() => setAppAction(appAction === "hold" ? null : "hold")}
+              onClick={() => { setAppAction(appAction === "hold" ? null : "hold"); setAppActionError(null); }}
             >
               <PauseCircle className="h-4 w-4" /> Put on hold
             </Button>
             <Button
               variant="destructive"
               disabled={busy || data.status === "APPROVED" || data.status === "REJECTED" || data.status === "WITHDRAWN"}
-              onClick={() => setAppAction(appAction === "reject" ? null : "reject")}
+              onClick={() => { setAppAction(appAction === "reject" ? null : "reject"); setAppActionError(null); }}
             >
               <XCircle className="h-4 w-4" /> Reject application
             </Button>
@@ -219,8 +240,11 @@ export default function ApplicationDetailPage() {
                 rows={2}
                 className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
               />
+              {appActionError && (
+                <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{appActionError}</p>
+              )}
               <div className="mt-2 flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={() => { setAppAction(null); setAppReason(""); }}>Cancel</Button>
+                <Button variant="ghost" size="sm" onClick={() => { setAppAction(null); setAppReason(""); setAppActionError(null); }}>Cancel</Button>
                 <Button size="sm" disabled={busy || !appReason.trim()} onClick={submitAppAction}>Confirm</Button>
               </div>
             </div>

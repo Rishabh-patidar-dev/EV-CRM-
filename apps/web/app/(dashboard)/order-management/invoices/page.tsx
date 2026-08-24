@@ -15,7 +15,7 @@
 // ============================================================================
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, FileText, Printer, CheckCircle2, AlertTriangle, PackageMinus, XCircle, MessageSquare, Plus } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Printer, CheckCircle2, AlertTriangle, PackageMinus, XCircle, MessageSquare, Plus, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import Modal from "@/components/ui/Modal";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
@@ -97,14 +97,23 @@ export default function InvoicesPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params: Record<string, string> = {};
-    if (typeFilter) params.type = typeFilter;
-    const { data } = await apiClient.get("/api/v1/order-management/invoices", { params });
-    setInvoices(data.invoices ?? []);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      const params: Record<string, string> = {};
+      if (typeFilter) params.type = typeFilter;
+      const { data } = await apiClient.get("/api/v1/order-management/invoices", { params });
+      setInvoices(data.invoices ?? []);
+    } catch (error: any) {
+      console.error("[InvoicesPage] failed to load invoices:", error);
+      setInvoices([]);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load invoices. Try refreshing.");
+    } finally {
+      setLoading(false);
+    }
   }, [typeFilter]);
 
   useEffect(() => { load(); }, [load]);
@@ -154,6 +163,17 @@ export default function InvoicesPage() {
           <tbody>
             {loading ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
+            ) : loadError ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-[color:var(--zira-rejected)]">
+                  {loadError}
+                  <div className="mt-3">
+                    <Button size="sm" variant="secondary" onClick={() => load()}>
+                      <RefreshCw className="h-4 w-4" /> Retry
+                    </Button>
+                  </div>
+                </td>
+              </tr>
             ) : invoices.length === 0 ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No invoices issued yet.</td></tr>
             ) : (

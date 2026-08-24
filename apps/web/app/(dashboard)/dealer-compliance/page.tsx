@@ -56,6 +56,7 @@ function DealerComplianceInner() {
   const [dealerFilter, setDealerFilter] = useState(dealerIdParam);
   const [statusFilter, setStatusFilter] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadDealers = useCallback(async () => {
     const { data } = await apiClient.get("/api/v1/dealers", { params: { limit: 100 } });
@@ -64,6 +65,7 @@ function DealerComplianceInner() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const params: Record<string, string> = {};
       if (dealerFilter) params.dealerId = dealerFilter;
@@ -74,6 +76,10 @@ function DealerComplianceInner() {
       ]);
       setRecords(recRes.data.records ?? []);
       setSummary(summaryRes.data.byStatus ?? {});
+    } catch (error: any) {
+      console.error("[DealerCompliancePage] failed to load compliance records:", error);
+      setRecords([]);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load compliance records. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -147,6 +153,15 @@ function DealerComplianceInner() {
           <tbody>
             {loading ? (
               <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
+            ) : loadError ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-[color:var(--zira-rejected)]">
+                  {loadError}
+                  <div className="mt-3">
+                    <Button size="sm" variant="secondary" onClick={() => refresh()}>Retry</Button>
+                  </div>
+                </td>
+              </tr>
             ) : records.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">No compliance records match these filters.</td></tr>
             ) : (

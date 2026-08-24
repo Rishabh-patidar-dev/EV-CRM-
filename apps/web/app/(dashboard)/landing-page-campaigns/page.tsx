@@ -53,9 +53,11 @@ export default function LandingPageCampaignsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [listRes, statsRes] = await Promise.all([
         apiClient.get("/api/v1/landing-page-campaigns", { params: { limit: 50 } }),
@@ -63,6 +65,10 @@ export default function LandingPageCampaignsPage() {
       ]);
       setCampaigns(listRes.data.campaigns ?? []);
       setStats(statsRes.data ?? null);
+    } catch (error: any) {
+      console.error("[LandingPageCampaignsPage] failed to load campaigns:", error);
+      setCampaigns([]);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load campaigns. Try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -114,6 +120,15 @@ export default function LandingPageCampaignsPage() {
           <tbody>
             {loading ? (
               <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">Loading campaigns…</td></tr>
+            ) : loadError ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center text-[color:var(--zira-rejected)]">
+                  {loadError}
+                  <div className="mt-3">
+                    <Button size="sm" variant="secondary" onClick={() => load()}>Retry</Button>
+                  </div>
+                </td>
+              </tr>
             ) : campaigns.length === 0 ? (
               <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No campaigns yet — create one and hand its unique ID to whoever builds the landing page.</td></tr>
             ) : (

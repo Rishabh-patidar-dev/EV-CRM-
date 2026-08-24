@@ -98,6 +98,9 @@ export default function CloseOrdersPage() {
         setRecheckMsg((m) => ({ ...m, [d.id]: `Still short — ${data.availableQuantity}/${data.requestedQuantity} available.` }));
         await load();
       }
+    } catch (error: any) {
+      console.error("[CloseOrdersPage] failed to recheck stock:", error);
+      setRecheckMsg((m) => ({ ...m, [d.id]: error?.response?.data?.message || error?.message || "Could not recheck stock — try again." }));
     } finally {
       setResolvingId(null);
     }

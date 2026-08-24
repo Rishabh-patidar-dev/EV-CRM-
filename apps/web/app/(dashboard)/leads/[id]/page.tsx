@@ -11,7 +11,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Users, Building2, MessageSquarePlus, Mail, Phone } from "lucide-react";
+import { ArrowLeft, Users, Building2, MessageSquarePlus, Mail, Phone, RefreshCw } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -43,6 +43,8 @@ export default function LeadDetailPage() {
   const [data, setData] = useState<any | null>(null);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [remarkText, setRemarkText] = useState("");
   const [converting, setConverting] = useState(false);
 
@@ -51,17 +53,34 @@ export default function LeadDetailPage() {
     setData(res.data);
   }, [leadId]);
 
-  useEffect(() => {
+  const loadAll = useCallback(() => {
     setLoading(true);
-    Promise.all([
-      apiClient.get(`/api/v1/leads/${leadId}`).then((r) => setData(r.data)),
+    setLoadError(null);
+    return Promise.all([
+      apiClient
+        .get(`/api/v1/leads/${leadId}`)
+        .then((r) => setData(r.data))
+        .catch((error: any) => {
+          console.error("[LeadDetailPage] failed to load lead:", error);
+          setLoadError(error?.response?.data?.message || error?.message || "Could not load this lead. Try refreshing.");
+        }),
       apiClient.get("/api/v1/users").then((r) => setUsers(r.data.users ?? [])).catch(() => {}),
     ]).finally(() => setLoading(false));
   }, [leadId]);
 
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
+
   const setStatus = async (status: LeadStatus) => {
-    await apiClient.patch(`/api/v1/leads/${leadId}`, { status });
-    await load();
+    setError(null);
+    try {
+      await apiClient.patch(`/api/v1/leads/${leadId}`, { status });
+      await load();
+    } catch (error: any) {
+      console.error("[LeadDetailPage] failed to update lead status:", error);
+      setError(error?.response?.data?.message || error?.message || "Could not update the lead status. Try again.");
+    }
   };
 
   const assign = async (ownerId: string) => {
@@ -87,6 +106,21 @@ export default function LeadDetailPage() {
       setConverting(false);
     }
   };
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-[1600px] p-6">
+        <div className="rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-10 text-center text-[color:var(--zira-rejected)]">
+          {loadError}
+          <div className="mt-3">
+            <Button size="sm" variant="secondary" onClick={loadAll}>
+              <RefreshCw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !data) {
     return <div className="p-6 text-sm text-muted-foreground">Loading lead…</div>;
@@ -151,6 +185,9 @@ export default function LeadDetailPage() {
 
           <Card>
             <SectionTitle>Status</SectionTitle>
+            {error && (
+              <p className="mt-2 text-sm text-[color:var(--zira-rejected)]">{error}</p>
+            )}
             <div className="mt-3 flex flex-wrap gap-1.5">
               {STATUS_OPTIONS.map((s) => (
                 <button
