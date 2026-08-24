@@ -207,8 +207,11 @@ export default function ApplicationDetailPage() {
         </div>
       </Card>
 
-      {/* Body: documents (wide) + timeline (narrow), both fully expanded */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_360px]">
+      {/* Body: documents (wide) + timeline (narrow). items-start keeps each
+          column sized to its own content instead of Grid's default stretch
+          behavior, which was blowing the near-empty Timeline card up to
+          match the much taller document grid next to it. */}
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-5">
           {docsByStage.map(({ stage, docs }) => (
             <Card key={stage} className={stage === data.stage ? "border-primary" : ""}>
@@ -216,7 +219,7 @@ export default function ApplicationDetailPage() {
                 <FileCheck2 className="h-4 w-4" /> Stage {STAGE_META[stage]?.n} · {STAGE_META[stage]?.short}
                 {stage === data.stage && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">Current</span>}
               </h3>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {docs.map((d: any) => (
                   <div key={d.id} className="rounded-md border border-border p-3">
                     <div className="space-y-1.5">
@@ -278,7 +281,7 @@ export default function ApplicationDetailPage() {
           )}
         </div>
 
-        <aside className="card-elevated p-5">
+        <aside className="card-elevated sticky top-6 p-5">
           <h3 className="mb-3 text-sm font-semibold">Timeline</h3>
           <ol className="space-y-3">
             {(data.stageHistory ?? []).map((e: any) => (

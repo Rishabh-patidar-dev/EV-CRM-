@@ -79,8 +79,10 @@ export default function CampaignDetailPage() {
         </div>
       </Card>
 
-      {/* Body: webhook + GTM contract (wide) + attributed leads (narrow), both fully expanded */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_420px]">
+      {/* Body: webhook + GTM contract (wide) + attributed leads (narrow).
+          items-start keeps each column sized to its own content instead of
+          stretching the narrow column to match a taller main column. */}
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_420px]">
         <div className="space-y-5">
           <Card>
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Unique ID (webhook contract)</div>
@@ -123,7 +125,7 @@ export default function CampaignDetailPage() {
           </Card>
         </div>
 
-        <aside className="card-elevated p-5">
+        <aside className="card-elevated sticky top-6 p-5">
           <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent enquiries</div>
           <ul className="space-y-2">
             {(data.enquiries ?? []).map((e: any) => (

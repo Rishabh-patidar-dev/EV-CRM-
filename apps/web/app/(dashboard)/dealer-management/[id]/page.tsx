@@ -127,8 +127,12 @@ export default function DealerDetailPage() {
         </div>
       </section>
 
-      {/* OEM <-> Dealer orders — full lists with inline actions, side by side */}
-      <section className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* OEM <-> Dealer orders — full lists with inline actions, side by side.
+          items-start: a dealer can easily have vehicle orders and zero spare-part
+          orders (or vice versa), so these two lists are often very different
+          lengths — without it, Grid's default stretch blows the shorter list's
+          card up to match the taller one. */}
+      <section className="mb-5 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <Card>
           <SectionTitle icon={<Truck className="w-3.5 h-3.5" />}>Vehicle stock orders</SectionTitle>
           <ul className="mt-3 space-y-2">

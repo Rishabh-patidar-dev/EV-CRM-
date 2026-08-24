@@ -134,8 +134,10 @@ export default function LeadDetailPage() {
         </div>
       </Card>
 
-      {/* Body: score/status/owner (left) + remarks/activity (right), both fully expanded */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_420px]">
+      {/* Body: score/status/owner (left) + remarks/activity (right).
+          items-start keeps each column sized to its own content instead of
+          stretching the shorter one to match the taller. */}
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_420px]">
         <div className="space-y-5">
           <Card>
             <SectionTitle>Score</SectionTitle>
@@ -184,7 +186,7 @@ export default function LeadDetailPage() {
           )}
         </div>
 
-        <Card>
+        <Card className="sticky top-6">
           <SectionTitle>Remarks</SectionTitle>
           <div className="mt-3 flex gap-2">
             <input

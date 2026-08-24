@@ -113,8 +113,10 @@ export default function ClaimDetailPage() {
         </div>
       </Card>
 
-      {/* Body: adjudication + actions (wide) + timeline (narrow), both fully expanded */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
+      {/* Body: adjudication + actions (wide) + timeline (narrow). items-start
+          keeps each column sized to its own content instead of stretching
+          the narrow timeline to match a taller main column. */}
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_380px]">
         <div className="space-y-5">
           {claim.adjudicationNotes && (
             <Card>
@@ -164,7 +166,7 @@ export default function ClaimDetailPage() {
           <AttachmentUpload basePath={`/api/v1/warranty-claims/${claimId}`} />
         </div>
 
-        <aside className="card-elevated p-5">
+        <aside className="card-elevated sticky top-6 p-5">
           <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Timeline</div>
           <ol className="space-y-3">
             {(claim.events ?? []).map((e: any) => (

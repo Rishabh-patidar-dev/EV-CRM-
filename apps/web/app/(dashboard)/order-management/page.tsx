@@ -232,7 +232,10 @@ export default function OrderManagementPage() {
       </section>
 
       {/* Fulfillment + oldest open orders */}
-      <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* items-start: the zone bar chart and the oldest-open-orders list
+          rarely have matching lengths — without it, the shorter one gets
+          stretched to an oversized, mostly-empty card. */}
+      <section className="mb-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <ChartCard title="Fulfillment rate by zone" subtitle="Delivered ÷ (Delivered + Rejected + Cancelled)">
           {analytics && analytics.fulfillmentByZone.length > 0 ? (
             <TargetBarChart data={analytics.fulfillmentByZone.map((f) => ({ label: f.zone, value: f.rate, statusLabel: f.statusLabel }))} scaleMax={110} />
@@ -257,7 +260,9 @@ export default function OrderManagementPage() {
         </ChartCard>
       </section>
 
-      <section className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* items-start: the two top-by-zone lists can each cover a different
+          number of zones, so their card heights genuinely differ. */}
+      <section className="mb-6 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <Card padding="compact">
           <h2 className="mb-3 text-sm font-semibold">Most-ordered vehicle model, by zone</h2>
           <TopByZoneList rows={analytics?.topVehicleModelByZone ?? []} empty="No vehicle stock orders yet." />
