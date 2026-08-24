@@ -13,13 +13,14 @@
 // to a specific order (an order cancellation notice, a dealership matter,
 // anything else).
 // ============================================================================
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, FileText, Eye, Download, CheckCircle2, AlertTriangle, PackageMinus, XCircle, MessageSquare, Plus, RefreshCw, Truck, PackageCheck } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Eye, Download, CheckCircle2, AlertTriangle, PackageMinus, XCircle, MessageSquare, Plus, RefreshCw, Truck, PackageCheck, Search } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import Modal from "@/components/ui/Modal";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { useDeepLinkQuery } from "@/lib/useDeepLinkQuery";
 import { InvoiceCard } from "@/components/invoices/InvoiceCard";
 import { downloadInvoicePdf, type InvoiceDealer, type InvoiceType } from "@/lib/invoicePdf";
 
@@ -64,8 +65,10 @@ function invoiceTypeTone(type: InvoiceType): BadgeTone {
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
 export default function InvoicesPage() {
+  const deepLinkQ = useDeepLinkQuery();
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [typeFilter, setTypeFilter] = useState("");
+  const [search, setSearch] = useState(deepLinkQ);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -90,6 +93,12 @@ export default function InvoicesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const filteredInvoices = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return invoices;
+    return invoices.filter((i) => i.invoiceNumber.toLowerCase().includes(q) || i.item.toLowerCase().includes(q));
+  }, [invoices, search]);
+
   return (
     <div className="mx-auto max-w-[1300px] p-6">
       <Link href="/order-management" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
@@ -105,6 +114,15 @@ export default function InvoicesPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search invoice # or item…"
+              className="w-56 rounded-[var(--radius)] border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground"
+            />
+          </div>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm">
             <option value="">All types</option>
             <option value="CONFIRMATION">Order confirmed</option>
@@ -149,10 +167,10 @@ export default function InvoicesPage() {
                   </div>
                 </td>
               </tr>
-            ) : invoices.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">No invoices issued yet.</td></tr>
+            ) : filteredInvoices.length === 0 ? (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">{invoices.length === 0 ? "No invoices issued yet." : "No invoices match your search."}</td></tr>
             ) : (
-              invoices.map((inv) => {
+              filteredInvoices.map((inv) => {
                 const meta = TYPE_META[inv.type];
                 const Icon = meta.icon;
                 const total = Number(inv.totalAmount ?? 0);

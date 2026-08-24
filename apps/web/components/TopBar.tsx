@@ -6,8 +6,9 @@
 // same figure the Overview page already fetches), not decorative.
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Sparkles, Bell, LogOut } from "lucide-react";
+import { Sparkles, Bell, LogOut } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
+import GlobalSearch from "./GlobalSearch";
 import apiClient from "@/lib/api/client";
 
 type SessionUser = { firstName: string; lastName: string | null; role: string };
@@ -74,19 +75,7 @@ export default function TopBar() {
       className="flex h-14 shrink-0 items-center justify-between gap-4 border-b bg-card px-6"
       style={{ borderColor: "var(--border)" }}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-1.5" style={{ backgroundColor: "var(--muted)" }}>
-        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search dealers, invoices, regions…"
-          className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          disabled
-          title="Search isn't wired to an index yet"
-        />
-        <kbd className="hidden shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline" style={{ borderColor: "var(--border)" }}>
-          ⌘K
-        </kbd>
-      </div>
+      <GlobalSearch />
 
       <div className="flex shrink-0 items-center gap-3">
         <Link

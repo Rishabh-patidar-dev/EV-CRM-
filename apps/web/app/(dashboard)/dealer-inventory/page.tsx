@@ -57,6 +57,9 @@ export default function DealerInventoryPage() {
 function DealerInventoryInner() {
   const searchParams = useSearchParams();
   const dealerIdParam = searchParams.get("dealerId") ?? "";
+  // GlobalSearch (TopBar) sends a matched VIN/model here as ?q= — seeds the
+  // existing search box below instead of adding a second filter mechanism.
+  const qParam = searchParams.get("q") ?? "";
 
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [units, setUnits] = useState<any[]>([]);
@@ -76,7 +79,7 @@ function DealerInventoryInner() {
 
   const [dealerFilter, setDealerFilter] = useState(dealerIdParam);
   const [statusFilter, setStatusFilter] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(qParam);
   const [showUnitForm, setShowUnitForm] = useState(false);
   const [showTransferForm, setShowTransferForm] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);

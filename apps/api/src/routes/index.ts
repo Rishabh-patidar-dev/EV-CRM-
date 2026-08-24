@@ -14,11 +14,15 @@ import warrantyRoutes from "./warranty.routes.js";
 import leadsRoutes from "./leads.routes.js";
 import landingPageCampaignRoutes from "./landingPageCampaign.routes.js";
 import usersRoutes from "./users.routes.js";
+import searchRoutes from "./search.routes.js";
 
 const router = Router();
 
 // CRM staff login (session cookie)
 router.use("/auth", authRoutes);
+
+// Staff-side global search — every dealer's records, not scoped to one.
+router.use("/search", searchRoutes);
 
 // Dealer self-service portal login (landing page /login, /dashboard) —
 // separate trust domain from CRM staff auth above.

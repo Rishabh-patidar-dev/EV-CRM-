@@ -10,8 +10,8 @@
 // "Sold" figures are read directly from VehicleUnit.status = SOLD, the real
 // sales record Vehicle Inventory already keeps.
 // ============================================================================
-import React, { useCallback, useEffect, useState } from "react";
-import { ShoppingCart, PackageCheck, TrendingDown, Wallet, Plus, Loader2, Star, Ban, CheckCircle2, Truck, IndianRupee, RefreshCw } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ShoppingCart, PackageCheck, TrendingDown, Wallet, Plus, Loader2, Star, Ban, CheckCircle2, Truck, IndianRupee, RefreshCw, Search } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import ChartCard from "@/components/charts/ChartCard";
@@ -19,6 +19,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { useDeepLinkQuery } from "@/lib/useDeepLinkQuery";
 
 const SEGMENTS = ["L5", "L3", "CUSTOMISED"];
 const CATEGORIES = ["BATTERY_PACK", "BMS", "MOTOR", "CONTROLLER", "CHASSIS", "BODY", "ELECTRICAL", "TYRES", "MISC"];
@@ -94,6 +95,7 @@ function Stars({ rating }: { rating: number }) {
 }
 
 export default function PurchaseManagementPage() {
+  const deepLinkQ = useDeepLinkQuery();
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -102,6 +104,7 @@ export default function PurchaseManagementPage() {
   const [showForm, setShowForm] = useState(false);
   const [showVendorForm, setShowVendorForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
+  const [search, setSearch] = useState(deepLinkQ);
   const [receivingOrder, setReceivingOrder] = useState<PurchaseOrder | null>(null);
   const [payingOrder, setPayingOrder] = useState<PurchaseOrder | null>(null);
 
@@ -153,6 +156,12 @@ export default function PurchaseManagementPage() {
     await apiClient.patch(`/api/v1/purchase-management/vendors/${vendor.id}`, { status: "ACTIVE" });
     await refresh();
   };
+
+  const filteredOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((o) => o.poNumber.toLowerCase().includes(q) || o.supplierName.toLowerCase().includes(q) || o.model.toLowerCase().includes(q));
+  }, [orders, search]);
 
   return (
     <div className="mx-auto max-w-[1600px] p-6">
@@ -279,6 +288,15 @@ export default function PurchaseManagementPage() {
 
       {/* filter */}
       <section className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search PO #, supplier, model…"
+            className="w-full rounded-[var(--radius)] border border-border bg-card py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm">
           <option value="">All statuses</option>
           {PO_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
@@ -302,10 +320,10 @@ export default function PurchaseManagementPage() {
           <tbody>
             {loading ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
-            ) : orders.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No purchase orders yet.</td></tr>
+            ) : filteredOrders.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">{orders.length === 0 ? "No purchase orders yet." : "No orders match your search."}</td></tr>
             ) : (
-              orders.map((o) => (
+              filteredOrders.map((o) => (
                 <tr key={o.id} className="border-b border-border last:border-0">
                   <td className="px-4 py-3 font-mono text-xs">{o.poNumber}</td>
                   <td className="px-4 py-3">

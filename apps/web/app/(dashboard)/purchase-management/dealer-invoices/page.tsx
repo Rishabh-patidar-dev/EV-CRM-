@@ -9,13 +9,14 @@
 // workflow here, just visibility into what each dealer has logged — the
 // full reconciliation workflow is a larger future module.
 // ============================================================================
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Receipt, IndianRupee, Scan, FileText, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Receipt, IndianRupee, Scan, FileText, Loader2, RefreshCw, Search } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { StatCard } from "@/components/ui/StatCard";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { useDeepLinkQuery } from "@/lib/useDeepLinkQuery";
 
 interface DealerInvoice {
   id: number;
@@ -46,10 +47,12 @@ function resolveUrl(fileUrl: string) {
 }
 
 export default function DealerInvoicesPage() {
+  const deepLinkQ = useDeepLinkQuery();
   const [invoices, setInvoices] = useState<DealerInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [search, setSearch] = useState(deepLinkQ);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,6 +75,12 @@ export default function DealerInvoicesPage() {
   const scannedCount = invoices.filter((i) => i.ocrStatus === "DONE").length;
   const dealerCount = new Set(invoices.map((i) => i.dealer.id)).size;
 
+  const filteredInvoices = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return invoices;
+    return invoices.filter((i) => i.invoiceNumber.toLowerCase().includes(q) || i.vendorName.toLowerCase().includes(q) || i.dealer.legalName.toLowerCase().includes(q));
+  }, [invoices, search]);
+
   return (
     <div className="mx-auto max-w-[1400px] p-6">
       <Link href="/purchase-management" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
@@ -89,6 +98,16 @@ export default function DealerInvoicesPage() {
         <StatCard icon={<IndianRupee className="h-4 w-4" />} label="Total value" value={`₹${totalAmount.toLocaleString("en-IN")}`} tone="green" />
         <StatCard icon={<Scan className="h-4 w-4" />} label="OCR-scanned" value={scannedCount} tone="blue" />
         <StatCard icon={<FileText className="h-4 w-4" />} label="Dealers" value={dealerCount} tone="purple" />
+      </div>
+
+      <div className="relative mb-4 max-w-sm">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search invoice #, vendor, dealer…"
+          className="w-full rounded-[var(--radius)] border border-border bg-card py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
       </div>
 
       <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
@@ -118,10 +137,10 @@ export default function DealerInvoicesPage() {
                   </div>
                 </td>
               </tr>
-            ) : invoices.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No dealer has logged a purchase invoice yet.</td></tr>
+            ) : filteredInvoices.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">{invoices.length === 0 ? "No dealer has logged a purchase invoice yet." : "No invoices match your search."}</td></tr>
             ) : (
-              invoices.map((inv) => (
+              filteredInvoices.map((inv) => (
                 <React.Fragment key={inv.id}>
                   <tr onClick={() => setExpanded(expanded === inv.id ? null : inv.id)} className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/50">
                     <td className="px-4 py-3">{inv.dealer.legalName}</td>
