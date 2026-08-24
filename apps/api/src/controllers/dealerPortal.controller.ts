@@ -55,6 +55,133 @@ export class DealerPortalController {
     res.json({ items: VEHICLE_CATALOG });
   }
 
+  // GET /api/v1/dealer-portal/search?q=
+  // The dealer portal's global search — every record type a dealer can see
+  // anywhere in DMS, scoped to this dealer only, one request. There's no
+  // per-record detail page for most of these (only /leads/[id] exists), so
+  // each result links back to its list page with the matched number/name as
+  // a `?q=` deep link; the list page itself applies that as its filter on
+  // load. Every branch is capped (`take`) and run in parallel — this must
+  // stay fast enough to call on every keystroke (debounced client-side).
+  async search(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const q = String(req.query.q ?? "").trim();
+      if (q.length < 2) return res.json({ groups: [] });
+
+      const contains = { contains: q, mode: "insensitive" as const };
+      const LIMIT = 6;
+
+      const [
+        vehicleUnits, stockTransfers, spareParts, invoices, leads,
+        warrantyClaims, serviceTickets, bookings, customerBills, purchaseInvoices,
+      ] = await Promise.all([
+        prisma.vehicleUnit.findMany({
+          where: { dealerId, OR: [{ vin: contains }, { model: contains }] },
+          select: { id: true, vin: true, model: true, status: true },
+          take: LIMIT,
+        }),
+        prisma.stockTransferRequest.findMany({
+          where: { dealerId, OR: [{ requestNumber: contains }, { model: contains }] },
+          select: { id: true, requestNumber: true, model: true, quantity: true, status: true },
+          take: LIMIT,
+        }),
+        prisma.sparePartRequest.findMany({
+          where: { dealerId, OR: [{ requestNumber: contains }, { partName: contains }, { partCode: contains }] },
+          select: { id: true, requestNumber: true, partName: true, quantity: true, status: true },
+          take: LIMIT,
+        }),
+        prisma.invoice.findMany({
+          where: { dealerId, OR: [{ invoiceNumber: contains }, { item: contains }] },
+          select: { id: true, invoiceNumber: true, item: true, type: true },
+          take: LIMIT,
+        }),
+        prisma.dealerLeadAssignment.findMany({
+          where: { dealerId, lead: { OR: [{ firstName: contains }, { lastName: contains }, { email: contains }, { phone: contains }, { companyName: contains }] } },
+          select: { leadId: true, status: true, lead: { select: { firstName: true, lastName: true, email: true, phone: true } } },
+          take: LIMIT,
+        }),
+        prisma.warrantyClaim.findMany({
+          where: { dealerId, OR: [{ claimNumber: contains }, { customerName: contains }, { chassisNumber: contains }] },
+          select: { id: true, claimNumber: true, customerName: true, status: true },
+          take: LIMIT,
+        }),
+        prisma.serviceTicket.findMany({
+          where: { dealerId, OR: [{ ticketNumber: contains }, { customerName: contains }, { chassisNumber: contains }, { vehicleModel: contains }] },
+          select: { id: true, ticketNumber: true, customerName: true, status: true },
+          take: LIMIT,
+        }),
+        prisma.booking.findMany({
+          where: { dealerId, OR: [{ bookingNumber: contains }, { customerName: contains }, { customerPhone: contains }, { model: contains }] },
+          select: { id: true, bookingNumber: true, customerName: true, model: true, status: true },
+          take: LIMIT,
+        }),
+        prisma.customerBill.findMany({
+          where: { dealerId, OR: [{ billNumber: contains }, { customerName: contains }, { model: contains }, { vin: contains }] },
+          select: { id: true, billNumber: true, customerName: true, model: true, billType: true },
+          take: LIMIT,
+        }),
+        prisma.dealerPurchaseInvoice.findMany({
+          where: { dealerId, OR: [{ invoiceNumber: contains }, { vendorName: contains }] },
+          select: { id: true, invoiceNumber: true, vendorName: true, amount: true },
+          take: LIMIT,
+        }),
+      ]);
+
+      const groups = [
+        {
+          type: "vehicle_unit", label: "My inventory", href: "/inventory",
+          results: vehicleUnits.map((v) => ({ id: v.id, title: v.vin, subtitle: `${v.model} · ${v.status.replace(/_/g, " ")}`, q: v.vin })),
+        },
+        {
+          type: "stock_transfer", label: "Vehicle stock orders", href: "/orders",
+          results: stockTransfers.map((t) => ({ id: t.id, title: t.requestNumber, subtitle: `${t.model} × ${t.quantity} · ${t.status.replace(/_/g, " ")}`, q: t.requestNumber })),
+        },
+        {
+          type: "spare_part", label: "Spare part orders", href: "/orders",
+          results: spareParts.map((s) => ({ id: s.id, title: s.requestNumber, subtitle: `${s.partName} × ${s.quantity} · ${s.status.replace(/_/g, " ")}`, q: s.requestNumber })),
+        },
+        {
+          type: "invoice", label: "Invoices", href: "/invoices",
+          results: invoices.map((i) => ({ id: i.id, title: i.invoiceNumber, subtitle: i.item, q: i.invoiceNumber })),
+        },
+        {
+          type: "lead", label: "Leads", href: "/leads",
+          results: leads.map((a) => ({
+            id: a.leadId,
+            title: [a.lead.firstName, a.lead.lastName].filter(Boolean).join(" "),
+            subtitle: a.lead.email || a.lead.phone || a.status,
+            href: `/leads/${a.leadId}`,
+          })),
+        },
+        {
+          type: "warranty_claim", label: "Warranty claims", href: "/warranty",
+          results: warrantyClaims.map((c) => ({ id: c.id, title: c.claimNumber, subtitle: `${c.customerName} · ${c.status.replace(/_/g, " ")}`, q: c.claimNumber })),
+        },
+        {
+          type: "service_ticket", label: "Service tickets", href: "/service",
+          results: serviceTickets.map((t) => ({ id: t.id, title: t.ticketNumber, subtitle: `${t.customerName} · ${t.status.replace(/_/g, " ")}`, q: t.ticketNumber })),
+        },
+        {
+          type: "booking", label: "Bookings", href: "/bookings",
+          results: bookings.map((b) => ({ id: b.id, title: b.bookingNumber, subtitle: `${b.customerName} · ${b.model} · ${b.status.replace(/_/g, " ")}`, q: b.bookingNumber })),
+        },
+        {
+          type: "customer_bill", label: "Customer bills", href: "/billing",
+          results: customerBills.map((b) => ({ id: b.id, title: b.billNumber, subtitle: `${b.customerName} · ${b.model}`, q: b.billNumber })),
+        },
+        {
+          type: "purchase_invoice", label: "Purchase invoices", href: "/purchase-invoices",
+          results: purchaseInvoices.map((p) => ({ id: p.id, title: p.invoiceNumber, subtitle: `${p.vendorName} · ₹${Number(p.amount).toLocaleString("en-IN")}`, q: p.invoiceNumber })),
+        },
+      ].filter((g) => g.results.length > 0);
+
+      res.json({ groups, query: q });
+    } catch (error) {
+      handleError(error, res, "Dealer portal search");
+    }
+  }
+
   // GET /api/v1/dealer-portal/overview
   async overview(req: Request, res: Response) {
     try {
@@ -63,6 +190,7 @@ export class DealerPortalController {
         vehicleCount, openTransfers, openSpareParts, openTickets, openClaims, openLeads,
         vehiclesByStatusRaw, leadsByStatusRaw, transferStatusRaw, sparePartStatusRaw, claimsByStatusRaw, ticketsByStatusRaw,
         soldUnits, invoicesByTypeRaw, activeUnits, totalLeads, convertedLeads, totalSoldCount, totalClaimsCount,
+        recentInvoices,
       ] = await Promise.all([
         prisma.vehicleUnit.count({ where: { dealerId } }),
         prisma.stockTransferRequest.count({ where: { dealerId, status: { in: ["REQUESTED", "APPROVED", "DISPATCHED"] } } }),
@@ -88,6 +216,14 @@ export class DealerPortalController {
         prisma.dealerLeadAssignment.count({ where: { dealerId, status: "CONVERTED" } }),
         prisma.vehicleUnit.count({ where: { dealerId, status: "SOLD" } }),
         prisma.warrantyClaim.count({ where: { dealerId } }),
+        // Feeds Overview's "Recent activity" table — a quick-glance list, the
+        // full history still lives on the Invoices page itself.
+        prisma.invoice.findMany({
+          where: { dealerId },
+          select: { id: true, invoiceNumber: true, type: true, item: true, totalAmount: true, issuedAt: true },
+          orderBy: { issuedAt: "desc" },
+          take: 6,
+        }),
       ]);
 
       const toSeries = (rows: { status: string; _count: number }[]) =>
@@ -144,6 +280,7 @@ export class DealerPortalController {
         salesTrend,
         topModelsSold,
         invoicesByType,
+        recentInvoices,
         leadConversionRate,
         avgDaysInStock,
         warrantyClaimRate,
