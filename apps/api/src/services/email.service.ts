@@ -73,3 +73,94 @@ export function sendApplicationStatusEmail(to: string, dealerName: string, statu
     ),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Invoice emails — every CONFIRMATION/DISPATCH/DELIVERY/PARTIAL/OUT_OF_STOCK/
+// CANCELLATION/CUSTOM invoice Order Management issues also goes out by email
+// the moment it's created (see invoice.service.ts#issueInvoice's callers).
+// Kept here rather than in invoice.service.ts so all outbound-email
+// formatting lives in one file; invoice.service.ts just calls this with the
+// invoice row (already includes `dealer`).
+// ---------------------------------------------------------------------------
+type InvoiceEmailType = "CONFIRMATION" | "OUT_OF_STOCK" | "PARTIAL" | "CANCELLATION" | "CUSTOM" | "DISPATCH" | "DELIVERY";
+
+interface InvoiceForEmail {
+  invoiceNumber: string;
+  type: InvoiceEmailType;
+  item: string;
+  requestedQuantity: number | null;
+  fulfilledQuantity: number | null;
+  unitPrice: unknown;
+  expectedRestockDate: Date | null;
+  message: string | null;
+  issuedAt: Date;
+  dealer: { legalName: string; tradeName: string | null; email: string | null } | null;
+}
+
+const INVOICE_TYPE_LABEL: Record<InvoiceEmailType, string> = {
+  CONFIRMATION: "Order Confirmation",
+  DISPATCH: "Dispatch Note",
+  DELIVERY: "Delivery Receipt",
+  PARTIAL: "Partial Fulfillment Notice",
+  OUT_OF_STOCK: "Out-of-Stock Notice",
+  CANCELLATION: "Order Cancellation",
+  CUSTOM: "General Notice",
+};
+
+const INVOICE_TYPE_INTRO: Record<InvoiceEmailType, string> = {
+  CONFIRMATION: "Your order has been confirmed by the manufacturer.",
+  DISPATCH: "Your order has left our warehouse and is on its way to you.",
+  DELIVERY: "Your order has been marked delivered.",
+  PARTIAL: "We're able to fulfil part of your order right now — see the details below.",
+  OUT_OF_STOCK: "Your order is currently out of stock at the manufacturer.",
+  CANCELLATION: "An order or invoice has been cancelled.",
+  CUSTOM: "You have a new notice from Luxus Green Mobility.",
+};
+
+const INVOICE_PRICED_TYPES = new Set<InvoiceEmailType>(["CONFIRMATION", "DISPATCH", "DELIVERY", "PARTIAL"]);
+const GST_RATE = 0.18;
+const inr = (n: number) => `Rs. ${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export function sendInvoiceEmail(invoice: InvoiceForEmail) {
+  const dealer = invoice.dealer;
+  if (!dealer?.email) return Promise.resolve();
+
+  const label = INVOICE_TYPE_LABEL[invoice.type] ?? invoice.type;
+  const priced = INVOICE_PRICED_TYPES.has(invoice.type);
+  const qty = invoice.fulfilledQuantity ?? invoice.requestedQuantity ?? 0;
+  const unitPrice = Number(invoice.unitPrice ?? 0);
+  const subtotal = priced ? unitPrice * qty : 0;
+  const gst = subtotal * GST_RATE;
+  const total = subtotal + gst;
+
+  const rows = [
+    `<tr><td style="padding:6px 0;color:#666">Item</td><td style="padding:6px 0;text-align:right">${invoice.item}</td></tr>`,
+    `<tr><td style="padding:6px 0;color:#666">Quantity</td><td style="padding:6px 0;text-align:right">${qty}${invoice.requestedQuantity != null && invoice.requestedQuantity !== qty ? ` / ${invoice.requestedQuantity} requested` : ""}</td></tr>`,
+    priced ? `<tr><td style="padding:6px 0;color:#666">Unit price</td><td style="padding:6px 0;text-align:right">${inr(unitPrice)}</td></tr>` : "",
+    priced ? `<tr><td style="padding:6px 0;color:#666">GST (18%)</td><td style="padding:6px 0;text-align:right">${inr(gst)}</td></tr>` : "",
+    priced ? `<tr><td style="padding:10px 0;border-top:1px solid #eee;font-weight:600">Total due</td><td style="padding:10px 0;border-top:1px solid #eee;text-align:right;font-weight:600">${inr(total)}</td></tr>` : "",
+  ].filter(Boolean).join("");
+
+  const restock = invoice.expectedRestockDate
+    ? new Date(invoice.expectedRestockDate).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })
+    : null;
+
+  return sendMail({
+    to: dealer.email,
+    subject: `${label} — ${invoice.invoiceNumber}`,
+    html: `
+      <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
+        <h2 style="margin: 0 0 2px;">Luxus Green Mobility</h2>
+        <p style="color:#999; margin: 0 0 20px; font-size: 12px;">Electric Vehicles &middot; Manufacturer &amp; OEM</p>
+        <p style="color:#888; margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;">${label} &middot; ${invoice.invoiceNumber}</p>
+        <p>Hi ${dealer.tradeName || dealer.legalName},</p>
+        <p>${INVOICE_TYPE_INTRO[invoice.type]}</p>
+        <table style="width:100%; border-collapse:collapse; margin-top:12px; font-size:14px;">${rows}</table>
+        ${restock ? `<p style="margin-top:12px; font-weight:600; font-size: 14px;">Expected date: ${restock}</p>` : ""}
+        ${invoice.message ? `<div style="margin-top:16px; padding:12px 14px; background:#f4f3ee; border-radius:8px; font-size:13px; line-height:1.5;">${invoice.message}</div>` : ""}
+        <p style="margin-top:24px; font-size:13px; color:#444;">Sign in to your dealer portal to view the full invoice card and download it as a PDF.</p>
+        <p style="margin-top:24px; font-size: 12px; color: #888;">Issued by Order Management — Luxus Green Mobility.</p>
+      </div>
+    `,
+  });
+}

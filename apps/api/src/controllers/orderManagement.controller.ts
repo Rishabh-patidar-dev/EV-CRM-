@@ -25,6 +25,7 @@ import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber, VEHICLE_CATALOG } from "../services/dealerManagement.service.js";
 import { issueInvoice, resolveUnitPrice, DEALER_INVOICE_SELECT } from "../services/invoice.service.js";
+import { sendInvoiceEmail } from "../services/email.service.js";
 
 type OrderRow = {
   id: number;
@@ -435,6 +436,10 @@ export class OrderManagementController {
         return { order: updated, notice };
       });
 
+      // Fire-and-forget, after the transaction has committed — sendMail()
+      // never throws, so this can't turn a successful check into an error.
+      if ((result as any).invoice) void sendInvoiceEmail((result as any).invoice);
+
       res.json({ ...result, requestedQuantity, availableQuantity, sufficient });
     } catch (error) {
       handleError(error, res, "Check inventory");
@@ -580,6 +585,8 @@ export class OrderManagementController {
         return { notice, invoice };
       });
 
+      void sendInvoiceEmail(invoice);
+
       res.json({ ...notice, invoice });
     } catch (error) {
       handleError(error, res, "Send out-of-stock notice");
@@ -631,6 +638,8 @@ export class OrderManagementController {
         });
         return { updatedOrder, notice, invoice };
       });
+
+      void sendInvoiceEmail(invoice);
 
       res.json({ sufficient: true, availableQuantity, requestedQuantity, order: updatedOrder, notice, invoice });
     } catch (error) {
@@ -740,6 +749,7 @@ export class OrderManagementController {
         },
         include: { dealer: { select: DEALER_INVOICE_SELECT } },
       });
+      void sendInvoiceEmail(invoice);
       res.status(201).json(invoice);
     } catch (error) {
       handleError(error, res, "Create invoice");

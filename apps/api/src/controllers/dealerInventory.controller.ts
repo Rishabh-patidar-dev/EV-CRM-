@@ -13,6 +13,7 @@ import { handleError, handleValidationError, handleNotFoundError } from "../util
 import { generateSequenceNumber } from "../services/dealerManagement.service.js";
 import { registerComponentsForSale } from "../services/componentRegistration.service.js";
 import { issueInvoice, resolveUnitPrice } from "../services/invoice.service.js";
+import { sendInvoiceEmail } from "../services/email.service.js";
 
 // The dev-only demo login issues user id 0, which has no matching users
 // row — issuedById is a real foreign key, so that id must never be written.
@@ -341,6 +342,8 @@ export class StockTransferController {
         }
         return { updated, invoice };
       });
+
+      if (invoice) void sendInvoiceEmail(invoice);
 
       res.json({ ...updated, invoice });
     } catch (error) {

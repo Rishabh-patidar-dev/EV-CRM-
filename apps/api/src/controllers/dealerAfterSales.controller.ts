@@ -12,6 +12,7 @@ import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber, normalizePhone } from "../services/dealerManagement.service.js";
 import { issueInvoice, resolveUnitPrice } from "../services/invoice.service.js";
+import { sendInvoiceEmail } from "../services/email.service.js";
 
 // Same demo-login guard as orderManagement.controller.ts's actingUserId.
 function actingUserId(req: Request): number | null {
@@ -283,6 +284,7 @@ export class AfterSalesController {
           });
           return { request, invoice };
         });
+        void sendInvoiceEmail(result.invoice);
         res.json({ ...result.request, invoice: result.invoice });
         return;
       }
