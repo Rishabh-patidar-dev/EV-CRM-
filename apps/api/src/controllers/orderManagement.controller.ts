@@ -646,6 +646,28 @@ export class OrderManagementController {
     res.json({ items: VEHICLE_CATALOG });
   }
 
+  // GET /api/v1/order-management/invoices/new-count?since=<ISO>
+  // Backs the sidebar's numeric "unread invoices" badge — count of every
+  // invoice issued after `since` (the client's locally-stored "last visited
+  // Invoices" marker, same lastSeenAt-in-localStorage pattern the "new DMS
+  // order" indicator already uses, just returning an actual count instead
+  // of a boolean). No `since` (never visited yet) counts every invoice ever
+  // issued — same "everything you haven't opened" semantics as an inbox.
+  async newInvoiceCount(req: Request, res: Response) {
+    try {
+      const sinceRaw = req.query.since;
+      const since = sinceRaw ? new Date(String(sinceRaw)) : null;
+      const where = since && !isNaN(+since) ? { issuedAt: { gt: since } } : {};
+      const [count, latest] = await Promise.all([
+        prisma.invoice.count({ where }),
+        prisma.invoice.findFirst({ orderBy: { issuedAt: "desc" }, select: { issuedAt: true } }),
+      ]);
+      res.json({ count, latestIssuedAt: latest?.issuedAt ?? null });
+    } catch (error) {
+      handleError(error, res, "New invoice count");
+    }
+  }
+
   // GET /api/v1/order-management/invoices — the Invoices sub-module: every
   // CONFIRMATION / OUT_OF_STOCK / PARTIAL invoice Order Management has ever
   // issued, newest first. (?dealerId=&type=&orderType=VEHICLE|SPARE_PART)

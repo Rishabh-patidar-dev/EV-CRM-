@@ -26,6 +26,7 @@ router.post("/stock-transfers", portal.createStockTransfer.bind(portal));
 router.get("/spare-parts", portal.listSpareParts.bind(portal));
 router.post("/spare-parts", portal.createSparePart.bind(portal));
 
+router.get("/invoices/new-count", portal.newInvoiceCount.bind(portal));
 router.get("/invoices", portal.listInvoices.bind(portal));
 
 // Dealer's response to an out-of-stock partial-fulfillment offer.

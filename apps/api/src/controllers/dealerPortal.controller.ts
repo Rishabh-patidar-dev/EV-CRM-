@@ -385,6 +385,28 @@ export class DealerPortalController {
     }
   }
 
+  // GET /api/v1/dealer-portal/invoices/new-count?since=<ISO>
+  // Backs the DMS sidebar's numeric "unread invoices" badge — count of
+  // every invoice issued to THIS dealer after `since` (the client's
+  // locally-stored "last visited Invoices" marker). No `since` (never
+  // visited) counts every invoice this dealer has ever received.
+  async newInvoiceCount(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const sinceRaw = req.query.since;
+      const since = sinceRaw ? new Date(String(sinceRaw)) : null;
+      const where: any = { dealerId };
+      if (since && !isNaN(+since)) where.issuedAt = { gt: since };
+      const [count, latest] = await Promise.all([
+        prisma.invoice.count({ where }),
+        prisma.invoice.findFirst({ where: { dealerId }, orderBy: { issuedAt: "desc" }, select: { issuedAt: true } }),
+      ]);
+      res.json({ count, latestIssuedAt: latest?.issuedAt ?? null });
+    } catch (error) {
+      handleError(error, res, "Dealer portal new invoice count");
+    }
+  }
+
   // GET /api/v1/dealer-portal/invoices — every CONFIRMATION / OUT_OF_STOCK /
   // PARTIAL invoice Order Management has issued this dealer, newest first.
   async listInvoices(req: Request, res: Response) {

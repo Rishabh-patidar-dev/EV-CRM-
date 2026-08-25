@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import apiClient from "@/lib/api/client";
 import { ORDER_MGMT_LAST_SEEN_KEY } from "./orderManagementSeen";
+import { INVOICE_LAST_SEEN_KEY } from "./invoicesSeen";
 import {
   LayoutDashboard,
   Workflow,
@@ -97,6 +98,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Set<string>>(DEFAULT_OPEN);
   const [newOrderMarker, setNewOrderMarker] = useState(false);
+  const [invoiceUnreadCount, setInvoiceUnreadCount] = useState(0);
 
   const toggleGroup = (id: string) => {
     setOpenGroups((prev) => {
@@ -125,6 +127,28 @@ export default function Sidebar() {
           // private-mode/unavailable storage — treat as never seen
         }
         setNewOrderMarker(!lastSeen || new Date(latest) > new Date(lastSeen));
+      })
+      .catch(() => {
+        // non-critical UI indicator — a failed check just leaves it as-is
+      });
+    return () => { active = false; };
+  }, [pathname]);
+
+  // Same re-check-on-route-change reasoning as above, for the Invoices
+  // "unread" badge — the endpoint itself computes the count relative to
+  // `since`, so no client-side comparison is needed here.
+  useEffect(() => {
+    let active = true;
+    let since = "";
+    try {
+      since = localStorage.getItem(INVOICE_LAST_SEEN_KEY) ?? "";
+    } catch {
+      // private-mode/unavailable storage — treat as never seen
+    }
+    apiClient
+      .get("/api/v1/order-management/invoices/new-count", { params: since ? { since } : {} })
+      .then(({ data }) => {
+        if (active) setInvoiceUnreadCount(data?.count ?? 0);
       })
       .catch(() => {
         // non-critical UI indicator — a failed check just leaves it as-is
@@ -165,6 +189,7 @@ export default function Sidebar() {
                       {...item}
                       active={pathname === item.href || (!item.exactOnly && !!pathname?.startsWith(item.href + "/"))}
                       liveIndicator={item.href === "/order-management" && newOrderMarker}
+                      badgeCount={item.href === "/order-management/invoices" ? invoiceUnreadCount : undefined}
                     />
                   ))}
                 </div>
@@ -189,7 +214,8 @@ function SidebarLink({
   badge,
   badgeTone,
   liveIndicator,
-}: NavItem & { active?: boolean; liveIndicator?: boolean }) {
+  badgeCount,
+}: NavItem & { active?: boolean; liveIndicator?: boolean; badgeCount?: number }) {
   return (
     <Link
       href={href}
@@ -197,7 +223,14 @@ function SidebarLink({
     >
       <Icon className="h-4 w-4 shrink-0" />
       <span className="truncate flex-1">{label}</span>
-      {liveIndicator ? (
+      {!!badgeCount ? (
+        <span
+          className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold tabular-nums text-white"
+          title={`${badgeCount} invoice${badgeCount === 1 ? "" : "s"} not yet reviewed`}
+        >
+          {badgeCount > 99 ? "99+" : badgeCount}
+        </span>
+      ) : liveIndicator ? (
         <span
           className="shrink-0 text-base font-bold leading-none"
           style={{ color: "var(--zira-approved)" }}

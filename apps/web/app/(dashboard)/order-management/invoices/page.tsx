@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/Button";
 import { useDeepLinkQuery } from "@/lib/useDeepLinkQuery";
 import { InvoiceCard } from "@/components/invoices/InvoiceCard";
 import { downloadInvoicePdf, type InvoiceDealer, type InvoiceType } from "@/lib/invoicePdf";
+import { INVOICE_LAST_SEEN_KEY } from "@/components/invoicesSeen";
 
 interface InvoiceRow {
   id: number;
@@ -92,6 +93,18 @@ export default function InvoicesPage() {
   }, [typeFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Clears the sidebar's unread-invoices badge — Sidebar re-checks the
+  // count on every route change, so everything issued up to this moment
+  // no longer counts as unread the next time it does.
+  useEffect(() => {
+    try {
+      localStorage.setItem(INVOICE_LAST_SEEN_KEY, new Date().toISOString());
+    } catch {
+      // localStorage unavailable (private mode etc.) — the badge just
+      // won't clear locally, not worth surfacing an error for.
+    }
+  }, []);
 
   const filteredInvoices = useMemo(() => {
     const q = search.trim().toLowerCase();
