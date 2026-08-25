@@ -323,7 +323,7 @@ function DealerInventoryInner() {
       </section>
 
       {/* units table */}
-      <div className="mb-8 overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+      <div className="mb-8 overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
@@ -359,7 +359,7 @@ function DealerInventoryInner() {
         <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
           <Warehouse className="h-4 w-4" /> Stock transfer requests
         </h2>
-        <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+        <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-muted-foreground">

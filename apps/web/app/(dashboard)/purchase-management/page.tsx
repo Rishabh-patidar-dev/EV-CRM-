@@ -239,7 +239,7 @@ export default function PurchaseManagementPage() {
       {/* Vendors — Approved Vendor List */}
       <section className="mb-6">
         <h2 className="mb-2 text-sm font-semibold">Approved Vendor List <span className="font-normal text-muted-foreground">({vendors.length})</span></h2>
-        <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+        <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-muted-foreground">
@@ -304,7 +304,7 @@ export default function PurchaseManagementPage() {
       </section>
 
       {/* purchase order list */}
-      <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+      <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">

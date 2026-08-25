@@ -152,7 +152,7 @@ export default function InvoicesPage() {
         </div>
       </header>
 
-      <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+      <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">

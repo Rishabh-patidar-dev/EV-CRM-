@@ -246,7 +246,7 @@ function ClaimsTab({ dealers, onChanged, initialDealerId }: { dealers: Dealer[];
 
       {showForm && <NewClaimForm dealers={dealers} onDone={() => { setShowForm(false); load(); onChanged(); }} />}
 
-      <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+      <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
@@ -478,7 +478,7 @@ function PlansTab() {
           <Button size="sm" disabled={!form.name || !form.vehicleModel || !form.termMonths} onClick={submit} className="mt-3">Create plan</Button>
         </Card>
       )}
-      <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+      <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
@@ -546,7 +546,7 @@ function RecoveryTab() {
   };
 
   return (
-    <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+    <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-left text-muted-foreground">
