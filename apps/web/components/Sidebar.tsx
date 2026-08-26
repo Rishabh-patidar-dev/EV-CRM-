@@ -293,8 +293,9 @@ function SidebarLink({
   // A standalone one-page module (Order Management, Invoices, Finance
   // Management) sits at the same level as a group header ("LEAD
   // MANAGEMENT") in the nav list — matching that header's flat uppercase
-  // typography (no icon, no filled pill) is what makes it read as another
-  // section of the sidebar instead of a stray sub-item link.
+  // typography (no icon, no filled pill, same trailing chevron even though
+  // there's nothing to expand) is what makes it read as another section of
+  // the sidebar instead of a stray sub-item link.
   if (asModule) {
     return (
       <Link
@@ -303,7 +304,10 @@ function SidebarLink({
         style={active ? { color: "var(--sidebar-primary)" } : undefined}
       >
         <span>{label}</span>
-        <SidebarIndicator active={active} badge={badge} badgeTone={badgeTone} liveIndicator={liveIndicator} badgeCount={badgeCount} />
+        <span className="flex shrink-0 items-center gap-1.5">
+          <SidebarIndicator active={active} badge={badge} badgeTone={badgeTone} liveIndicator={liveIndicator} badgeCount={badgeCount} />
+          <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
+        </span>
       </Link>
     );
   }

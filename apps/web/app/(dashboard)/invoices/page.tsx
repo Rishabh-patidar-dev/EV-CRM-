@@ -4,35 +4,24 @@
 // Invoices
 // ============================================================================
 // Route: /invoices
-// One "Invoices" module covering every invoice the business touches, split
-// into two tabs because the two sources are genuinely different shapes, not
-// because they're different modules:
-//
-//  - Manufacturer Invoices: documents Order Management has handed a dealer
-//    (Invoice model). Three types are generated automatically, following the
-//    OEM's own order-placement flow chart: CONFIRMATION (stock available),
-//    OUT_OF_STOCK (nothing to offer, expected renewal date), PARTIAL (stock
-//    is close — limited quantity offered now, e.g. 150 of 155 requested).
-//    CANCELLATION and CUSTOM are staff-authored via "Create invoice" — an
-//    ad-hoc document to any dealer, not tied to a specific order.
-//
-//  - Dealer Purchase Invoices: read-only — dealers log these themselves
-//    through the DMS portal (OCR-assisted intake, see
-//    dealerPortal.controller.ts#createPurchaseInvoice). No approval/dispute
-//    workflow here, just visibility into what each dealer has logged.
+// One "Invoices" module, one list — an invoice is an invoice regardless of
+// which side wrote it, so manufacturer-issued documents (Invoice model) and
+// dealer-logged purchase bills (DealerPurchaseInvoice model, read-only —
+// dealers log these themselves through the DMS portal, no approval/dispute
+// workflow) are shown together, sorted by date, not split behind a tab.
 //
 // Previously these were two separate sidebar entries/pages
 // (/order-management/invoices and /purchase-management/dealer-invoices);
 // merged here under one nav item at the product owner's request — "we get
 // every invoice we have, don't separate invoices and dealer purchase
-// invoices, they are one."
+// invoices, they are one" — later tightened further to "there is no
+// difference between them... invoices are just invoices" (remove the tab
+// switch too, one combined list).
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Loader2, FileText, Eye, Download, CheckCircle2, AlertTriangle, PackageMinus,
-  XCircle, MessageSquare, Plus, RefreshCw, Truck, PackageCheck, Search,
-  Receipt, IndianRupee, Scan,
+  Loader2, FileText, Eye, Download, Plus, RefreshCw, Search, Receipt, IndianRupee, Scan,
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import Modal from "@/components/ui/Modal";
@@ -70,14 +59,14 @@ interface DealerOption {
   tradeName: string | null;
 }
 
-const TYPE_META: Record<InvoiceType, { label: string; icon: typeof FileText }> = {
-  CONFIRMATION: { label: "Order confirmed", icon: CheckCircle2 },
-  DISPATCH: { label: "Order dispatched", icon: Truck },
-  DELIVERY: { label: "Order delivered", icon: PackageCheck },
-  PARTIAL: { label: "Partial fulfillment", icon: PackageMinus },
-  OUT_OF_STOCK: { label: "Out of stock", icon: AlertTriangle },
-  CANCELLATION: { label: "Order cancellation", icon: XCircle },
-  CUSTOM: { label: "General notice", icon: MessageSquare },
+const TYPE_LABEL: Record<InvoiceType, string> = {
+  CONFIRMATION: "Order confirmed",
+  DISPATCH: "Order dispatched",
+  DELIVERY: "Order delivered",
+  PARTIAL: "Partial fulfillment",
+  OUT_OF_STOCK: "Out of stock",
+  CANCELLATION: "Order cancellation",
+  CUSTOM: "General notice",
 };
 
 function invoiceTypeTone(type: InvoiceType): BadgeTone {
@@ -108,12 +97,6 @@ interface DealerInvoice {
   dealer: { id: number; dealerCode: string; legalName: string };
 }
 
-const CATEGORY_TONE: Record<string, BadgeTone> = {
-  VEHICLE_STOCK: "neutral",
-  SPARE_PARTS: "info",
-  OTHER: "neutral",
-};
-
 function resolveUrl(fileUrl: string) {
   if (fileUrl.startsWith("http")) return fileUrl;
   const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -121,26 +104,34 @@ function resolveUrl(fileUrl: string) {
 }
 
 // ----------------------------------------------------------------------------
-// Page
+// One normalized row shape for both sources — this is what actually makes
+// them "just invoices" instead of two separate tables.
 // ----------------------------------------------------------------------------
 
-type Tab = "manufacturer" | "dealer-purchase";
+type Row = {
+  key: string;
+  date: string;
+  number: string;
+  dealer: { id: number; label: string } | null;
+  party: string; // "Manufacturer" for OEM docs, vendor name for purchase bills
+  subject: string;
+  amount: number | null;
+  typeLabel: string;
+  tone: BadgeTone;
+  onView: () => void;
+  onDownload?: () => void;
+};
+
+// ----------------------------------------------------------------------------
+// Page
+// ----------------------------------------------------------------------------
 
 export default function InvoicesPage() {
   const deepLinkQ = useDeepLinkQuery();
 
-  // Which tab, and an optional dealer to pre-filter the dealer-purchase tab
-  // by — read once on mount (no useSearchParams, so no Suspense boundary
-  // needed here), same pattern as Order Management's ?tab= handling.
   const [initialDealerId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("dealerId") ?? "";
-  });
-  const [tab, setTab] = useState<Tab>(() => {
-    if (typeof window === "undefined") return "manufacturer";
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("dealerId")) return "dealer-purchase";
-    return params.get("tab") === "dealer-purchase" ? "dealer-purchase" : "manufacturer";
   });
 
   // Clears the sidebar's unread-invoices badge — Sidebar re-checks the
@@ -157,20 +148,17 @@ export default function InvoicesPage() {
 
   // ---- Manufacturer invoices state ----
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
-  const [typeFilter, setTypeFilter] = useState("");
-  const [search, setSearch] = useState(deepLinkQ);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<InvoiceRow | null>(null);
+  const [viewingDealer, setViewingDealer] = useState<DealerInvoice | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const params: Record<string, string> = {};
-      if (typeFilter) params.type = typeFilter;
-      const { data } = await apiClient.get("/api/v1/order-management/invoices", { params });
+      const { data } = await apiClient.get("/api/v1/order-management/invoices");
       setInvoices(data.invoices ?? []);
     } catch (error: any) {
       console.error("[InvoicesPage] failed to load invoices:", error);
@@ -179,22 +167,14 @@ export default function InvoicesPage() {
     } finally {
       setLoading(false);
     }
-  }, [typeFilter]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  const filteredInvoices = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return invoices;
-    return invoices.filter((i) => i.invoiceNumber.toLowerCase().includes(q) || i.item.toLowerCase().includes(q));
-  }, [invoices, search]);
 
   // ---- Dealer purchase invoices state ----
   const [dealerInvoices, setDealerInvoices] = useState<DealerInvoice[]>([]);
   const [dealerLoading, setDealerLoading] = useState(true);
-  const [dealerExpanded, setDealerExpanded] = useState<number | null>(null);
   const [dealerLoadError, setDealerLoadError] = useState<string | null>(null);
-  const [dealerSearch, setDealerSearch] = useState(deepLinkQ);
   const [dealerIdFilter, setDealerIdFilter] = useState(initialDealerId);
 
   const loadDealerInvoices = useCallback(async () => {
@@ -216,15 +196,47 @@ export default function InvoicesPage() {
 
   useEffect(() => { loadDealerInvoices(); }, [loadDealerInvoices]);
 
-  const dealerTotalAmount = dealerInvoices.reduce((sum, i) => sum + Number(i.amount), 0);
-  const dealerScannedCount = dealerInvoices.filter((i) => i.ocrStatus === "DONE").length;
-  const dealerCount = new Set(dealerInvoices.map((i) => i.dealer.id)).size;
+  // ---- Combined ----
+  const rows: Row[] = useMemo(() => {
+    const fromInvoices: Row[] = invoices.map((inv) => ({
+      key: `inv-${inv.id}`,
+      date: inv.issuedAt,
+      number: inv.invoiceNumber,
+      dealer: inv.dealer ? { id: inv.dealer.id, label: inv.dealer.tradeName || inv.dealer.legalName } : null,
+      party: "Manufacturer",
+      subject: inv.item,
+      amount: inv.totalAmount != null ? Number(inv.totalAmount) : null,
+      typeLabel: TYPE_LABEL[inv.type] ?? inv.type,
+      tone: invoiceTypeTone(inv.type),
+      onView: () => setViewing(inv),
+      onDownload: () => downloadInvoicePdf(inv),
+    }));
+    const fromDealers: Row[] = dealerInvoices.map((d) => ({
+      key: `dlr-${d.id}`,
+      date: d.invoiceDate,
+      number: d.invoiceNumber,
+      dealer: { id: d.dealer.id, label: d.dealer.legalName },
+      party: d.vendorName,
+      subject: `Purchase — ${d.category.replace(/_/g, " ").toLowerCase()}`,
+      amount: Number(d.amount),
+      typeLabel: "Purchase",
+      tone: "neutral" as BadgeTone,
+      onView: () => setViewingDealer(d),
+    }));
+    return [...fromInvoices, ...fromDealers].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [invoices, dealerInvoices]);
 
-  const filteredDealerInvoices = useMemo(() => {
-    const q = dealerSearch.trim().toLowerCase();
-    if (!q) return dealerInvoices;
-    return dealerInvoices.filter((i) => i.invoiceNumber.toLowerCase().includes(q) || i.vendorName.toLowerCase().includes(q) || i.dealer.legalName.toLowerCase().includes(q));
-  }, [dealerInvoices, dealerSearch]);
+  const [search, setSearch] = useState(deepLinkQ);
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => r.number.toLowerCase().includes(q) || r.subject.toLowerCase().includes(q) || r.party.toLowerCase().includes(q) || (r.dealer?.label.toLowerCase().includes(q) ?? false));
+  }, [rows, search]);
+
+  const totalValue = rows.reduce((sum, r) => sum + (r.amount ?? 0), 0);
+  const scannedCount = dealerInvoices.filter((i) => i.ocrStatus === "DONE").length;
+  const anyLoading = loading || dealerLoading;
+  const anyError = loadError || dealerLoadError;
 
   return (
     <div className="mx-auto max-w-[1400px] p-6">
@@ -238,229 +250,125 @@ export default function InvoicesPage() {
         </div>
       </header>
 
-      {/* Tab switcher — one Invoices module, two shapes of data */}
-      <div className="mb-6 inline-flex items-center gap-1 rounded-[var(--radius)] border border-border bg-card p-1">
-        <button
-          onClick={() => setTab("manufacturer")}
-          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${tab === "manufacturer" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <FileText className="h-3.5 w-3.5" /> Manufacturer Invoices
-        </button>
-        <button
-          onClick={() => setTab("dealer-purchase")}
-          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${tab === "dealer-purchase" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <Receipt className="h-3.5 w-3.5" /> Dealer Purchase Invoices
-        </button>
+      {anyError && (
+        <div className="mb-4 rounded-[var(--radius)] border px-4 py-3 text-sm" style={{ borderColor: "var(--zira-rejected)", color: "var(--zira-rejected)" }}>
+          {loadError || dealerLoadError}
+          <div className="mt-2">
+            <Button size="sm" variant="secondary" onClick={() => { load(); loadDealerInvoices(); }}>
+              <RefreshCw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard icon={<Receipt className="h-4 w-4" />} label="Total invoices" value={rows.length} tone="teal" />
+        <StatCard icon={<IndianRupee className="h-4 w-4" />} label="Total value" value={inr(totalValue)} tone="green" />
+        <StatCard icon={<Scan className="h-4 w-4" />} label="Purchase bills scanned" value={scannedCount} tone="blue" />
       </div>
 
-      {tab === "manufacturer" && (
-        <>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">Every document sent to a dealer — order-driven confirmations plus anything staff send directly.</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search invoice # or item…"
-                  className="w-56 rounded-[var(--radius)] border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground"
-                />
-              </div>
-              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm">
-                <option value="">All types</option>
-                <option value="CONFIRMATION">Order confirmed</option>
-                <option value="DISPATCH">Order dispatched</option>
-                <option value="DELIVERY">Order delivered</option>
-                <option value="PARTIAL">Partial fulfillment</option>
-                <option value="OUT_OF_STOCK">Out of stock</option>
-                <option value="CANCELLATION">Order cancellation</option>
-                <option value="CUSTOM">General notice</option>
-              </select>
-              <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4" /> Create invoice
-              </Button>
-            </div>
-          </div>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search invoice #, dealer, vendor, subject…"
+            className="w-full rounded-[var(--radius)] border border-border bg-card py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+        {dealerIdFilter && (
+          <Button size="sm" variant="secondary" onClick={() => setDealerIdFilter("")}>
+            Clear dealer filter
+          </Button>
+        )}
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus className="h-4 w-4" /> Create invoice
+        </Button>
+      </div>
 
-          <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Invoice</th>
-                  <th className="px-4 py-3 font-medium">Type</th>
-                  <th className="px-4 py-3 font-medium">Dealer</th>
-                  <th className="px-4 py-3 font-medium">Subject</th>
-                  <th className="px-4 py-3 font-medium">Qty</th>
-                  <th className="px-4 py-3 font-medium">Amount</th>
-                  <th className="px-4 py-3 font-medium">Issued</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
-                ) : loadError ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-[color:var(--zira-rejected)]">
-                      {loadError}
-                      <div className="mt-3">
-                        <Button size="sm" variant="secondary" onClick={() => load()}>
-                          <RefreshCw className="h-4 w-4" /> Retry
+      <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-muted-foreground">
+              <th className="px-4 py-3 font-medium">Invoice</th>
+              <th className="px-4 py-3 font-medium">Type</th>
+              <th className="px-4 py-3 font-medium">Dealer</th>
+              <th className="px-4 py-3 font-medium">From</th>
+              <th className="px-4 py-3 font-medium">Subject</th>
+              <th className="px-4 py-3 font-medium">Amount</th>
+              <th className="px-4 py-3 font-medium">Date</th>
+              <th className="px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {anyLoading ? (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
+            ) : filteredRows.length === 0 ? (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">{rows.length === 0 ? "No invoices yet." : "No invoices match your search."}</td></tr>
+            ) : (
+              filteredRows.map((r) => (
+                <tr key={r.key} className="border-b border-border last:border-0">
+                  <td className="px-4 py-3 font-mono text-xs">{r.number}</td>
+                  <td className="px-4 py-3"><Badge label={r.typeLabel} tone={r.tone} /></td>
+                  <td className="px-4 py-3">
+                    {r.dealer ? (
+                      <Link href={`/dealer-management/${r.dealer.id}`} className="hover:underline">{r.dealer.label}</Link>
+                    ) : "—"}
+                  </td>
+                  <td className="px-4 py-3">{r.party}</td>
+                  <td className="px-4 py-3">{r.subject}</td>
+                  <td className="px-4 py-3 tabular-nums">{r.amount ? inr(r.amount) : "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{new Date(r.date).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-1.5">
+                      <Button size="sm" variant="secondary" onClick={r.onView}>
+                        <Eye className="h-3 w-3" /> View
+                      </Button>
+                      {r.onDownload && (
+                        <Button size="sm" variant="secondary" onClick={r.onDownload}>
+                          <Download className="h-3 w-3" /> PDF
                         </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ) : filteredInvoices.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">{invoices.length === 0 ? "No invoices issued yet." : "No invoices match your search."}</td></tr>
-                ) : (
-                  filteredInvoices.map((inv) => {
-                    const meta = TYPE_META[inv.type];
-                    const Icon = meta.icon;
-                    const total = Number(inv.totalAmount ?? 0);
-                    return (
-                      <tr key={inv.id} className="border-b border-border last:border-0">
-                        <td className="px-4 py-3 font-mono text-xs">{inv.invoiceNumber}</td>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex items-center gap-1">
-                            <Icon className="h-3 w-3" />
-                            <Badge label={meta.label} tone={invoiceTypeTone(inv.type)} />
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          {inv.dealer ? (
-                            <Link href={`/dealer-management/${inv.dealer.id}`} className="hover:underline">{inv.dealer.tradeName || inv.dealer.legalName}</Link>
-                          ) : "—"}
-                        </td>
-                        <td className="px-4 py-3">{inv.item}</td>
-                        <td className="px-4 py-3 tabular-nums">
-                          {inv.requestedQuantity != null || inv.fulfilledQuantity != null ? `${inv.fulfilledQuantity ?? "—"} / ${inv.requestedQuantity ?? "—"}` : "—"}
-                        </td>
-                        <td className="px-4 py-3 tabular-nums">{total > 0 ? inr(total) : "—"}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{new Date(inv.issuedAt).toLocaleDateString()}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex justify-end gap-1.5">
-                            <Button size="sm" variant="secondary" onClick={() => setViewing(inv)}>
-                              <Eye className="h-3 w-3" /> View
-                            </Button>
-                            <Button size="sm" variant="secondary" onClick={() => downloadInvoicePdf(inv)}>
-                              <Download className="h-3 w-3" /> PDF
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
-          <CreateInvoiceModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={load} />
+      <CreateInvoiceModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={load} />
 
-          <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.invoiceNumber ?? "Invoice"} width="max-w-xl">
-            {viewing && <InvoiceCard invoice={viewing} />}
-          </Modal>
-        </>
-      )}
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.invoiceNumber ?? "Invoice"} width="max-w-xl">
+        {viewing && <InvoiceCard invoice={viewing} />}
+      </Modal>
 
-      {tab === "dealer-purchase" && (
-        <>
-          <p className="mb-6 text-sm text-muted-foreground">Read-only — every invoice a dealer has logged from the OEM or a spare-parts supplier, across the network.</p>
-
-          <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard icon={<Receipt className="h-4 w-4" />} label="Invoices logged" value={dealerInvoices.length} tone="teal" />
-            <StatCard icon={<IndianRupee className="h-4 w-4" />} label="Total value" value={`₹${dealerTotalAmount.toLocaleString("en-IN")}`} tone="green" />
-            <StatCard icon={<Scan className="h-4 w-4" />} label="OCR-scanned" value={dealerScannedCount} tone="blue" />
-            <StatCard icon={<FileText className="h-4 w-4" />} label="Dealers" value={dealerCount} tone="purple" />
-          </div>
-
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <div className="relative max-w-sm flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={dealerSearch}
-                onChange={(e) => setDealerSearch(e.target.value)}
-                placeholder="Search invoice #, vendor, dealer…"
-                className="w-full rounded-[var(--radius)] border border-border bg-card py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-            {dealerIdFilter && (
-              <Button size="sm" variant="secondary" onClick={() => setDealerIdFilter("")}>
-                Clear dealer filter
-              </Button>
+      <Modal open={!!viewingDealer} onClose={() => setViewingDealer(null)} title={viewingDealer?.invoiceNumber ?? "Purchase invoice"} width="max-w-xl">
+        {viewingDealer && (
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">Dealer</span><span>{viewingDealer.dealer.legalName}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Vendor</span><span>{viewingDealer.vendorName}</span></div>
+            {viewingDealer.vendorGstin && <div className="flex justify-between"><span className="text-muted-foreground">Vendor GSTIN</span><span>{viewingDealer.vendorGstin}</span></div>}
+            <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span>{new Date(viewingDealer.invoiceDate).toLocaleDateString()}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span>{inr(Number(viewingDealer.amount))}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Category</span><span>{viewingDealer.category.replace(/_/g, " ")}</span></div>
+            {viewingDealer.notes && <p className="rounded-[var(--radius)] border border-border bg-muted/30 p-3">{viewingDealer.notes}</p>}
+            {viewingDealer.fileUrl && (
+              <a href={resolveUrl(viewingDealer.fileUrl)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-primary hover:underline">
+                <FileText className="h-4 w-4" /> View uploaded file
+              </a>
+            )}
+            {viewingDealer.ocrExtractedText && (
+              <div>
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">OCR-extracted text</p>
+                <pre className="whitespace-pre-wrap rounded-[var(--radius)] border border-border bg-background p-2 text-xs text-muted-foreground">{viewingDealer.ocrExtractedText}</pre>
+              </div>
             )}
           </div>
-
-          <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Dealer</th>
-                  <th className="px-4 py-3 font-medium">Vendor</th>
-                  <th className="px-4 py-3 font-medium">Invoice #</th>
-                  <th className="px-4 py-3 font-medium">Date</th>
-                  <th className="px-4 py-3 font-medium">Amount</th>
-                  <th className="px-4 py-3 font-medium">Category</th>
-                  <th className="px-4 py-3 font-medium">File</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dealerLoading ? (
-                  <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
-                ) : dealerLoadError ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-[color:var(--zira-rejected)]">
-                      {dealerLoadError}
-                      <div className="mt-3">
-                        <Button size="sm" variant="secondary" onClick={() => loadDealerInvoices()}>
-                          <RefreshCw className="h-4 w-4" /> Retry
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ) : filteredDealerInvoices.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">{dealerInvoices.length === 0 ? "No dealer has logged a purchase invoice yet." : "No invoices match your search."}</td></tr>
-                ) : (
-                  filteredDealerInvoices.map((inv) => (
-                    <React.Fragment key={inv.id}>
-                      <tr onClick={() => setDealerExpanded(dealerExpanded === inv.id ? null : inv.id)} className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/50">
-                        <td className="px-4 py-3">{inv.dealer.legalName}</td>
-                        <td className="px-4 py-3">{inv.vendorName}</td>
-                        <td className="px-4 py-3 font-mono text-xs">{inv.invoiceNumber}</td>
-                        <td className="px-4 py-3">{new Date(inv.invoiceDate).toLocaleDateString()}</td>
-                        <td className="px-4 py-3 tabular-nums">₹{Number(inv.amount).toLocaleString("en-IN")}</td>
-                        <td className="px-4 py-3"><Badge status={inv.category} tone={CATEGORY_TONE[inv.category] ?? "neutral"} /></td>
-                        <td className="px-4 py-3">
-                          {inv.fileUrl ? (
-                            <a href={resolveUrl(inv.fileUrl)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-xs font-medium text-primary hover:underline">View</a>
-                          ) : "—"}
-                        </td>
-                      </tr>
-                      {dealerExpanded === inv.id && (
-                        <tr className="border-b border-border last:border-0">
-                          <td colSpan={7} className="bg-muted/30 px-4 py-3">
-                            {inv.notes && <p className="mb-1.5 text-sm">{inv.notes}</p>}
-                            {inv.ocrExtractedText ? (
-                              <div>
-                                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">OCR-extracted text</p>
-                                <pre className="whitespace-pre-wrap rounded-[var(--radius)] border border-border bg-background p-2 text-xs text-muted-foreground">{inv.ocrExtractedText}</pre>
-                              </div>
-                            ) : (
-                              <p className="text-xs text-muted-foreground">No OCR text available for this invoice.</p>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }
