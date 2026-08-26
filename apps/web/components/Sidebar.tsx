@@ -110,7 +110,9 @@ const NAV: NavEntry[] = [
   },
 ];
 
-const DEFAULT_OPEN = new Set(["leads", "campaigns", "dealer", "inventory-management", "warranty", "intelligence"]);
+// All groups start collapsed — a group only opens once the user actually
+// clicks it, rather than pre-guessing which one they'll want.
+const DEFAULT_OPEN = new Set<string>();
 
 export default function Sidebar() {
   const pathname = usePathname();
