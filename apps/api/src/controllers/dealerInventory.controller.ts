@@ -14,6 +14,7 @@ import { generateSequenceNumber } from "../services/dealerManagement.service.js"
 import { registerComponentsForSale } from "../services/componentRegistration.service.js";
 import { issueInvoice, resolveUnitPrice } from "../services/invoice.service.js";
 import { sendInvoiceEmail } from "../services/email.service.js";
+import { logInventoryChange } from "../services/inventoryLog.service.js";
 
 // The dev-only demo login issues user id 0, which has no matching users
 // row — issuedById is a real foreign key, so that id must never be written.
@@ -325,13 +326,16 @@ export class StockTransferController {
         ? await resolveUnitPrice("VEHICLE", transfer)
         : 0;
 
-      const { updated, invoice } = await prisma.$transaction(async (tx) => {
+      const itemLabel = `${transfer.model} (${transfer.segment})`;
+      const { updated, invoice, inventoryChange } = await prisma.$transaction(async (tx) => {
+        let movedCount = 0;
         if (b.status === "DELIVERED") {
           if (vehicleUnitIds.length > 0) {
             await tx.vehicleUnit.updateMany({
               where: { id: { in: vehicleUnitIds } },
               data: { dealerId: transfer.dealerId, status: "ALLOCATED", allocatedAt: new Date() },
             });
+            movedCount = vehicleUnitIds.length;
           } else {
             // Order Management doesn't hand-pick VINs today — this is the
             // real stock movement for the common path: pull the requested
@@ -351,6 +355,7 @@ export class StockTransferController {
                 where: { id: { in: available.map((u) => u.id) } },
                 data: { dealerId: transfer.dealerId, status: "IN_STOCK", allocatedAt: new Date() },
               });
+              movedCount = available.length;
             }
           }
         }
@@ -360,18 +365,29 @@ export class StockTransferController {
         if (b.status === "DISPATCHED" || b.status === "DELIVERED") {
           invoice = await issueInvoice(tx, {
             type: "VEHICLE", orderId: id, dealerId: transfer.dealerId,
-            item: `${transfer.model} (${transfer.segment})`,
+            item: itemLabel,
             invoiceType: b.status === "DISPATCHED" ? "DISPATCH" : "DELIVERY",
             requestedQuantity: transfer.quantity, fulfilledQuantity: transfer.quantity,
             unitPrice, issuedById: actingUserId(req),
           });
         }
-        return { updated, invoice };
+
+        // Surfaced back to Order Management so whoever just approved the
+        // delivery sees the actual inventory impact immediately, and logged
+        // permanently for the Inventory Logs module.
+        let inventoryChange = null;
+        if (b.status === "DELIVERED" && movedCount > 0) {
+          await logInventoryChange(tx, { entity: "VEHICLE", bucket: "DEALER", direction: "ADDED", quantity: movedCount, itemLabel, dealerId: transfer.dealerId, source: "ORDER_DELIVERED" });
+          await logInventoryChange(tx, { entity: "VEHICLE", bucket: "OEM", direction: "REMOVED", quantity: movedCount, itemLabel, source: "ORDER_DELIVERED" });
+          inventoryChange = { entity: "VEHICLE", item: itemLabel, dealerAdded: movedCount, oemRemoved: movedCount };
+        }
+
+        return { updated, invoice, inventoryChange };
       });
 
       if (invoice) void sendInvoiceEmail(invoice);
 
-      res.json({ ...updated, invoice });
+      res.json({ ...updated, invoice, inventoryChange });
     } catch (error) {
       handleError(error, res, "Update stock transfer");
     }

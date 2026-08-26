@@ -15,6 +15,7 @@ import leadsRoutes from "./leads.routes.js";
 import landingPageCampaignRoutes from "./landingPageCampaign.routes.js";
 import usersRoutes from "./users.routes.js";
 import searchRoutes from "./search.routes.js";
+import inventoryLogsRoutes from "./inventoryLogs.routes.js";
 
 const router = Router();
 
@@ -58,6 +59,7 @@ router.use("/dealer-compliance", dealerComplianceRoutes);
 router.use("/order-management", orderManagementRoutes);
 router.use("/purchase-management", purchaseManagementRoutes);
 router.use("/campaign-management", campaignManagementRoutes);
+router.use("/inventory-logs", inventoryLogsRoutes);
 
 // Warranty Management (centrepiece module — see warranty.controller.ts)
 router.use("/warranty-plans", warrantyRoutes.plans);

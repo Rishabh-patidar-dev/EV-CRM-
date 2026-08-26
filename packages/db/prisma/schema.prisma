@@ -642,6 +642,7 @@ model Dealer {
   leadSegments          Segment[]
   campaigns             MarketingCampaign[]
   invoices              Invoice[]
+  inventoryLogs         InventoryLog[]
 
   // Sales & Booking
   bookings Booking[]
@@ -1114,6 +1115,58 @@ model StockTransferRequest {
   @@index([dealerId])
   @@index([status])
   @@map("stock_transfer_requests")
+}
+
+// =============================================================================
+// Inventory Logs — an append-only audit trail of every event that actually
+// moves a quantity in or out of a stock bucket (dealer stock or OEM stock),
+// for vehicles or spare parts. Written at the same handful of points that
+// already mutate VehicleUnit/DealerSparePart/SparePartInventory quantities
+// (delivery reconciliation, a dealer's manual/OCR-scanned stock add) — never
+// derived/backfilled from those tables, so it stays a true point-in-time
+// record even if a later correction changes the underlying row.
+// =============================================================================
+enum InventoryLogEntity {
+  VEHICLE
+  SPARE_PART
+}
+
+enum InventoryLogBucket {
+  DEALER
+  OEM
+}
+
+enum InventoryLogDirection {
+  ADDED
+  REMOVED
+}
+
+model InventoryLog {
+  id Int @id @default(autoincrement())
+
+  entity    InventoryLogEntity
+  bucket    InventoryLogBucket
+  direction InventoryLogDirection
+  quantity  Int
+
+  // Model name (vehicles) or part name (spare parts) — kept as a plain
+  // string snapshot, not a foreign key, since the log must stay readable
+  // even if the underlying part/model catalog entry is later renamed.
+  itemLabel String @map("item_label")
+
+  dealerId Int?    @map("dealer_id")
+  dealer   Dealer? @relation(fields: [dealerId], references: [id], onDelete: SetNull)
+
+  // What triggered this line — "ORDER_DELIVERED", "MANUAL_ADD", "SCAN_BILL" —
+  // free text rather than an enum, so a new source never needs a schema change.
+  source String
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entity])
+  @@index([dealerId])
+  @@index([createdAt])
+  @@map("inventory_logs")
 }
 
 // =============================================================================

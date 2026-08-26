@@ -75,15 +75,17 @@ export default function OrderManagementPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "item">("recent");
   const [createOpen, setCreateOpen] = useState(false);
+  const [inventoryNotice, setInventoryNotice] = useState<{ entity: "VEHICLE" | "SPARE_PART"; item: string; dealerAdded: number; oemRemoved: number } | null>(null);
   // Two sub-views under one Order Management page (not separate sidebar
   // entries) — Overview (KPIs/charts) and List (the filterable order
-  // table), so finding a specific order doesn't mean scrolling past every
-  // chart first. Reads an initial ?tab=list deep link (used by the Check
-  // Inventory page's "Back to Order List") without pulling in
-  // useSearchParams, which would need a Suspense boundary here.
+  // table). List is the default landing view (Order Management is now its
+  // own top-level nav item, and the order list is what staff need first);
+  // ?tab=overview opts back into the KPI view. Reads the initial tab
+  // without pulling in useSearchParams, which would need a Suspense
+  // boundary here.
   const [tab, setTab] = useState<"overview" | "list">(() => {
-    if (typeof window === "undefined") return "overview";
-    return new URLSearchParams(window.location.search).get("tab") === "list" ? "list" : "overview";
+    if (typeof window === "undefined") return "list";
+    return new URLSearchParams(window.location.search).get("tab") === "overview" ? "overview" : "list";
   });
 
   // Marks "staff has looked at the order list" — clears the green-asterisk
@@ -145,7 +147,12 @@ export default function OrderManagementPage() {
 
   const advance = async (order: OrderRow, status: string) => {
     const path = order.type === "VEHICLE" ? "stock-transfers" : "spare-parts";
-    await apiClient.patch(`/api/v1/${path}/${order.id}`, { status });
+    const { data } = await apiClient.patch(`/api/v1/${path}/${order.id}`, { status });
+    // Marking an order DELIVERED is the moment stock actually moves — the
+    // API returns exactly what changed so whoever approved it sees the
+    // inventory impact immediately, not just a status flip. A permanent
+    // record of the same event lives in Inventory Management > Inventory Logs.
+    if (data?.inventoryChange) setInventoryNotice(data.inventoryChange);
     await refresh();
   };
 
@@ -187,6 +194,25 @@ export default function OrderManagementPage() {
       </header>
 
       <CreateOrderModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={refresh} />
+
+      {inventoryNotice && (
+        <div
+          className="mb-6 flex items-start justify-between gap-4 rounded-[var(--radius)] border px-4 py-3.5 text-sm"
+          style={{ borderColor: "var(--zira-approved)", backgroundColor: "color-mix(in srgb, var(--zira-approved) 8%, transparent)" }}
+        >
+          <div className="flex items-start gap-2.5">
+            <Package className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--zira-approved)" }} />
+            <div>
+              <p className="font-medium">Inventory updated — {inventoryNotice.item}</p>
+              <p className="mt-0.5 text-muted-foreground">
+                +{inventoryNotice.dealerAdded} added to the dealer&rsquo;s inventory, &minus;{inventoryNotice.oemRemoved} removed from manufacturer stock.
+                {" "}See the full history in Inventory Management &rsaquo; Inventory Logs.
+              </p>
+            </div>
+          </div>
+          <button onClick={() => setInventoryNotice(null)} className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground">Dismiss</button>
+        </div>
+      )}
 
       {loadError && (
         <div className="mb-6 rounded-[var(--radius)] border border-dashed border-[color:var(--zira-rejected)]/40 p-4 text-center text-[color:var(--zira-rejected)]">

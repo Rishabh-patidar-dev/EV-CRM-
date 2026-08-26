@@ -1,16 +1,20 @@
 "use client";
 
 // ============================================================================
-// NEW SUBMODULE — Vehicle Inventory & Stock Allocation
+// Vehicle Inventory
 // ============================================================================
-// Route: /dealer-inventory[?dealerId=]
+// Route: /inventory-management/vehicles[?dealerId=]
 // VIN-level stock (OEM warehouse -> allocated -> demo/sold) plus the dealer
 // stock-transfer request queue. Optionally pre-filtered to a single dealer
 // via the ?dealerId= query param (linked from Dealer Management).
+//
+// Split out of the former combined /dealer-inventory page — the spare-parts
+// section that used to live below the vehicle gallery now has its own page
+// at /inventory-management/spare-parts.
 // ============================================================================
 import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Warehouse, Plus, Search, Truck, Loader2, MapPin, TrendingUp, PackageSearch, RefreshCw } from "lucide-react";
+import { Warehouse, Plus, Search, Truck, Loader2, MapPin, TrendingUp, RefreshCw, Package } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import BarChart from "@/components/charts/BarChart";
@@ -46,15 +50,15 @@ interface Dealer {
   tradeName?: string | null;
 }
 
-export default function DealerInventoryPage() {
+export default function VehicleInventoryPage() {
   return (
     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
-      <DealerInventoryInner />
+      <VehicleInventoryInner />
     </Suspense>
   );
 }
 
-function DealerInventoryInner() {
+function VehicleInventoryInner() {
   const searchParams = useSearchParams();
   const dealerIdParam = searchParams.get("dealerId") ?? "";
   // GlobalSearch (TopBar) sends a matched VIN/model here as ?q= — seeds the
@@ -75,7 +79,6 @@ function DealerInventoryInner() {
     totalActiveStock: number;
     totalUnits: number;
   } | null>(null);
-  const [spareParts, setSpareParts] = useState<{ id: number; partName: string; partCode: string | null; quantityOnHand: number }[]>([]);
 
   const [dealerFilter, setDealerFilter] = useState(dealerIdParam);
   const [statusFilter, setStatusFilter] = useState("");
@@ -83,6 +86,12 @@ function DealerInventoryInner() {
   const [showUnitForm, setShowUnitForm] = useState(false);
   const [showTransferForm, setShowTransferForm] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Marking a stock-transfer request DELIVERED is the moment stock actually
+  // moves — the API returns exactly what changed so whoever approved it sees
+  // the inventory impact immediately, not just a status flip. Same pattern
+  // as Order Management's `inventoryNotice`. A permanent record of the same
+  // event lives in Inventory Management > Inventory Logs.
+  const [inventoryNotice, setInventoryNotice] = useState<{ entity: "VEHICLE"; item: string; dealerAdded: number; oemRemoved: number } | null>(null);
 
   const loadDealers = useCallback(async () => {
     const { data } = await apiClient.get("/api/v1/dealers", { params: { limit: 100 } });
@@ -111,23 +120,18 @@ function DealerInventoryInner() {
     setAnalytics(data);
   }, []);
 
-  const loadSpareParts = useCallback(async () => {
-    const { data } = await apiClient.get("/api/v1/spare-part-inventory");
-    setSpareParts(data.items ?? []);
-  }, []);
-
   const refresh = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      await Promise.all([loadUnits(), loadTransfers(), loadAnalytics(), loadSpareParts()]);
+      await Promise.all([loadUnits(), loadTransfers(), loadAnalytics()]);
     } catch (error: any) {
-      console.error("[DealerInventoryPage] failed to load inventory data:", error);
+      console.error("[VehicleInventoryPage] failed to load inventory data:", error);
       setLoadError(error?.response?.data?.message || error?.message || "Could not load inventory data. Try refreshing.");
     } finally {
       setLoading(false);
     }
-  }, [loadUnits, loadTransfers, loadAnalytics, loadSpareParts]);
+  }, [loadUnits, loadTransfers, loadAnalytics]);
 
   useEffect(() => {
     loadDealers();
@@ -138,7 +142,8 @@ function DealerInventoryInner() {
   }, [refresh]);
 
   const updateTransferStatus = async (id: number, status: string) => {
-    await apiClient.patch(`/api/v1/stock-transfers/${id}`, { status });
+    const { data } = await apiClient.patch(`/api/v1/stock-transfers/${id}`, { status });
+    if (data?.inventoryChange) setInventoryNotice(data.inventoryChange);
     await loadTransfers();
   };
 
@@ -178,6 +183,25 @@ function DealerInventoryInner() {
         </div>
       )}
 
+      {inventoryNotice && (
+        <div
+          className="mb-6 flex items-start justify-between gap-4 rounded-[var(--radius)] border px-4 py-3.5 text-sm"
+          style={{ borderColor: "var(--zira-approved)", backgroundColor: "color-mix(in srgb, var(--zira-approved) 8%, transparent)" }}
+        >
+          <div className="flex items-start gap-2.5">
+            <Package className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--zira-approved)" }} />
+            <div>
+              <p className="font-medium">Inventory updated — {inventoryNotice.item}</p>
+              <p className="mt-0.5 text-muted-foreground">
+                +{inventoryNotice.dealerAdded} added to the dealer&rsquo;s inventory, &minus;{inventoryNotice.oemRemoved} removed from manufacturer stock.
+                {" "}See the full history in Inventory Management &rsaquo; Inventory Logs.
+              </p>
+            </div>
+          </div>
+          <button onClick={() => setInventoryNotice(null)} className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground">Dismiss</button>
+        </div>
+      )}
+
       {/* Gallery — how much of each vehicle is actually left at the OEM
           warehouse right now (dealerId = null, IN_STOCK), the same number
           Check Inventory compares against. Photo + count only, no card
@@ -202,26 +226,6 @@ function DealerInventoryInner() {
                 </div>
               ))}
           </div>
-
-          {spareParts.length > 0 && (
-            <div className="mt-8 border-t border-border pt-6">
-              <h3 className="mb-4 flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
-                <PackageSearch className="h-4 w-4" /> Spare parts on hand
-              </h3>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4 lg:grid-cols-6">
-                {spareParts.map((p) => (
-                  <div key={p.id} className="flex flex-col items-center text-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent/60">
-                      <PackageSearch className="h-6 w-6 text-muted-foreground" />
-                    </div>
-                    <div className="mt-2 text-xs font-medium">{p.partName}</div>
-                    <div className="mt-1 text-xl font-semibold tabular-nums">{p.quantityOnHand}</div>
-                    <div className="text-[11px] text-muted-foreground">in stock</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </section>
       )}
 

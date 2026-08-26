@@ -26,6 +26,9 @@ import {
   CheckSquare,
   FileText,
   Receipt,
+  PackageSearch,
+  ScrollText,
+  Landmark,
 } from "lucide-react";
 import Logo from "./Logo";
 
@@ -66,12 +69,21 @@ const NAV: NavEntry[] = [
     items: [
       { href: "/dealer-onboarding", label: "Onboarding Pipeline", icon: Workflow },
       { href: "/dealer-management", label: "Dealer 360", icon: Building2 },
-      { href: "/dealer-inventory", label: "Vehicle Inventory", icon: Warehouse },
-      { href: "/order-management", label: "Order Management", icon: ListChecks, exactOnly: true },
-      { href: "/order-management/invoices", label: "Invoices", icon: FileText },
       { href: "/purchase-management", label: "Purchase Management", icon: ShoppingCart, badge: "new" },
-      { href: "/purchase-management/dealer-invoices", label: "Dealer Purchase Invoices", icon: Receipt },
       { href: "/dealer-compliance", label: "Compliance & Renewals", icon: ShieldCheck },
+    ],
+  },
+  { kind: "link", href: "/order-management", label: "Order Management", icon: ListChecks },
+  { kind: "link", href: "/invoices", label: "Invoices", icon: FileText },
+  { kind: "link", href: "/finance-management", label: "Finance Management", icon: Landmark },
+  {
+    kind: "group",
+    id: "inventory-management",
+    group: "Inventory Management",
+    items: [
+      { href: "/inventory-management/vehicles", label: "Vehicle Inventory", icon: Warehouse },
+      { href: "/inventory-management/spare-parts", label: "Spare Parts Inventory", icon: PackageSearch },
+      { href: "/inventory-management/logs", label: "Inventory Logs", icon: ScrollText },
     ],
   },
   {
@@ -92,7 +104,7 @@ const NAV: NavEntry[] = [
   },
 ];
 
-const DEFAULT_OPEN = new Set(["leads", "campaigns", "dealer", "warranty", "intelligence"]);
+const DEFAULT_OPEN = new Set(["leads", "campaigns", "dealer", "inventory-management", "warranty", "intelligence"]);
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -171,7 +183,13 @@ export default function Sidebar() {
       <nav className="sidebar-scroll flex-1 overflow-y-auto px-3 py-3">
         {NAV.map((entry, i) =>
           entry.kind === "link" ? (
-            <SidebarLink key={entry.href} {...entry} active={pathname === entry.href} />
+            <SidebarLink
+              key={entry.href}
+              {...entry}
+              active={pathname === entry.href}
+              liveIndicator={entry.href === "/order-management" && newOrderMarker}
+              badgeCount={entry.href === "/invoices" ? invoiceUnreadCount : undefined}
+            />
           ) : (
             <div key={entry.id ?? i} className="mt-1 mb-1">
               <button

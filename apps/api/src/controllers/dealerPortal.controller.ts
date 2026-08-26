@@ -27,6 +27,7 @@ import { extractText } from "../services/ocr.service.js";
 import { parseInvoiceFields } from "../services/invoiceParsing.service.js";
 import { parseSparePartLineItems } from "../services/sparePartsBillParsing.service.js";
 import { parseVehicleBillLineItems } from "../services/vehicleBillParsing.service.js";
+import { logInventoryChange } from "../services/inventoryLog.service.js";
 
 // GST rule: e-way bills are mandatory (and here, only generatable) once a
 // consignment's taxable value exceeds this statutory threshold.
@@ -340,6 +341,7 @@ export class DealerPortalController {
           notes: b.notes || null,
         },
       });
+      await logInventoryChange(prisma, { entity: "VEHICLE", bucket: "DEALER", direction: "ADDED", quantity: 1, itemLabel: `${b.model} (${b.segment})`, dealerId, source: b.source === "SCAN_BILL" ? "SCAN_BILL" : "MANUAL_ADD" });
       res.status(201).json(unit);
     } catch (error: any) {
       if (error.code === "P2002") return handleValidationError(res, "A unit with this VIN already exists", "vin", "Add vehicle to inventory");
@@ -789,6 +791,7 @@ export class DealerPortalController {
         : await prisma.dealerSparePart.create({
             data: { dealerId, partName: b.partName, partCode: b.partCode ?? null, quantityOnHand: quantity, unitPrice: unitPrice ?? "0" },
           });
+      await logInventoryChange(prisma, { entity: "SPARE_PART", bucket: "DEALER", direction: "ADDED", quantity, itemLabel: b.partName, dealerId, source: b.source === "SCAN_BILL" ? "SCAN_BILL" : "MANUAL_ADD" });
       res.status(existing ? 200 : 201).json(part);
     } catch (error) {
       handleError(error, res, "Add spare parts stock");

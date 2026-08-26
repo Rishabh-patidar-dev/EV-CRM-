@@ -129,7 +129,7 @@ export default function DealerDetailPage() {
 
         {/* quick links into the other dealer-management submodules, pre-filtered */}
         <div className="flex flex-wrap gap-2">
-          <QuickLink href={`/dealer-inventory?dealerId=${data.id}`} icon={<Warehouse className="w-3.5 h-3.5" />} label="Inventory" />
+          <QuickLink href={`/inventory-management/vehicles?dealerId=${data.id}`} icon={<Warehouse className="w-3.5 h-3.5" />} label="Inventory" />
           <QuickLink href={`/dealer-compliance?dealerId=${data.id}`} icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Compliance" />
           <QuickLink href={`/warranty?dealerId=${data.id}`} icon={<ClipboardList className="w-3.5 h-3.5" />} label="Warranty" />
         </div>

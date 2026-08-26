@@ -13,6 +13,7 @@ import { handleError, handleValidationError, handleNotFoundError } from "../util
 import { generateSequenceNumber, normalizePhone } from "../services/dealerManagement.service.js";
 import { issueInvoice, resolveUnitPrice } from "../services/invoice.service.js";
 import { sendInvoiceEmail } from "../services/email.service.js";
+import { logInventoryChange } from "../services/inventoryLog.service.js";
 
 // Same demo-login guard as orderManagement.controller.ts's actingUserId.
 function actingUserId(req: Request): number | null {
@@ -283,6 +284,7 @@ export class AfterSalesController {
           // dealer's own manual/OCR add-stock flow) and comes back out of
           // the OEM's shared SparePartInventory pool — clamped at 0 so an
           // over-committed order can never drive the OEM count negative.
+          let inventoryChange = null;
           if (b.status === "DELIVERED") {
             const deliveredQty = data.quantity ?? current.quantity;
             const existingStock = await tx.dealerSparePart.findFirst({ where: { dealerId: current.dealerId, partName: current.partName } });
@@ -296,14 +298,22 @@ export class AfterSalesController {
                 data: { dealerId: current.dealerId, partName: current.partName, partCode: current.partCode ?? null, quantityOnHand: deliveredQty, unitPrice: String(unitPrice) },
               });
             }
+            await logInventoryChange(tx, { entity: "SPARE_PART", bucket: "DEALER", direction: "ADDED", quantity: deliveredQty, itemLabel: current.partName, dealerId: current.dealerId, source: "ORDER_DELIVERED" });
 
+            let oemRemoved = 0;
             const oemStock = await tx.sparePartInventory.findUnique({ where: { partName: current.partName } });
             if (oemStock) {
+              oemRemoved = Math.min(deliveredQty, oemStock.quantityOnHand);
               await tx.sparePartInventory.update({
                 where: { id: oemStock.id },
                 data: { quantityOnHand: Math.max(0, oemStock.quantityOnHand - deliveredQty) },
               });
+              await logInventoryChange(tx, { entity: "SPARE_PART", bucket: "OEM", direction: "REMOVED", quantity: oemRemoved, itemLabel: current.partName, source: "ORDER_DELIVERED" });
             }
+
+            // Surfaced back to Order Management so whoever just approved the
+            // delivery sees the actual inventory impact immediately.
+            inventoryChange = { entity: "SPARE_PART", item: current.partName, dealerAdded: deliveredQty, oemRemoved };
           }
 
           const invoice = await issueInvoice(tx, {
@@ -312,10 +322,10 @@ export class AfterSalesController {
             requestedQuantity: current.quantity, fulfilledQuantity: current.quantity,
             unitPrice, issuedById: actingUserId(req),
           });
-          return { request, invoice };
+          return { request, invoice, inventoryChange };
         });
         void sendInvoiceEmail(result.invoice);
-        res.json({ ...result.request, invoice: result.invoice });
+        res.json({ ...result.request, invoice: result.invoice, inventoryChange: result.inventoryChange });
         return;
       }
 
