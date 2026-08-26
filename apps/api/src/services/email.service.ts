@@ -275,3 +275,186 @@ export async function sendInvoiceEmail(invoice: InvoiceForEmail) {
     `,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Warranty claim status emails — closes the same loop Order Management's
+// invoice emails already give: a dealer submits a claim from DMS, and every
+// staff-driven decision after that (approve/reject/repair/reimburse/close)
+// reaches them without having to keep re-opening the Warranty page to check.
+// The initial auto-adjudication result is already shown synchronously in the
+// DMS submit flow, so this only fires for the staff-driven transitions that
+// happen after that.
+// ---------------------------------------------------------------------------
+type WarrantyStatus = "SUBMITTED" | "UNDER_REVIEW" | "INFO_REQUESTED" | "APPROVED" | "IN_REPAIR" | "REIMBURSED" | "RECOVERY" | "REJECTED" | "CLOSED";
+
+interface WarrantyClaimForEmail {
+  claimNumber: string;
+  customerName: string;
+  status: WarrantyStatus;
+  approvedAmount: unknown;
+  rejectionReason: string | null;
+  dealer: { legalName: string; tradeName: string | null; email: string | null } | null;
+}
+
+const WARRANTY_STATUS_LABEL: Partial<Record<WarrantyStatus, string>> = {
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  IN_REPAIR: "In Repair",
+  REIMBURSED: "Reimbursed",
+  CLOSED: "Closed",
+};
+
+// Only the staff-driven transitions get an email — SUBMITTED/UNDER_REVIEW
+// are intake states the dealer already sees the result of at submit time.
+const WARRANTY_EMAIL_STATUSES = new Set<WarrantyStatus>(["APPROVED", "REJECTED", "IN_REPAIR", "REIMBURSED", "CLOSED"]);
+
+export function sendWarrantyClaimStatusEmail(claim: WarrantyClaimForEmail) {
+  if (!WARRANTY_EMAIL_STATUSES.has(claim.status)) return Promise.resolve();
+  const dealer = claim.dealer;
+  if (!dealer?.email) return Promise.resolve();
+
+  const label = WARRANTY_STATUS_LABEL[claim.status] ?? claim.status;
+  const detail =
+    claim.status === "APPROVED" && claim.approvedAmount != null
+      ? `<p style="margin-top:10px; font-weight:600; font-size:14px;">Approved amount: Rs. ${Number(claim.approvedAmount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>`
+      : claim.status === "REJECTED" && claim.rejectionReason
+      ? `<div style="margin-top:12px; padding:12px 14px; background:#fdf2f2; border-radius:8px; font-size:13px; line-height:1.5; color:#7a2e2e;">${claim.rejectionReason}</div>`
+      : "";
+
+  return sendMail({
+    to: dealer.email,
+    subject: `Warranty claim ${claim.claimNumber} — ${label}`,
+    html: `
+      <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+        <h2 style="margin: 0 0 2px;">Luxus Green Mobility</h2>
+        <p style="color:#999; margin: 0 0 20px; font-size: 12px;">Electric Vehicles &middot; Manufacturer &amp; OEM</p>
+        <p style="color:#888; margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;">Warranty Claim &middot; ${claim.claimNumber}</p>
+        <p>Hi ${dealer.tradeName || dealer.legalName},</p>
+        <p>The warranty claim for <strong>${claim.customerName}</strong> has been updated to <strong>${label}</strong>.</p>
+        ${detail}
+        <p style="margin-top:24px; font-size:13px; color:#444;">Sign in to your dealer portal to see the full claim timeline.</p>
+        <p style="margin-top:24px; font-size: 12px; color: #888;">Issued by Warranty Management — Luxus Green Mobility.</p>
+      </div>
+    `,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Finance case status emails — same closed-loop contract as warranty and
+// invoices: a dealer requests buyer financing from DMS, and every staff-
+// driven pipeline move (docs requested, submitted to the financier,
+// approved, disbursed, rejected) reaches them without re-opening Finance
+// Management to check.
+// ---------------------------------------------------------------------------
+type FinanceCaseStatus = "NEW" | "DOCS_PENDING" | "SUBMITTED" | "APPROVED" | "DISBURSED" | "REJECTED";
+
+interface FinanceCaseForEmail {
+  buyerName: string;
+  status: FinanceCaseStatus;
+  financierName: string | null;
+  loanAmount: unknown;
+  dealer: { legalName: string; tradeName: string | null; email: string | null } | null;
+}
+
+const FINANCE_STATUS_LABEL: Record<FinanceCaseStatus, string> = {
+  NEW: "New",
+  DOCS_PENDING: "Documents Needed",
+  SUBMITTED: "Submitted to Financier",
+  APPROVED: "Approved",
+  DISBURSED: "Disbursed",
+  REJECTED: "Rejected",
+};
+
+const FINANCE_STATUS_NOTE: Partial<Record<FinanceCaseStatus, string>> = {
+  DOCS_PENDING: "The buyer's KYC/income documents are needed before this can move forward — upload them from the Finance page in your dealer portal.",
+  APPROVED: "The loan has been approved by the financier.",
+  DISBURSED: "Funds have been disbursed — this sale can proceed to delivery.",
+  REJECTED: "The financier was unable to approve this application.",
+};
+
+export function sendFinanceCaseStatusEmail(financeCase: FinanceCaseForEmail) {
+  const dealer = financeCase.dealer;
+  if (!dealer?.email) return Promise.resolve();
+
+  const label = FINANCE_STATUS_LABEL[financeCase.status] ?? financeCase.status;
+  const note = FINANCE_STATUS_NOTE[financeCase.status];
+  const loanAmount = financeCase.loanAmount != null ? Number(financeCase.loanAmount) : null;
+
+  return sendMail({
+    to: dealer.email,
+    subject: `Finance case for ${financeCase.buyerName} — ${label}`,
+    html: `
+      <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+        <h2 style="margin: 0 0 2px;">Luxus Green Mobility</h2>
+        <p style="color:#999; margin: 0 0 20px; font-size: 12px;">Electric Vehicles &middot; Manufacturer &amp; OEM</p>
+        <p style="color:#888; margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;">Finance Case</p>
+        <p>Hi ${dealer.tradeName || dealer.legalName},</p>
+        <p>The finance case for <strong>${financeCase.buyerName}</strong> has been updated to <strong>${label}</strong>.</p>
+        ${note ? `<div style="margin-top:12px; padding:12px 14px; background:#f4f3ee; border-radius:8px; font-size:13px; line-height:1.5;">${note}</div>` : ""}
+        ${financeCase.financierName ? `<p style="margin-top:12px; font-size:13px;">Financier: <strong>${financeCase.financierName}</strong></p>` : ""}
+        ${loanAmount ? `<p style="margin-top:4px; font-size:13px;">Loan amount: <strong>Rs. ${loanAmount.toLocaleString("en-IN")}</strong></p>` : ""}
+        <p style="margin-top:24px; font-size:13px; color:#444;">Sign in to your dealer portal for the full case.</p>
+        <p style="margin-top:24px; font-size: 12px; color: #888;">Issued by Finance Management — Luxus Green Mobility.</p>
+      </div>
+    `,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Spare part return status emails — same closed-loop contract as warranty
+// and finance: a dealer flags a defective part from DMS, and every staff
+// decision (approved/rejected/resolved) reaches them without re-checking.
+// ---------------------------------------------------------------------------
+type SparePartReturnStatus = "REQUESTED" | "APPROVED" | "REJECTED" | "RESOLVED";
+type SparePartReturnResolution = "REPLACED" | "CREDITED";
+
+interface SparePartReturnForEmail {
+  partName: string;
+  quantity: number;
+  status: SparePartReturnStatus;
+  resolution: SparePartReturnResolution | null;
+  staffNotes: string | null;
+  dealer: { legalName: string; tradeName: string | null; email: string | null } | null;
+}
+
+const RETURN_STATUS_LABEL: Partial<Record<SparePartReturnStatus, string>> = {
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  RESOLVED: "Resolved",
+};
+
+const RETURN_RESOLUTION_NOTE: Partial<Record<SparePartReturnResolution, string>> = {
+  REPLACED: "A replacement unit has been credited to your inventory, and the OEM's stock has been adjusted for it.",
+  CREDITED: "This has been settled as a credit rather than a physical replacement.",
+};
+
+// Only staff-driven transitions get an email — REQUESTED is the dealer's own
+// submission, they already know they made it.
+const RETURN_EMAIL_STATUSES = new Set<SparePartReturnStatus>(["APPROVED", "REJECTED", "RESOLVED"]);
+
+export function sendSparePartReturnStatusEmail(sparePartReturn: SparePartReturnForEmail) {
+  if (!RETURN_EMAIL_STATUSES.has(sparePartReturn.status)) return Promise.resolve();
+  const dealer = sparePartReturn.dealer;
+  if (!dealer?.email) return Promise.resolve();
+
+  const label = RETURN_STATUS_LABEL[sparePartReturn.status] ?? sparePartReturn.status;
+  const resolutionNote = sparePartReturn.resolution ? RETURN_RESOLUTION_NOTE[sparePartReturn.resolution] : null;
+
+  return sendMail({
+    to: dealer.email,
+    subject: `Spare part return — ${sparePartReturn.partName} — ${label}`,
+    html: `
+      <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+        <h2 style="margin: 0 0 2px;">Luxus Green Mobility</h2>
+        <p style="color:#999; margin: 0 0 20px; font-size: 12px;">Electric Vehicles &middot; Manufacturer &amp; OEM</p>
+        <p style="color:#888; margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;">Spare Part Return</p>
+        <p>Hi ${dealer.tradeName || dealer.legalName},</p>
+        <p>Your quality-return request for <strong>${sparePartReturn.quantity} &times; ${sparePartReturn.partName}</strong> has been updated to <strong>${label}</strong>${sparePartReturn.resolution ? ` (${sparePartReturn.resolution.toLowerCase()})` : ""}.</p>
+        ${resolutionNote ? `<div style="margin-top:12px; padding:12px 14px; background:#f4f3ee; border-radius:8px; font-size:13px; line-height:1.5;">${resolutionNote}</div>` : ""}
+        ${sparePartReturn.staffNotes ? `<div style="margin-top:12px; padding:12px 14px; background:#faf9f5; border-radius:8px; font-size:13px; line-height:1.5;">${sparePartReturn.staffNotes}</div>` : ""}
+        <p style="margin-top:24px; font-size:13px; color:#444;">Sign in to your dealer portal for the full return.</p>
+        <p style="margin-top:24px; font-size: 12px; color: #888;">Issued by Inventory Management — Luxus Green Mobility.</p>
+      </div>
+    `,
+  });
+}

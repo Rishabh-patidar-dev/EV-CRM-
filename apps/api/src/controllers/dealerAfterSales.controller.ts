@@ -12,7 +12,7 @@ import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber, normalizePhone } from "../services/dealerManagement.service.js";
 import { issueInvoice, resolveUnitPrice } from "../services/invoice.service.js";
-import { sendInvoiceEmail } from "../services/email.service.js";
+import { sendInvoiceEmail, sendFinanceCaseStatusEmail, sendSparePartReturnStatusEmail } from "../services/email.service.js";
 import { logInventoryChange } from "../services/inventoryLog.service.js";
 
 // Same demo-login guard as orderManagement.controller.ts's actingUserId.
@@ -51,6 +51,43 @@ export class FinanceController {
       res.status(201).json(fc);
     } catch (error) {
       handleError(error, res, "Create finance case");
+    }
+  }
+
+  // GET /api/v1/finance-cases/new-count — same "unseen work" signal Order
+  // Management's sidebar asterisk uses: NEW is the one status that genuinely
+  // needs a staff finance person to pick it up. Must stay mounted before
+  // any /:id route.
+  async newCount(_req: Request, res: Response) {
+    try {
+      const where = { status: "NEW" as const };
+      const [count, latest] = await Promise.all([
+        prisma.financeCase.count({ where }),
+        prisma.financeCase.findFirst({ where, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+      ]);
+      res.json({ count, latestCreatedAt: latest?.createdAt ?? null });
+    } catch (error) {
+      handleError(error, res, "Finance cases new-count");
+    }
+  }
+
+  // GET /api/v1/finance-cases/:id/attachments — staff-side counterpart of the
+  // dealer-portal generic Attachment endpoints (dealerPortal.controller.ts),
+  // duplicated rather than shared for the same reason warranty.controller.ts's
+  // WarrantyClaimController#listAttachments is: staff auth (crm_session,
+  // req.user) and dealer auth (dealer_session, req.dealerPortal) are
+  // different trust domains with no common middleware to hang a shared
+  // handler off of.
+  async listAttachments(req: Request, res: Response) {
+    try {
+      const financeCaseId = parseInt(req.params.id as string);
+      const attachments = await prisma.attachment.findMany({
+        where: { kind: "FINANCE_CASE", financeCaseId },
+        orderBy: { createdAt: "desc" },
+      });
+      res.json({ attachments });
+    } catch (error) {
+      handleError(error, res, "List finance case attachments");
     }
   }
 
@@ -93,11 +130,24 @@ export class FinanceController {
       const id = parseInt(req.params.id as string);
       if (!id) return handleValidationError(res, "Case ID is required", "id", "Update finance case");
       const b = req.body ?? {};
+      const current = await prisma.financeCase.findUnique({ where: { id }, select: { status: true } });
+      if (!current) return handleNotFoundError(res, "Finance case", "Update finance case");
+
       const data: any = {};
       for (const f of ["status", "financierName", "loanAmount", "vehicleModel", "notes"]) {
         if (b[f] !== undefined) data[f] = b[f];
       }
-      const fc = await prisma.financeCase.update({ where: { id }, data });
+      const fc = await prisma.financeCase.update({
+        where: { id },
+        data,
+        include: { dealer: { select: { legalName: true, tradeName: true, email: true } } },
+      });
+
+      // Every staff-driven status change closes the loop back to the dealer,
+      // same "the app tells you" contract Order Management/Warranty already
+      // give — fire-and-forget, never blocks the update itself.
+      if (data.status && data.status !== current.status) void sendFinanceCaseStatusEmail(fc);
+
       res.json(fc);
     } catch (error: any) {
       if (error.code === "P2025") return handleNotFoundError(res, "Finance case", "Update finance case");
@@ -385,6 +435,152 @@ export class SparePartInventoryController {
     } catch (error: any) {
       if (error.code === "P2025") return handleNotFoundError(res, "Spare part inventory", "Update spare part inventory");
       handleError(error, res, "Update spare part inventory");
+    }
+  }
+}
+
+// --------------------------- SPARE PART RETURNS -----------------------------
+// The closed loop for "this part failed quality": a dealer flags it from
+// their own stock (dealerPortal.controller.ts#createSparePartReturn, no
+// stock movement yet); staff review here and resolve it, which is the
+// actual physical/financial event.
+export class SparePartReturnController {
+  // GET /api/v1/spare-part-returns/new-count — same "unseen work" signal
+  // every other module's sidebar asterisk uses: REQUESTED is the one status
+  // that genuinely needs a staff decision. Must stay mounted before /:id.
+  async newCount(_req: Request, res: Response) {
+    try {
+      const where = { status: "REQUESTED" as const };
+      const [count, latest] = await Promise.all([
+        prisma.sparePartReturn.count({ where }),
+        prisma.sparePartReturn.findFirst({ where, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+      ]);
+      res.json({ count, latestCreatedAt: latest?.createdAt ?? null });
+    } catch (error) {
+      handleError(error, res, "Spare part returns new-count");
+    }
+  }
+
+  // GET /api/v1/spare-part-returns/:id/attachments — staff-side counterpart
+  // of the dealer-portal generic Attachment endpoints, same duplicated-
+  // trust-domain reasoning as WarrantyClaimController#listAttachments and
+  // FinanceController#listAttachments.
+  async listAttachments(req: Request, res: Response) {
+    try {
+      const sparePartReturnId = parseInt(req.params.id as string);
+      const attachments = await prisma.attachment.findMany({
+        where: { kind: "SPARE_PART_RETURN", sparePartReturnId },
+        orderBy: { createdAt: "desc" },
+      });
+      res.json({ attachments });
+    } catch (error) {
+      handleError(error, res, "List spare part return attachments");
+    }
+  }
+
+  // GET /api/v1/spare-part-returns  (?dealerId=&status=)
+  async list(req: Request, res: Response) {
+    try {
+      const { dealerId, status } = req.query;
+      const where: any = {};
+      if (dealerId) where.dealerId = parseInt(dealerId as string);
+      if (status) where.status = status;
+
+      const [returns, pipeline] = await Promise.all([
+        prisma.sparePartReturn.findMany({
+          where,
+          include: { dealer: { select: { id: true, dealerCode: true, legalName: true } } },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        }),
+        prisma.sparePartReturn.groupBy({ by: ["status"], _count: true, where: dealerId ? { dealerId: parseInt(dealerId as string) } : {} }),
+      ]);
+
+      res.json({ returns, pipeline: Object.fromEntries(pipeline.map((r) => [r.status, r._count])) });
+    } catch (error) {
+      handleError(error, res, "List spare part returns");
+    }
+  }
+
+  // POST /api/v1/spare-part-returns/:id/status
+  //   body: { status: 'APPROVED'|'REJECTED'|'RESOLVED', resolution?: 'REPLACED'|'CREDITED', staffNotes? }
+  //
+  // REQUESTED -> APPROVED/REJECTED: no stock movement, just the decision.
+  // -> RESOLVED (requires a resolution): the actual event. The bad quantity
+  // always leaves the dealer's stock. REPLACED additionally sends a fresh
+  // unit back out — dealer stock re-added, OEM SparePartInventory drawn
+  // down by the same amount, exactly the "both pools move together"
+  // contract dealerAfterSales.controller.ts#updateSparePart's delivery
+  // reconciliation already uses. CREDITED is a financial settlement only —
+  // no replacement unit, so no OEM stock change.
+  async setStatus(req: Request, res: Response) {
+    try {
+      const id = parseInt(req.params.id as string);
+      if (!id) return handleValidationError(res, "Return ID is required", "id", "Update spare part return status");
+      const status = req.body?.status;
+      if (!status) return handleValidationError(res, "status is required", "status", "Update spare part return status");
+      const resolution = req.body?.resolution;
+      const staffNotes: string | undefined = req.body?.staffNotes;
+
+      const current = await prisma.sparePartReturn.findUnique({ where: { id } });
+      if (!current) return handleNotFoundError(res, "Spare part return", "Update spare part return status");
+      if (current.status === "RESOLVED") {
+        return handleValidationError(res, "This return is already resolved", "status", "Update spare part return status");
+      }
+      if (status === "RESOLVED" && !["REPLACED", "CREDITED"].includes(resolution)) {
+        return handleValidationError(res, "resolution must be REPLACED or CREDITED to resolve a return", "resolution", "Update spare part return status");
+      }
+
+      const updated = await prisma.$transaction(async (tx) => {
+        if (status === "RESOLVED") {
+          const existingStock = await tx.dealerSparePart.findFirst({ where: { dealerId: current.dealerId, partName: current.partName } });
+          if (existingStock) {
+            await tx.dealerSparePart.update({
+              where: { id: existingStock.id },
+              data: { quantityOnHand: { decrement: Math.min(current.quantity, existingStock.quantityOnHand) } },
+            });
+          }
+          await logInventoryChange(tx, { entity: "SPARE_PART", bucket: "DEALER", direction: "REMOVED", quantity: current.quantity, itemLabel: current.partName, dealerId: current.dealerId, source: "QUALITY_RETURN" });
+
+          if (resolution === "REPLACED") {
+            if (existingStock) {
+              await tx.dealerSparePart.update({
+                where: { id: existingStock.id },
+                data: { quantityOnHand: { increment: current.quantity } },
+              });
+            } else {
+              await tx.dealerSparePart.create({
+                data: { dealerId: current.dealerId, partName: current.partName, partCode: current.partCode, quantityOnHand: current.quantity, unitPrice: "0" },
+              });
+            }
+            await logInventoryChange(tx, { entity: "SPARE_PART", bucket: "DEALER", direction: "ADDED", quantity: current.quantity, itemLabel: current.partName, dealerId: current.dealerId, source: "QUALITY_RETURN_REPLACEMENT" });
+
+            const oemStock = await tx.sparePartInventory.findUnique({ where: { partName: current.partName } });
+            if (oemStock) {
+              const oemRemoved = Math.min(current.quantity, oemStock.quantityOnHand);
+              await tx.sparePartInventory.update({ where: { id: oemStock.id }, data: { quantityOnHand: Math.max(0, oemStock.quantityOnHand - current.quantity) } });
+              await logInventoryChange(tx, { entity: "SPARE_PART", bucket: "OEM", direction: "REMOVED", quantity: oemRemoved, itemLabel: current.partName, source: "QUALITY_RETURN_REPLACEMENT" });
+            }
+          }
+        }
+
+        return tx.sparePartReturn.update({
+          where: { id },
+          data: {
+            status,
+            resolution: status === "RESOLVED" ? resolution : undefined,
+            staffNotes: staffNotes !== undefined ? staffNotes : undefined,
+            resolvedAt: status === "RESOLVED" ? new Date() : undefined,
+          },
+          include: { dealer: { select: { legalName: true, tradeName: true, email: true } } },
+        });
+      });
+
+      void sendSparePartReturnStatusEmail(updated);
+
+      res.json(updated);
+    } catch (error) {
+      handleError(error, res, "Update spare part return status");
     }
   }
 }

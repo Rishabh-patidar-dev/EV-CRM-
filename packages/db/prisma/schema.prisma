@@ -643,6 +643,7 @@ model Dealer {
   campaigns             MarketingCampaign[]
   invoices              Invoice[]
   inventoryLogs         InventoryLog[]
+  sparePartReturns      SparePartReturn[]
 
   // Sales & Booking
   bookings Booking[]
@@ -749,7 +750,8 @@ model FinanceCase {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  dealer      Dealer       @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
 
   @@index([dealerId])
   @@index([status])
@@ -802,12 +804,67 @@ model DealerSparePart {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  dealer Dealer              @relation(fields: [dealerId], references: [id], onDelete: Cascade)
-  usages ServiceTicketPart[]
+  dealer  Dealer               @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  usages  ServiceTicketPart[]
+  returns SparePartReturn[]
 
   @@unique([dealerId, partName])
   @@index([dealerId])
   @@map("dealer_spare_parts")
+}
+
+// =============================================================================
+// Spare Parts quality returns — the closed loop for "this part failed
+// quality, I need to send it back": a dealer flags a defective part out of
+// their own DealerSparePart stock (no stock movement yet — they still have
+// it in hand), staff review and either reject it or approve + resolve it.
+// Resolving is the actual physical/financial event: the bad quantity always
+// leaves the dealer's stock; a REPLACED resolution also sends a fresh unit
+// back out (dealer stock re-added, OEM stock drawn down), same "the OEM's
+// pool and the dealer's pool must move together" contract
+// dealerAfterSales.controller.ts's delivery reconciliation already uses.
+// =============================================================================
+enum SparePartReturnStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  RESOLVED
+}
+
+enum SparePartReturnResolution {
+  REPLACED
+  CREDITED
+}
+
+model SparePartReturn {
+  id Int @id @default(autoincrement())
+
+  dealerId          Int              @map("dealer_id")
+  dealer            Dealer           @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  dealerSparePartId Int?             @map("dealer_spare_part_id")
+  dealerSparePart   DealerSparePart? @relation(fields: [dealerSparePartId], references: [id], onDelete: SetNull)
+
+  // Snapshot, not just the FK — stays readable even if the dealer's stock
+  // row is later renamed/consolidated.
+  partName String  @map("part_name")
+  partCode String? @map("part_code")
+  quantity Int
+  reason   String
+
+  status     SparePartReturnStatus      @default(REQUESTED)
+  resolution SparePartReturnResolution?
+  staffNotes String?                    @map("staff_notes")
+
+  requestedAt DateTime  @default(now()) @map("requested_at")
+  resolvedAt  DateTime? @map("resolved_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  attachments Attachment[]
+
+  @@index([dealerId])
+  @@index([status])
+  @@map("spare_part_returns")
 }
 
 // One row per part consumed against a service ticket, added one at a time as
@@ -1794,20 +1851,26 @@ enum AttachmentKind {
   SERVICE_TICKET
   BOOKING
   WARRANTY_CLAIM
+  FINANCE_CASE
+  SPARE_PART_RETURN
 }
 
 model Attachment {
   id   Int            @id @default(autoincrement())
   kind AttachmentKind
 
-  customerBillId  Int?           @map("customer_bill_id")
-  customerBill    CustomerBill?  @relation(fields: [customerBillId], references: [id], onDelete: Cascade)
-  serviceTicketId Int?           @map("service_ticket_id")
-  serviceTicket   ServiceTicket? @relation(fields: [serviceTicketId], references: [id], onDelete: Cascade)
-  bookingId       Int?           @map("booking_id")
-  booking         Booking?       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  warrantyClaimId Int?           @map("warranty_claim_id")
-  warrantyClaim   WarrantyClaim? @relation(fields: [warrantyClaimId], references: [id], onDelete: Cascade)
+  customerBillId    Int?             @map("customer_bill_id")
+  customerBill      CustomerBill?    @relation(fields: [customerBillId], references: [id], onDelete: Cascade)
+  serviceTicketId   Int?             @map("service_ticket_id")
+  serviceTicket     ServiceTicket?   @relation(fields: [serviceTicketId], references: [id], onDelete: Cascade)
+  bookingId         Int?             @map("booking_id")
+  booking           Booking?         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  warrantyClaimId   Int?             @map("warranty_claim_id")
+  warrantyClaim     WarrantyClaim?   @relation(fields: [warrantyClaimId], references: [id], onDelete: Cascade)
+  financeCaseId     Int?             @map("finance_case_id")
+  financeCase       FinanceCase?     @relation(fields: [financeCaseId], references: [id], onDelete: Cascade)
+  sparePartReturnId Int?             @map("spare_part_return_id")
+  sparePartReturn   SparePartReturn? @relation(fields: [sparePartReturnId], references: [id], onDelete: Cascade)
 
   fileName      String  @map("file_name")
   fileUrl       String  @map("file_url")
@@ -1824,6 +1887,8 @@ model Attachment {
   @@index([serviceTicketId])
   @@index([bookingId])
   @@index([warrantyClaimId])
+  @@index([financeCaseId])
+  @@index([sparePartReturnId])
   @@map("attachments")
 }
 

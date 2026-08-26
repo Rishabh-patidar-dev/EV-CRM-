@@ -16,6 +16,7 @@ import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { adjudicateClaim, submitWarrantyClaim } from "../services/warrantyAdjudication.service.js";
 import { uploadFile, deleteFile } from "../services/fileStorage.service.js";
+import { sendWarrantyClaimStatusEmail } from "../services/email.service.js";
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -388,6 +389,24 @@ export class WarrantyClaimController {
     }
   }
 
+  // GET /api/v1/warranty-claims/new-count — same "unseen work" signal Order
+  // Management's sidebar asterisk uses (see orderManagement.controller.ts
+  // #newCount), applied to claims: UNDER_REVIEW is the one status that
+  // genuinely needs a human decision (AUTO_APPROVE/VOID already resolved
+  // themselves at intake). Must stay mounted before GET /:id (see routes file).
+  async newCount(_req: Request, res: Response) {
+    try {
+      const where = { status: "UNDER_REVIEW" as const };
+      const [count, latest] = await Promise.all([
+        prisma.warrantyClaim.count({ where }),
+        prisma.warrantyClaim.findFirst({ where, orderBy: { submittedAt: "desc" }, select: { submittedAt: true } }),
+      ]);
+      res.json({ count, latestCreatedAt: latest?.submittedAt ?? null });
+    } catch (error) {
+      handleError(error, res, "Warranty claims new-count");
+    }
+  }
+
   // GET /api/v1/warranty-claims/analytics/cost — §12.3 "cost by component, by
   // supplier, by model". Must stay mounted before GET /:id (see routes file).
   async costAnalytics(_req: Request, res: Response) {
@@ -498,7 +517,11 @@ export class WarrantyClaimController {
         }
         if (["REJECTED", "CLOSED"].includes(status)) data.resolvedAt = new Date();
 
-        const next = await tx.warrantyClaim.update({ where: { id }, data });
+        const next = await tx.warrantyClaim.update({
+          where: { id },
+          data,
+          include: { dealer: { select: { legalName: true, tradeName: true, email: true } } },
+        });
 
         await tx.warrantyClaimEvent.create({
           data: { claimId: id, fromStatus: current.status, toStatus: status, note: note ?? null, actorId },
@@ -506,6 +529,12 @@ export class WarrantyClaimController {
 
         return next;
       });
+
+      // Every staff-driven status change closes the loop back to the dealer,
+      // same "the app tells you, you don't have to keep re-checking" contract
+      // Order Management's invoice emails already give — fire-and-forget, a
+      // failed/skipped send never blocks the status change itself.
+      void sendWarrantyClaimStatusEmail(updated);
 
       res.json(updated);
     } catch (error) {

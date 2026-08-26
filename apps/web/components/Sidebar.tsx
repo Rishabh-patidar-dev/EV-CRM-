@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import apiClient from "@/lib/api/client";
 import { ORDER_MGMT_LAST_SEEN_KEY } from "./orderManagementSeen";
 import { INVOICE_LAST_SEEN_KEY } from "./invoicesSeen";
+import { WARRANTY_LAST_SEEN_KEY } from "./warrantyClaimsSeen";
+import { FINANCE_LAST_SEEN_KEY } from "./financeCasesSeen";
 import {
   LayoutDashboard,
   Workflow,
@@ -29,8 +31,10 @@ import {
   PackageSearch,
   ScrollText,
   Landmark,
+  Undo2,
 } from "lucide-react";
 import Logo from "./Logo";
+import { RETURNS_LAST_SEEN_KEY } from "./sparePartReturnsSeen";
 
 type NavIcon = React.ComponentType<{ className?: string }>;
 // `exactOnly` is for nav items whose href has sibling static routes that
@@ -89,6 +93,7 @@ const NAV: NavEntry[] = [
     items: [
       { href: "/inventory-management/vehicles", label: "Vehicle Inventory", icon: Warehouse },
       { href: "/inventory-management/spare-parts", label: "Spare Parts Inventory", icon: PackageSearch },
+      { href: "/inventory-management/returns", label: "Spare Part Returns", icon: Undo2 },
       { href: "/inventory-management/logs", label: "Inventory Logs", icon: ScrollText },
     ],
   },
@@ -119,6 +124,9 @@ export default function Sidebar() {
   const [openGroups, setOpenGroups] = useState<Set<string>>(DEFAULT_OPEN);
   const [newOrderMarker, setNewOrderMarker] = useState(false);
   const [invoiceUnreadCount, setInvoiceUnreadCount] = useState(0);
+  const [newClaimMarker, setNewClaimMarker] = useState(false);
+  const [newFinanceMarker, setNewFinanceMarker] = useState(false);
+  const [newReturnMarker, setNewReturnMarker] = useState(false);
 
   const toggleGroup = (id: string) => {
     setOpenGroups((prev) => {
@@ -147,6 +155,80 @@ export default function Sidebar() {
           // private-mode/unavailable storage — treat as never seen
         }
         setNewOrderMarker(!lastSeen || new Date(latest) > new Date(lastSeen));
+      })
+      .catch(() => {
+        // non-critical UI indicator — a failed check just leaves it as-is
+      });
+    return () => { active = false; };
+  }, [pathname]);
+
+  // Same pattern, for Warranty Management — UNDER_REVIEW is the one claim
+  // status that genuinely needs a staff decision (see
+  // warranty.controller.ts#newCount).
+  useEffect(() => {
+    let active = true;
+    apiClient
+      .get("/api/v1/warranty-claims/new-count")
+      .then(({ data }) => {
+        if (!active) return;
+        const latest = data?.latestCreatedAt;
+        if (!latest) return setNewClaimMarker(false);
+        let lastSeen: string | null = null;
+        try {
+          lastSeen = localStorage.getItem(WARRANTY_LAST_SEEN_KEY);
+        } catch {
+          // private-mode/unavailable storage — treat as never seen
+        }
+        setNewClaimMarker(!lastSeen || new Date(latest) > new Date(lastSeen));
+      })
+      .catch(() => {
+        // non-critical UI indicator — a failed check just leaves it as-is
+      });
+    return () => { active = false; };
+  }, [pathname]);
+
+  // Same pattern, for Finance Management — NEW is the one case status that
+  // genuinely needs a staff finance person to pick it up (see
+  // dealerAfterSales.controller.ts#FinanceController.newCount).
+  useEffect(() => {
+    let active = true;
+    apiClient
+      .get("/api/v1/finance-cases/new-count")
+      .then(({ data }) => {
+        if (!active) return;
+        const latest = data?.latestCreatedAt;
+        if (!latest) return setNewFinanceMarker(false);
+        let lastSeen: string | null = null;
+        try {
+          lastSeen = localStorage.getItem(FINANCE_LAST_SEEN_KEY);
+        } catch {
+          // private-mode/unavailable storage — treat as never seen
+        }
+        setNewFinanceMarker(!lastSeen || new Date(latest) > new Date(lastSeen));
+      })
+      .catch(() => {
+        // non-critical UI indicator — a failed check just leaves it as-is
+      });
+    return () => { active = false; };
+  }, [pathname]);
+
+  // Same pattern, for Spare Part Returns — REQUESTED is the one status that
+  // genuinely needs a Warehouse decision.
+  useEffect(() => {
+    let active = true;
+    apiClient
+      .get("/api/v1/spare-part-returns/new-count")
+      .then(({ data }) => {
+        if (!active) return;
+        const latest = data?.latestCreatedAt;
+        if (!latest) return setNewReturnMarker(false);
+        let lastSeen: string | null = null;
+        try {
+          lastSeen = localStorage.getItem(RETURNS_LAST_SEEN_KEY);
+        } catch {
+          // private-mode/unavailable storage — treat as never seen
+        }
+        setNewReturnMarker(!lastSeen || new Date(latest) > new Date(lastSeen));
       })
       .catch(() => {
         // non-critical UI indicator — a failed check just leaves it as-is
@@ -195,7 +277,7 @@ export default function Sidebar() {
               <SidebarLink
                 {...entry}
                 active={pathname === entry.href}
-                liveIndicator={entry.href === "/order-management" && newOrderMarker}
+                liveIndicator={(entry.href === "/order-management" && newOrderMarker) || (entry.href === "/finance-management" && newFinanceMarker)}
                 badgeCount={entry.href === "/invoices" ? invoiceUnreadCount : undefined}
               />
             </div>
@@ -215,7 +297,7 @@ export default function Sidebar() {
                       key={item.href}
                       {...item}
                       active={pathname === item.href || (!item.exactOnly && !!pathname?.startsWith(item.href + "/"))}
-                      liveIndicator={item.href === "/order-management" && newOrderMarker}
+                      liveIndicator={(item.href === "/order-management" && newOrderMarker) || (item.href === "/warranty" && newClaimMarker) || (item.href === "/inventory-management/returns" && newReturnMarker)}
                       badgeCount={item.href === "/order-management/invoices" ? invoiceUnreadCount : undefined}
                     />
                   ))}
@@ -252,7 +334,7 @@ function SidebarIndicator({
   }
   if (liveIndicator) {
     return (
-      <span className="shrink-0 text-base font-bold leading-none" style={{ color: "var(--zira-approved)" }} title="New order placed by a dealer — not yet checked">
+      <span className="shrink-0 text-base font-bold leading-none" style={{ color: "var(--zira-approved)" }} title="New item needs your attention — not yet checked">
         *
       </span>
     );

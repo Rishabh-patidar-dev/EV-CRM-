@@ -22,6 +22,7 @@ import BarChart from "@/components/charts/BarChart";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { WARRANTY_LAST_SEEN_KEY } from "@/components/warrantyClaimsSeen";
 
 const COMPONENT_TYPES = ["BATTERY", "MOTOR", "CONTROLLER", "CHARGER", "CHASSIS", "BRAKES"];
 const CLAIM_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "INFO_REQUESTED", "APPROVED", "IN_REPAIR", "REIMBURSED", "RECOVERY", "REJECTED", "CLOSED"];
@@ -60,6 +61,18 @@ function WarrantyInner() {
     apiClient.get("/api/v1/dealers", { params: { limit: 100 } }).then((r) => setDealers(r.data.dealers ?? []));
     loadPipeline();
   }, [loadPipeline]);
+
+  // Clears the sidebar's new-claim asterisk — Sidebar re-checks on every
+  // route change, so every claim sitting at UNDER_REVIEW up to this moment
+  // no longer counts as unseen the next time it does.
+  useEffect(() => {
+    try {
+      localStorage.setItem(WARRANTY_LAST_SEEN_KEY, new Date().toISOString());
+    } catch {
+      // localStorage unavailable (private mode etc.) — the indicator just
+      // won't clear locally, not worth surfacing an error for.
+    }
+  }, []);
 
   return (
     <div className="mx-auto max-w-[1500px] p-6">

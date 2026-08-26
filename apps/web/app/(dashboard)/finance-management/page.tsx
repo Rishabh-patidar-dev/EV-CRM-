@@ -33,6 +33,7 @@ import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { StatCard } from "@/components/ui/StatCard";
 import { useDeepLinkQuery } from "@/lib/useDeepLinkQuery";
+import { FINANCE_LAST_SEEN_KEY } from "@/components/financeCasesSeen";
 
 type FinanceCaseStatus = "NEW" | "DOCS_PENDING" | "SUBMITTED" | "APPROVED" | "DISBURSED" | "REJECTED";
 
@@ -126,6 +127,18 @@ export default function FinanceManagementPage() {
 
   // Filter changes reset paging — a filtered result set has its own page 1.
   useEffect(() => { setPage(1); }, [statusFilter, dealerFilter]);
+
+  // Clears the sidebar's new-case asterisk — Sidebar re-checks on every
+  // route change, so every case sitting at NEW up to this moment no longer
+  // counts as unseen the next time it does.
+  useEffect(() => {
+    try {
+      localStorage.setItem(FINANCE_LAST_SEEN_KEY, new Date().toISOString());
+    } catch {
+      // localStorage unavailable (private mode etc.) — the indicator just
+      // won't clear locally, not worth surfacing an error for.
+    }
+  }, []);
 
   const filteredCases = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -390,6 +403,19 @@ function CreateCaseModal({
   );
 }
 
+interface FinanceAttachment {
+  id: number;
+  fileName: string;
+  fileUrl: string;
+  createdAt: string;
+}
+
+function resolveAttachmentUrl(fileUrl: string) {
+  if (fileUrl.startsWith("http")) return fileUrl;
+  const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+  return `${base}${fileUrl}`;
+}
+
 function EditCaseModal({
   caseRow,
   onClose,
@@ -405,6 +431,7 @@ function EditCaseModal({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<FinanceAttachment[]>([]);
 
   useEffect(() => {
     if (!caseRow) return;
@@ -413,6 +440,9 @@ function EditCaseModal({
     setLoanAmount(caseRow.loanAmount != null ? String(caseRow.loanAmount) : "");
     setNotes(caseRow.notes ?? "");
     setError(null);
+    apiClient.get(`/api/v1/finance-cases/${caseRow.id}/attachments`)
+      .then((r) => setAttachments(r.data.attachments ?? []))
+      .catch(() => setAttachments([]));
   }, [caseRow]);
 
   async function handleSubmit() {
@@ -472,6 +502,24 @@ function EditCaseModal({
           <div>
             <label className="mb-1.5 block text-sm font-medium">Notes</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">Documents from dealer</label>
+            {attachments.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No documents uploaded yet.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {attachments.map((a) => (
+                  <li key={a.id}>
+                    <a href={resolveAttachmentUrl(a.fileUrl)} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">
+                      {a.fileName}
+                    </a>
+                    <span className="ml-2 text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleDateString()}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <Button onClick={handleSubmit} disabled={submitting} className="w-full">
