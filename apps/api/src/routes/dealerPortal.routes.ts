@@ -19,6 +19,8 @@ router.get("/search", portal.search.bind(portal));
 router.get("/vehicle-catalog", portal.vehicleCatalog.bind(portal));
 
 router.get("/vehicle-units", portal.listVehicleUnits.bind(portal));
+router.post("/vehicle-units", portal.createDealerVehicleUnit.bind(portal));
+router.post("/vehicle-units/ocr-preview", upload.single("file"), portal.previewVehicleUnitsOcr.bind(portal));
 
 router.get("/stock-transfers", portal.listStockTransfers.bind(portal));
 router.post("/stock-transfers", portal.createStockTransfer.bind(portal));

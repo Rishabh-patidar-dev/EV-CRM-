@@ -26,6 +26,7 @@ import { uploadFile, deleteFile } from "../services/fileStorage.service.js";
 import { extractText } from "../services/ocr.service.js";
 import { parseInvoiceFields } from "../services/invoiceParsing.service.js";
 import { parseSparePartLineItems } from "../services/sparePartsBillParsing.service.js";
+import { parseVehicleBillLineItems } from "../services/vehicleBillParsing.service.js";
 
 // GST rule: e-way bills are mandatory (and here, only generatable) once a
 // consignment's taxable value exceeds this statutory threshold.
@@ -310,6 +311,68 @@ export class DealerPortalController {
       res.json({ units, byStatus, pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) } });
     } catch (error) {
       handleError(error, res, "List dealer vehicle units");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/vehicle-units — dealer adds a vehicle to
+  // their own stock directly (bought outside the normal stock-transfer
+  // channel, or reconciling physical stock against what's on the shelf) —
+  // a dealer-scoped mirror of the staff-only VehicleUnitController#create
+  // that forces dealerId from the session and always lands the unit as this
+  // dealer's own IN_STOCK, never OEM warehouse stock.
+  async createDealerVehicleUnit(req: Request, res: Response) {
+    try {
+      const { dealerId } = req.dealerPortal!;
+      const b = req.body ?? {};
+      if (!b.vin || !b.model || !b.segment) {
+        return handleValidationError(res, "vin, model and segment are required", "body", "Add vehicle to inventory");
+      }
+      const unit = await prisma.vehicleUnit.create({
+        data: {
+          vin: String(b.vin).toUpperCase().trim(),
+          model: b.model,
+          segment: b.segment,
+          color: b.color || null,
+          batteryHealthPct: b.batteryHealthPct ? parseInt(b.batteryHealthPct) : null,
+          status: "IN_STOCK",
+          dealerId,
+          allocatedAt: new Date(),
+          notes: b.notes || null,
+        },
+      });
+      res.status(201).json(unit);
+    } catch (error: any) {
+      if (error.code === "P2002") return handleValidationError(res, "A unit with this VIN already exists", "vin", "Add vehicle to inventory");
+      handleError(error, res, "Add vehicle to inventory");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/vehicle-units/ocr-preview — uploads a
+  // purchase-bill photo and runs OCR, returning best-effort VIN + model
+  // guesses per vehicle line for the dealer to review/correct before
+  // confirming — same "suggestion only, never auto-filled" contract as the
+  // spare-parts and purchase-invoice OCR previews above.
+  async previewVehicleUnitsOcr(req: Request, res: Response) {
+    try {
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) return handleValidationError(res, "file is required", "file", "Preview vehicle OCR");
+
+      let ocrExtractedText: string | null = null;
+      let ocrStatus: "DONE" | "FAILED" | "SKIPPED" = "SKIPPED";
+      let items: ReturnType<typeof parseVehicleBillLineItems> = [];
+      if (file.mimetype?.startsWith("image/")) {
+        try {
+          ocrExtractedText = await extractText(file.buffer);
+          ocrStatus = "DONE";
+          items = parseVehicleBillLineItems(ocrExtractedText);
+        } catch {
+          ocrStatus = "FAILED";
+        }
+      }
+
+      res.json({ ocrExtractedText, ocrStatus, items });
+    } catch (error) {
+      handleError(error, res, "Preview vehicle OCR");
     }
   }
 
