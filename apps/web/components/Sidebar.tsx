@@ -36,7 +36,13 @@ type NavIcon = React.ComponentType<{ className?: string }>;
 // `exactOnly` is for nav items whose href has sibling static routes that
 // aren't "detail views" of it (e.g. /leads vs /leads/assigned) — without it,
 // the prefix-match below would highlight Lead Master while on Assigned Leads.
-type NavItem = { href: string; label: string; icon: NavIcon; badge?: string; badgeTone?: "new" | "dev"; exactOnly?: boolean };
+// `asModule` renders a top-level single-page link with the same flat
+// uppercase typography as a collapsed group header (no icon, no filled
+// pill) instead of the icon+pill treatment used for links nested inside a
+// group — a standalone module (one page, no sub-items) still reads as a
+// section of the sidebar, not a stray sub-item, this way. Overview keeps the
+// pill treatment since it's the app's home link, not a module.
+type NavItem = { href: string; label: string; icon: NavIcon; badge?: string; badgeTone?: "new" | "dev"; exactOnly?: boolean; asModule?: boolean };
 type NavEntry = ({ kind: "link" } & NavItem) | { kind: "group"; id: string; group: string; items: NavItem[] };
 
 const NAV: NavEntry[] = [
@@ -73,9 +79,9 @@ const NAV: NavEntry[] = [
       { href: "/dealer-compliance", label: "Compliance & Renewals", icon: ShieldCheck },
     ],
   },
-  { kind: "link", href: "/order-management", label: "Order Management", icon: ListChecks },
-  { kind: "link", href: "/invoices", label: "Invoices", icon: FileText },
-  { kind: "link", href: "/finance-management", label: "Finance Management", icon: Landmark },
+  { kind: "link", href: "/order-management", label: "Order Management", icon: ListChecks, asModule: true },
+  { kind: "link", href: "/invoices", label: "Invoices", icon: FileText, asModule: true },
+  { kind: "link", href: "/finance-management", label: "Finance Management", icon: Landmark, asModule: true },
   {
     kind: "group",
     id: "inventory-management",
@@ -183,13 +189,14 @@ export default function Sidebar() {
       <nav className="sidebar-scroll flex-1 overflow-y-auto px-3 py-3">
         {NAV.map((entry, i) =>
           entry.kind === "link" ? (
-            <SidebarLink
-              key={entry.href}
-              {...entry}
-              active={pathname === entry.href}
-              liveIndicator={entry.href === "/order-management" && newOrderMarker}
-              badgeCount={entry.href === "/invoices" ? invoiceUnreadCount : undefined}
-            />
+            <div key={entry.href} className={entry.asModule ? "mt-1 mb-1" : undefined}>
+              <SidebarLink
+                {...entry}
+                active={pathname === entry.href}
+                liveIndicator={entry.href === "/order-management" && newOrderMarker}
+                badgeCount={entry.href === "/invoices" ? invoiceUnreadCount : undefined}
+              />
+            </div>
           ) : (
             <div key={entry.id ?? i} className="mt-1 mb-1">
               <button
@@ -224,6 +231,54 @@ export default function Sidebar() {
   );
 }
 
+function SidebarIndicator({
+  active,
+  badge,
+  badgeTone,
+  liveIndicator,
+  badgeCount,
+}: { active?: boolean; badge?: string; badgeTone?: "new" | "dev"; liveIndicator?: boolean; badgeCount?: number }) {
+  if (badgeCount) {
+    return (
+      <span
+        className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold tabular-nums text-white"
+        title={`${badgeCount} invoice${badgeCount === 1 ? "" : "s"} not yet reviewed`}
+      >
+        {badgeCount > 99 ? "99+" : badgeCount}
+      </span>
+    );
+  }
+  if (liveIndicator) {
+    return (
+      <span className="shrink-0 text-base font-bold leading-none" style={{ color: "var(--zira-approved)" }} title="New order placed by a dealer — not yet checked">
+        *
+      </span>
+    );
+  }
+  if (badge && badgeTone === "dev") {
+    return (
+      <span className="flex shrink-0 items-center gap-1.5" title="Under development">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--zira-rejected)]" />
+      </span>
+    );
+  }
+  if (badge) {
+    return (
+      <span
+        className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+        style={
+          active
+            ? { background: "var(--sidebar-primary-foreground)", color: "var(--sidebar-primary)" }
+            : { background: "var(--sidebar-primary)", color: "var(--sidebar-primary-foreground)" }
+        }
+      >
+        {badge}
+      </span>
+    );
+  }
+  return null;
+}
+
 function SidebarLink({
   href,
   label,
@@ -233,7 +288,26 @@ function SidebarLink({
   badgeTone,
   liveIndicator,
   badgeCount,
+  asModule,
 }: NavItem & { active?: boolean; liveIndicator?: boolean; badgeCount?: number }) {
+  // A standalone one-page module (Order Management, Invoices, Finance
+  // Management) sits at the same level as a group header ("LEAD
+  // MANAGEMENT") in the nav list — matching that header's flat uppercase
+  // typography (no icon, no filled pill) is what makes it read as another
+  // section of the sidebar instead of a stray sub-item link.
+  if (asModule) {
+    return (
+      <Link
+        href={href}
+        className={`flex w-full items-center justify-between px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition-colors ${active ? "" : "sidebar-muted hover:text-[color:var(--sidebar-foreground)]"}`}
+        style={active ? { color: "var(--sidebar-primary)" } : undefined}
+      >
+        <span>{label}</span>
+        <SidebarIndicator active={active} badge={badge} badgeTone={badgeTone} liveIndicator={liveIndicator} badgeCount={badgeCount} />
+      </Link>
+    );
+  }
+
   return (
     <Link
       href={href}
@@ -241,37 +315,7 @@ function SidebarLink({
     >
       <Icon className="h-4 w-4 shrink-0" />
       <span className="truncate flex-1">{label}</span>
-      {!!badgeCount ? (
-        <span
-          className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold tabular-nums text-white"
-          title={`${badgeCount} invoice${badgeCount === 1 ? "" : "s"} not yet reviewed`}
-        >
-          {badgeCount > 99 ? "99+" : badgeCount}
-        </span>
-      ) : liveIndicator ? (
-        <span
-          className="shrink-0 text-base font-bold leading-none"
-          style={{ color: "var(--zira-approved)" }}
-          title="New order placed by a dealer — not yet checked"
-        >
-          *
-        </span>
-      ) : badge && badgeTone === "dev" ? (
-        <span className="flex shrink-0 items-center gap-1.5" title="Under development">
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--zira-rejected)]" />
-        </span>
-      ) : badge ? (
-        <span
-          className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
-          style={
-            active
-              ? { background: "var(--sidebar-primary-foreground)", color: "var(--sidebar-primary)" }
-              : { background: "var(--sidebar-primary)", color: "var(--sidebar-primary-foreground)" }
-          }
-        >
-          {badge}
-        </span>
-      ) : null}
+      <SidebarIndicator active={active} badge={badge} badgeTone={badgeTone} liveIndicator={liveIndicator} badgeCount={badgeCount} />
     </Link>
   );
 }
