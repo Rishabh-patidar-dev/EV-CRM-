@@ -10,6 +10,7 @@
 // itself was signed up with, regardless of the `to` address passed here —
 // not something fixable in code.
 import { Resend } from "resend";
+import { prisma } from "@repo/db";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
@@ -87,6 +88,8 @@ type InvoiceEmailType = "CONFIRMATION" | "OUT_OF_STOCK" | "PARTIAL" | "CANCELLAT
 interface InvoiceForEmail {
   invoiceNumber: string;
   type: InvoiceEmailType;
+  orderKind: "VEHICLE" | "SPARE_PART" | null;
+  dealerId: number;
   item: string;
   requestedQuantity: number | null;
   fulfilledQuantity: number | null;
@@ -94,7 +97,10 @@ interface InvoiceForEmail {
   expectedRestockDate: Date | null;
   message: string | null;
   issuedAt: Date;
-  dealer: { legalName: string; tradeName: string | null; email: string | null } | null;
+  dealer: {
+    legalName: string; tradeName: string | null; email: string | null;
+    gstNumber?: string | null; addressLine?: string | null; city?: string | null; state?: string | null;
+  } | null;
 }
 
 const INVOICE_TYPE_LABEL: Record<InvoiceEmailType, string> = {
@@ -121,9 +127,33 @@ const INVOICE_PRICED_TYPES = new Set<InvoiceEmailType>(["CONFIRMATION", "DISPATC
 const GST_RATE = 0.18;
 const inr = (n: number) => `Rs. ${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function sendInvoiceEmail(invoice: InvoiceForEmail) {
+// Splits "Model Name (Segment)" back into its two parts — the exact inverse
+// of the string issueInvoice builds for a VEHICLE item (see
+// dealerInventory.controller.ts#update / orderManagement.controller.ts).
+function splitVehicleItem(item: string): { model: string; segment: string | null } {
+  const match = item.match(/^(.*)\s\(([^)]+)\)\s*$/);
+  return match ? { model: match[1].trim(), segment: match[2] } : { model: item, segment: null };
+}
+
+// This is the actual document a dealer receives for a delivery — and also
+// the one they're most likely to hand straight to Inventory's "Scan bill"
+// OCR to add the same stock they just got a receipt for, instead of typing
+// it in twice. So the layout below isn't just cosmetic: the item table is a
+// real Sr/Description/Qty/Rate/Amount row (matching what
+// sparePartsBillParsing.service.ts's line-item heuristic expects — an item
+// name followed by 2+ numbers on one line), the table header uses words
+// ("Description", "Sr No") that parser's skip-list already filters out so
+// the header itself is never misread as a bogus item, and every summary
+// line (subtotal/GST/total/meta) is deliberately kept to a single number so
+// it falls under that parser's 2-number-minimum threshold and is ignored.
+// For a VEHICLE delivery specifically, the units actually reassigned to the
+// dealer in this transaction are listed with their VINs so
+// vehicleBillParsing.service.ts's 17-character VIN scan has something real
+// to find, each VIN sat next to the same model name text used to guess the
+// catalog match.
+export async function sendInvoiceEmail(invoice: InvoiceForEmail) {
   const dealer = invoice.dealer;
-  if (!dealer?.email) return Promise.resolve();
+  if (!dealer?.email) return;
 
   const label = INVOICE_TYPE_LABEL[invoice.type] ?? invoice.type;
   const priced = INVOICE_PRICED_TYPES.has(invoice.type);
@@ -132,34 +162,115 @@ export function sendInvoiceEmail(invoice: InvoiceForEmail) {
   const subtotal = priced ? unitPrice * qty : 0;
   const gst = subtotal * GST_RATE;
   const total = subtotal + gst;
+  const isDoc = ["CONFIRMATION", "DISPATCH", "DELIVERY", "PARTIAL"].includes(invoice.type);
 
-  const rows = [
-    `<tr><td style="padding:6px 0;color:#666">Item</td><td style="padding:6px 0;text-align:right">${invoice.item}</td></tr>`,
-    `<tr><td style="padding:6px 0;color:#666">Quantity</td><td style="padding:6px 0;text-align:right">${qty}${invoice.requestedQuantity != null && invoice.requestedQuantity !== qty ? ` / ${invoice.requestedQuantity} requested` : ""}</td></tr>`,
-    priced ? `<tr><td style="padding:6px 0;color:#666">Unit price</td><td style="padding:6px 0;text-align:right">${inr(unitPrice)}</td></tr>` : "",
-    priced ? `<tr><td style="padding:6px 0;color:#666">GST (18%)</td><td style="padding:6px 0;text-align:right">${inr(gst)}</td></tr>` : "",
-    priced ? `<tr><td style="padding:10px 0;border-top:1px solid #eee;font-weight:600">Total due</td><td style="padding:10px 0;border-top:1px solid #eee;text-align:right;font-weight:600">${inr(total)}</td></tr>` : "",
-  ].filter(Boolean).join("");
+  // Best-effort only — this file's contract is "never throws" (see header
+  // comment), so a DB hiccup here must fall back to no VIN block rather than
+  // ever blocking the email send.
+  let vehicleUnits: { vin: string }[] = [];
+  if (invoice.orderKind === "VEHICLE" && invoice.type === "DELIVERY" && qty > 0) {
+    try {
+      const { model } = splitVehicleItem(invoice.item);
+      vehicleUnits = await prisma.vehicleUnit.findMany({
+        where: { dealerId: invoice.dealerId, model },
+        orderBy: { allocatedAt: "desc" },
+        take: qty,
+        select: { vin: true },
+      });
+    } catch (error) {
+      console.error("✉️  Could not look up delivered VINs for invoice email:", error);
+    }
+  }
+
+  const itemTable = priced ? `
+    <table style="width:100%; border-collapse:collapse; margin-top:16px; font-size:13px;">
+      <thead>
+        <tr style="background:#0f4c3a; color:#fff;">
+          <th style="padding:8px 6px; text-align:left; font-weight:600;">Sr No</th>
+          <th style="padding:8px 6px; text-align:left; font-weight:600;">Description</th>
+          <th style="padding:8px 6px; text-align:right; font-weight:600;">Qty</th>
+          <th style="padding:8px 6px; text-align:right; font-weight:600;">Rate</th>
+          <th style="padding:8px 6px; text-align:right; font-weight:600;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #e5e2d9;">
+          <td style="padding:8px 6px;">1</td>
+          <td style="padding:8px 6px;">${invoice.item}</td>
+          <td style="padding:8px 6px; text-align:right;">${qty}</td>
+          <td style="padding:8px 6px; text-align:right;">${inr(unitPrice)}</td>
+          <td style="padding:8px 6px; text-align:right;">${inr(subtotal)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <table style="width:100%; border-collapse:collapse; margin-top:10px; font-size:13px;">
+      <tr><td style="padding:4px 6px; color:#666;">Subtotal</td><td style="padding:4px 6px; text-align:right;">${inr(subtotal)}</td></tr>
+      <tr><td style="padding:4px 6px; color:#666;">GST</td><td style="padding:4px 6px; text-align:right;">${inr(gst)}</td></tr>
+      <tr style="border-top:2px solid #0f4c3a;"><td style="padding:8px 6px; font-weight:700;">Total Payable</td><td style="padding:8px 6px; text-align:right; font-weight:700;">${inr(total)}</td></tr>
+    </table>
+    <p style="margin-top:6px; font-size:11px; color:#999;">GST charged at the standard 18 percent slab.</p>
+  ` : `
+    <div style="margin-top:16px; padding:12px 14px; background:#f4f3ee; border-radius:8px; font-size:13px; line-height:1.5;">
+      <strong>${invoice.item}</strong>${invoice.requestedQuantity ? ` — Qty ${invoice.requestedQuantity}` : ""}
+    </div>
+  `;
+
+  const vehicleBlock = vehicleUnits.length > 0 ? `
+    <div style="margin-top:18px;">
+      <p style="margin:0 0 6px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#666;">Vehicle Unit(s) Delivered</p>
+      <table style="width:100%; border-collapse:collapse; font-size:12px; font-family: 'Courier New', monospace;">
+        ${vehicleUnits.map((u, i) => `<tr><td style="padding:3px 6px; color:#666;">${i + 1}.</td><td style="padding:3px 6px;">VIN ${u.vin} — ${invoice.item}</td></tr>`).join("")}
+      </table>
+    </div>
+  ` : "";
 
   const restock = invoice.expectedRestockDate
     ? new Date(invoice.expectedRestockDate).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })
     : null;
+  const issuedDate = new Date(invoice.issuedAt).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" });
 
   return sendMail({
     to: dealer.email,
     subject: `${label} — ${invoice.invoiceNumber}`,
     html: `
-      <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
-        <h2 style="margin: 0 0 2px;">Luxus Green Mobility</h2>
-        <p style="color:#999; margin: 0 0 20px; font-size: 12px;">Electric Vehicles &middot; Manufacturer &amp; OEM</p>
-        <p style="color:#888; margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;">${label} &middot; ${invoice.invoiceNumber}</p>
-        <p>Hi ${dealer.tradeName || dealer.legalName},</p>
-        <p>${INVOICE_TYPE_INTRO[invoice.type]}</p>
-        <table style="width:100%; border-collapse:collapse; margin-top:12px; font-size:14px;">${rows}</table>
-        ${restock ? `<p style="margin-top:12px; font-weight:600; font-size: 14px;">Expected date: ${restock}</p>` : ""}
-        ${invoice.message ? `<div style="margin-top:16px; padding:12px 14px; background:#f4f3ee; border-radius:8px; font-size:13px; line-height:1.5;">${invoice.message}</div>` : ""}
-        <p style="margin-top:24px; font-size:13px; color:#444;">Sign in to your dealer portal to view the full invoice card and download it as a PDF.</p>
-        <p style="margin-top:24px; font-size: 12px; color: #888;">Issued by Order Management — Luxus Green Mobility.</p>
+      <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 560px; margin: 0 auto; color: #1a1a1a; border: 1px solid #e5e2d9; border-radius: 12px; overflow: hidden;">
+        <div style="background:#0f4c3a; padding: 20px 24px; color:#fff;">
+          <h2 style="margin: 0 0 2px; font-size: 19px;">Luxus Green Mobility</h2>
+          <p style="margin: 0; font-size: 11px; opacity: 0.75; letter-spacing: 0.04em; text-transform: uppercase;">Electric Vehicles &middot; Manufacturer &amp; OEM</p>
+        </div>
+
+        <div style="padding: 24px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 18px;">
+            <div>
+              <p style="margin:0; font-size:16px; font-weight:700;">${isDoc ? label : "Notice"}</p>
+              <p style="margin:2px 0 0; font-size:12px; color:#888;">${INVOICE_TYPE_INTRO[invoice.type]}</p>
+            </div>
+            <div style="text-align:right; font-size:12px; color:#666;">
+              <p style="margin:0;">No. ${invoice.invoiceNumber}</p>
+              <p style="margin:2px 0 0;">${issuedDate}</p>
+            </div>
+          </div>
+
+          <div style="padding:12px 14px; background:#faf9f5; border-radius:8px; font-size:13px; margin-bottom: 4px;">
+            <p style="margin:0 0 2px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#666;">Billed To</p>
+            <p style="margin:0; font-weight:600;">${dealer.tradeName || dealer.legalName}</p>
+            ${dealer.addressLine ? `<p style="margin:2px 0 0; color:#666;">${dealer.addressLine}${dealer.city ? `, ${dealer.city}` : ""}${dealer.state ? `, ${dealer.state}` : ""}</p>` : ""}
+            ${dealer.gstNumber ? `<p style="margin:2px 0 0; color:#666;">GSTIN: ${dealer.gstNumber}</p>` : ""}
+          </div>
+
+          ${itemTable}
+          ${vehicleBlock}
+
+          ${restock ? `<p style="margin-top:14px; font-weight:600; font-size: 13px;">Expected date: ${restock}</p>` : ""}
+          ${invoice.message ? `<div style="margin-top:16px; padding:12px 14px; background:#f4f3ee; border-radius:8px; font-size:13px; line-height:1.5;">${invoice.message}</div>` : ""}
+
+          <div style="margin-top:28px; padding-top:14px; border-top:1px solid #e5e2d9; display:flex; justify-content:space-between; align-items:flex-end;">
+            <p style="margin:0; font-size:11px; color:#999;">Sign in to your dealer portal for the full invoice card.</p>
+            <p style="margin:0; font-size:11px; color:#999; font-style:italic;">Authorized Signatory</p>
+          </div>
+        </div>
+
+        <div style="background:#faf9f5; padding: 10px 24px; font-size: 10px; color: #999;">Issued by Order Management — Luxus Green Mobility.</div>
       </div>
     `,
   });
