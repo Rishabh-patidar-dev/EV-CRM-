@@ -42,6 +42,7 @@ router.delete("/service-tickets/:id/parts/:usageId", portal.removeServiceTicketP
 
 router.get("/spare-parts-stock", portal.listDealerSpareParts.bind(portal));
 router.post("/spare-parts-stock", portal.upsertDealerSparePart.bind(portal));
+router.post("/spare-parts-stock/ocr-preview", upload.single("file"), portal.previewSparePartsStockOcr.bind(portal));
 router.patch("/spare-parts-stock/:id", portal.updateDealerSparePart.bind(portal));
 
 router.get("/warranty-claims", portal.listWarrantyClaims.bind(portal));

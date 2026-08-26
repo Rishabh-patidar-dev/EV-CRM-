@@ -278,8 +278,12 @@ export class StockTransferController {
 
   // PATCH /api/v1/stock-transfers/:id
   //   body: { status, notes?, vehicleUnitIds? }
-  //   When status -> DELIVERED and vehicleUnitIds are given, those VIN units
-  //   are reassigned to the dealer (status ALLOCATED) in the same transaction.
+  //   When status -> DELIVERED: if vehicleUnitIds are given, those specific
+  //   VIN units are reassigned to the dealer (status ALLOCATED); otherwise
+  //   the requested quantity is auto-pulled from matching OEM warehouse
+  //   stock into the dealer's own IN_STOCK inventory. Either way this is the
+  //   real stock movement — OEM availability drops by the same amount since
+  //   it's counted live from dealerId-null units.
   //   REQUESTED -> APPROVED and any Close transition must go through
   //   Order Management's Check Inventory / Close Orders endpoints
   //   (orderManagement.controller.ts) so an order can't be confirmed without
@@ -322,11 +326,33 @@ export class StockTransferController {
         : 0;
 
       const { updated, invoice } = await prisma.$transaction(async (tx) => {
-        if (b.status === "DELIVERED" && vehicleUnitIds.length > 0) {
-          await tx.vehicleUnit.updateMany({
-            where: { id: { in: vehicleUnitIds } },
-            data: { dealerId: transfer.dealerId, status: "ALLOCATED", allocatedAt: new Date() },
-          });
+        if (b.status === "DELIVERED") {
+          if (vehicleUnitIds.length > 0) {
+            await tx.vehicleUnit.updateMany({
+              where: { id: { in: vehicleUnitIds } },
+              data: { dealerId: transfer.dealerId, status: "ALLOCATED", allocatedAt: new Date() },
+            });
+          } else {
+            // Order Management doesn't hand-pick VINs today — this is the
+            // real stock movement for the common path: pull the requested
+            // quantity of matching units out of OEM warehouse stock
+            // (dealerId null, IN_STOCK) into the dealer's own IN_STOCK
+            // inventory, oldest units first. If fewer units are on hand than
+            // ordered, whatever's available still moves — the delivery
+            // isn't blocked on it.
+            const available = await tx.vehicleUnit.findMany({
+              where: { dealerId: null, status: "IN_STOCK", model: transfer.model, segment: transfer.segment },
+              orderBy: { createdAt: "asc" },
+              take: transfer.quantity,
+              select: { id: true },
+            });
+            if (available.length > 0) {
+              await tx.vehicleUnit.updateMany({
+                where: { id: { in: available.map((u) => u.id) } },
+                data: { dealerId: transfer.dealerId, status: "IN_STOCK", allocatedAt: new Date() },
+              });
+            }
+          }
         }
         const updated = await tx.stockTransferRequest.update({ where: { id }, data });
 

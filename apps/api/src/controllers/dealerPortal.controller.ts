@@ -25,6 +25,7 @@ import { registerComponentsForSale } from "../services/componentRegistration.ser
 import { uploadFile, deleteFile } from "../services/fileStorage.service.js";
 import { extractText } from "../services/ocr.service.js";
 import { parseInvoiceFields } from "../services/invoiceParsing.service.js";
+import { parseSparePartLineItems } from "../services/sparePartsBillParsing.service.js";
 
 // GST rule: e-way bills are mandatory (and here, only generatable) once a
 // consignment's taxable value exceeds this statutory threshold.
@@ -728,6 +729,36 @@ export class DealerPortalController {
       res.status(existing ? 200 : 201).json(part);
     } catch (error) {
       handleError(error, res, "Add spare parts stock");
+    }
+  }
+
+  // POST /api/v1/dealer-portal/spare-parts-stock/ocr-preview — uploads a
+  // purchase bill photo and runs OCR, returning best-effort per-line-item
+  // guesses (part name/quantity/price) for the dealer to review, edit, and
+  // remove before confirming — same "suggestion only, never auto-filled"
+  // contract as the purchase-invoice OCR preview above. Creates no DB row;
+  // the confirm step is a normal loop of POSTs to spare-parts-stock above.
+  async previewSparePartsStockOcr(req: Request, res: Response) {
+    try {
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) return handleValidationError(res, "file is required", "file", "Preview spare parts OCR");
+
+      let ocrExtractedText: string | null = null;
+      let ocrStatus: "DONE" | "FAILED" | "SKIPPED" = "SKIPPED";
+      let items: ReturnType<typeof parseSparePartLineItems> = [];
+      if (file.mimetype?.startsWith("image/")) {
+        try {
+          ocrExtractedText = await extractText(file.buffer);
+          ocrStatus = "DONE";
+          items = parseSparePartLineItems(ocrExtractedText);
+        } catch {
+          ocrStatus = "FAILED";
+        }
+      }
+
+      res.json({ ocrExtractedText, ocrStatus, items });
+    } catch (error) {
+      handleError(error, res, "Preview spare parts OCR");
     }
   }
 

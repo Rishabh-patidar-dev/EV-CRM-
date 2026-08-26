@@ -276,6 +276,36 @@ export class AfterSalesController {
         const unitPrice = await resolveUnitPrice("SPARE_PART", current);
         const result = await prisma.$transaction(async (tx) => {
           const request = await tx.sparePartRequest.update({ where: { id }, data });
+
+          // Delivery is the actual physical stock movement: the quantity
+          // the dealer ordered lands in their own DealerSparePart bucket
+          // (top-up if they already stock this part, same convention as the
+          // dealer's own manual/OCR add-stock flow) and comes back out of
+          // the OEM's shared SparePartInventory pool — clamped at 0 so an
+          // over-committed order can never drive the OEM count negative.
+          if (b.status === "DELIVERED") {
+            const deliveredQty = data.quantity ?? current.quantity;
+            const existingStock = await tx.dealerSparePart.findFirst({ where: { dealerId: current.dealerId, partName: current.partName } });
+            if (existingStock) {
+              await tx.dealerSparePart.update({
+                where: { id: existingStock.id },
+                data: { quantityOnHand: { increment: deliveredQty }, ...(current.partCode ? { partCode: current.partCode } : {}) },
+              });
+            } else {
+              await tx.dealerSparePart.create({
+                data: { dealerId: current.dealerId, partName: current.partName, partCode: current.partCode ?? null, quantityOnHand: deliveredQty, unitPrice: String(unitPrice) },
+              });
+            }
+
+            const oemStock = await tx.sparePartInventory.findUnique({ where: { partName: current.partName } });
+            if (oemStock) {
+              await tx.sparePartInventory.update({
+                where: { id: oemStock.id },
+                data: { quantityOnHand: Math.max(0, oemStock.quantityOnHand - deliveredQty) },
+              });
+            }
+          }
+
           const invoice = await issueInvoice(tx, {
             type: "SPARE_PART", orderId: id, dealerId: current.dealerId, item: current.partName,
             invoiceType: b.status === "DISPATCHED" ? "DISPATCH" : "DELIVERY",
