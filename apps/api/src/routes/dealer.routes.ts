@@ -7,7 +7,7 @@ import { UserRole } from "@repo/db";
 import { requireAuth, requireRole } from "../middleware/auth.middleware.js";
 import { DealerController } from "../controllers/dealer.controller.js";
 import { DealerLeadRoutingController } from "../controllers/dealerLeadRouting.controller.js";
-import { FinanceController, AfterSalesController, SparePartInventoryController, SparePartReturnController } from "../controllers/dealerAfterSales.controller.js";
+import { FinanceController, AfterSalesController, SparePartInventoryController } from "../controllers/dealerAfterSales.controller.js";
 
 const ADMINS = [UserRole.ADMIN, UserRole.SYSTEM_ADMIN];
 // Department roles, additive to ADMINS — see docs/ARCHITECTURE_AND_FLOWS.md §4.
@@ -19,7 +19,6 @@ const routing = new DealerLeadRoutingController();
 const finance = new FinanceController();
 const afterSales = new AfterSalesController();
 const sparePartInventory = new SparePartInventoryController();
-const sparePartReturns = new SparePartReturnController();
 
 // ---- /api/v1/dealers ----
 const dealers = Router();
@@ -41,14 +40,17 @@ routingRouter.get("/", requireRole(ADMINS), routing.list.bind(routing));
 routingRouter.post("/route/:leadId", requireRole(ADMINS), routing.route.bind(routing));
 routingRouter.patch("/:id", requireRole(ADMINS), routing.update.bind(routing));
 
-// ---- /api/v1/finance-cases ----
+// ---- /api/v1/finance ---- dealer receivables: what's been billed, what's
+// been collected, what's still open. Literal paths are declared before the
+// /dealers/:id one so "summary" and "payments" can never be read as an id.
 const financeRouter = Router();
 financeRouter.use(requireAuth);
-financeRouter.get("/", requireRole(FINANCE_STAFF), finance.list.bind(finance));
-financeRouter.post("/", requireRole(FINANCE_STAFF), finance.create.bind(finance));
-financeRouter.get("/new-count", requireRole(FINANCE_STAFF), finance.newCount.bind(finance));
-financeRouter.get("/:id/attachments", requireRole(FINANCE_STAFF), finance.listAttachments.bind(finance));
-financeRouter.patch("/:id", requireRole(FINANCE_STAFF), finance.update.bind(finance));
+financeRouter.get("/summary", requireRole(FINANCE_STAFF), finance.summary.bind(finance));
+financeRouter.get("/dealers", requireRole(FINANCE_STAFF), finance.dealers.bind(finance));
+financeRouter.get("/dealers/:id/ledger", requireRole(FINANCE_STAFF), finance.ledger.bind(finance));
+financeRouter.get("/payments", requireRole(FINANCE_STAFF), finance.listPayments.bind(finance));
+financeRouter.post("/payments", requireRole(FINANCE_STAFF), finance.recordPayment.bind(finance));
+financeRouter.delete("/payments/:id", requireRole(FINANCE_STAFF), finance.deletePayment.bind(finance));
 
 // ---- /api/v1/service-tickets ----
 const serviceRouter = Router();
@@ -72,15 +74,6 @@ sparePartInventoryRouter.get("/", requireRole(WAREHOUSE_STAFF), sparePartInvento
 sparePartInventoryRouter.post("/", requireRole(WAREHOUSE_STAFF), sparePartInventory.create.bind(sparePartInventory));
 sparePartInventoryRouter.patch("/:id", requireRole(WAREHOUSE_STAFF), sparePartInventory.update.bind(sparePartInventory));
 
-// ---- /api/v1/spare-part-returns ---- quality-return queue, Warehouse's
-// call to make same as the rest of spare-part inventory truth.
-const sparePartReturnsRouter = Router();
-sparePartReturnsRouter.use(requireAuth);
-sparePartReturnsRouter.get("/", requireRole(WAREHOUSE_STAFF), sparePartReturns.list.bind(sparePartReturns));
-sparePartReturnsRouter.get("/new-count", requireRole(WAREHOUSE_STAFF), sparePartReturns.newCount.bind(sparePartReturns));
-sparePartReturnsRouter.get("/:id/attachments", requireRole(WAREHOUSE_STAFF), sparePartReturns.listAttachments.bind(sparePartReturns));
-sparePartReturnsRouter.post("/:id/status", requireRole(WAREHOUSE_STAFF), sparePartReturns.setStatus.bind(sparePartReturns));
-
 export default {
   dealers,
   routing: routingRouter,
@@ -88,5 +81,4 @@ export default {
   service: serviceRouter,
   spares: sparesRouter,
   sparePartInventory: sparePartInventoryRouter,
-  sparePartReturns: sparePartReturnsRouter,
 };

@@ -40,9 +40,9 @@ export class VehicleUnitController {
       if (model) where.model = model;
       if (search) {
         where.OR = [
-          { vin: { contains: search as string } },
-          { model: { contains: search as string } },
-          { buyerName: { contains: search as string } },
+          { vin: { contains: search as string, mode: "insensitive" } },
+          { model: { contains: search as string, mode: "insensitive" } },
+          { buyerName: { contains: search as string, mode: "insensitive" } },
         ];
       }
 

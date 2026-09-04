@@ -2,8 +2,11 @@
 // Dealer Management — core controller
 // ----------------------------------------------------------------------------
 // SQLite adaptations of /api/controllers/dealer.controller.ts:
-//   - `mode: "insensitive"` dropped (unsupported on SQLite; `contains` is
-//     already case-insensitive for ASCII on SQLite so behaviour is unchanged).
+//   - `mode: "insensitive"` was originally dropped here because SQLite does
+//     not support it and its `contains` is already case-insensitive for
+//     ASCII. That stopped being true when this moved to Postgres, where
+//     `contains` compiles to a case-SENSITIVE LIKE — so searching "sample
+//     motors" silently stopped matching "Sample Motors". The modes are back.
 //   - Dealer.segments is a comma-joined String column here, so every read
 //     path runs it through parseSegments() before sending JSON, and every
 //     write path runs it through serializeSegments(); the segment filter in
@@ -17,6 +20,8 @@
 import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
+import { BILLABLE_INVOICE_TYPES } from "../services/receivables.service.js";
+import { parsePagination, parseSort } from "../utils/query.js";
 import {
   generateDealerCode,
   computeAttainment,
@@ -25,6 +30,10 @@ import {
   serializeSegments,
   parseSegments,
 } from "../services/dealerManagement.service.js";
+
+// Columns the dealer list may be sorted by. Every one is either indexed or
+// low-cardinality; anything not on this list is refused by parseSort.
+const DEALER_SORTABLE = ["createdAt", "legalName", "dealerCode", "tier", "status", "state"] as const;
 
 function withSegments<T extends { segments: string }>(dealer: T) {
   return { ...dealer, segments: parseSegments(dealer.segments) };
@@ -37,35 +46,29 @@ export class DealerController {
   // -------------------------------------------------------------------------
   async list(req: Request, res: Response) {
     try {
-      const {
-        page = "1",
-        limit = "20",
-        search = "",
-        state,
-        tier,
-        status,
-        segment,
-        sortBy = "createdAt",
-        sortOrder = "desc",
-      } = req.query;
+      const { search = "", state, tier, status, segment } = req.query;
 
-      const pageNum = Math.max(1, parseInt(page as string) || 1);
-      const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 20));
-      const skip = (pageNum - 1) * limitNum;
+      const { page: pageNum, limit: limitNum, skip } = parsePagination(req);
+      // `orderBy: { [req.query.sortBy]: ... }` used to pass a client-supplied
+      // string straight to Prisma: an unknown column produced a 500, and any
+      // unindexed one bought the caller a full-table sort at the database's
+      // expense. Only these columns are sortable now, and anything else falls
+      // back to createdAt.
+      const orderBy = parseSort(req, DEALER_SORTABLE, "createdAt");
 
       const where: any = {};
       if (search) {
         where.OR = [
-          { legalName: { contains: search as string } },
-          { tradeName: { contains: search as string } },
-          { dealerCode: { contains: search as string } },
-          { principalName: { contains: search as string } },
+          { legalName: { contains: search as string, mode: "insensitive" } },
+          { tradeName: { contains: search as string, mode: "insensitive" } },
+          { dealerCode: { contains: search as string, mode: "insensitive" } },
+          { principalName: { contains: search as string, mode: "insensitive" } },
         ];
       }
       if (state) where.state = { equals: state as string };
       if (tier) where.tier = tier;
       if (status) where.status = status;
-      if (segment) where.segments = { contains: segment as string };
+      if (segment) where.segments = { contains: segment as string, mode: "insensitive" };
 
       const [dealers, total] = await Promise.all([
         prisma.dealer.findMany({
@@ -78,12 +81,11 @@ export class DealerController {
               select: {
                 territories: true,
                 leadAssignments: true,
-                financeCases: true,
                 serviceTickets: true,
               },
             },
           },
-          orderBy: { [sortBy as string]: sortOrder },
+          orderBy,
           skip,
           take: limitNum,
         }),
@@ -109,26 +111,33 @@ export class DealerController {
   // -------------------------------------------------------------------------
   async stats(_req: Request, res: Response) {
     try {
-      const [byStatus, byTier, byState, byCity, totalDealers, openFinance, openService] =
+      const [byStatus, byTier, byState, byCity, totalDealers, billedAgg, collectedAgg, openService] =
         await Promise.all([
           prisma.dealer.groupBy({ by: ["status"], _count: true }),
           prisma.dealer.groupBy({ by: ["tier"], _count: true }),
           prisma.dealer.groupBy({ by: ["state"], _count: true }),
           prisma.dealer.groupBy({ by: ["city"], _count: true }),
           prisma.dealer.count(),
-          prisma.financeCase.count({
-            where: { status: { in: ["NEW", "DOCS_PENDING", "SUBMITTED"] } },
-          }),
+          // Network-wide receivable — same "only delivered goods are a
+          // payable" rule Finance Management uses (see
+          // services/receivables.service.ts). Network totals don't need the
+          // per-dealer FIFO pass: summed billed minus summed collected is
+          // the same number.
+          prisma.invoice.aggregate({ _sum: { totalAmount: true }, where: { type: { in: [...BILLABLE_INVOICE_TYPES] } } }),
+          prisma.dealerPayment.aggregate({ _sum: { amount: true } }),
           prisma.serviceTicket.count({
             where: { status: { in: ["OPEN", "IN_PROGRESS", "AWAITING_PARTS"] } },
           }),
         ]);
 
+      const billed = Number(billedAgg._sum.totalAmount ?? 0);
+      const collected = Number(collectedAgg._sum.amount ?? 0);
+
       res.json({
         totalDealers,
         statesCovered: byState.length,
         citiesCovered: byCity.length,
-        openFinanceCases: openFinance,
+        outstandingReceivable: Math.max(0, Math.round(billed - collected)),
         openServiceTickets: openService,
         byStatus: Object.fromEntries(byStatus.map((r) => [r.status, r._count])),
         byTier: Object.fromEntries(byTier.map((r) => [r.tier, r._count])),
@@ -158,7 +167,7 @@ export class DealerController {
           territories: { orderBy: [{ state: "asc" }, { district: "asc" }] },
           targets: { orderBy: { periodStart: "desc" }, take: 12 },
           performance: { orderBy: { periodStart: "desc" }, take: 12 },
-          financeCases: { orderBy: { createdAt: "desc" }, take: 20 },
+          payments: { orderBy: { paidAt: "desc" }, take: 20 },
           serviceTickets: { orderBy: { createdAt: "desc" }, take: 20 },
           sparePartRequests: { orderBy: { createdAt: "desc" }, take: 20 },
           leadAssignments: { orderBy: { assignedAt: "desc" }, take: 20 },
@@ -192,8 +201,21 @@ export class DealerController {
           : null
       );
 
+      // What this dealer still owes — same rule Finance Management applies
+      // (only delivered goods create a payable, see
+      // services/receivables.service.ts).
+      const [billedAgg, collectedAgg] = await Promise.all([
+        prisma.invoice.aggregate({ _sum: { totalAmount: true }, where: { dealerId: id, type: { in: [...BILLABLE_INVOICE_TYPES] } } }),
+        prisma.dealerPayment.aggregate({ _sum: { amount: true }, where: { dealerId: id } }),
+      ]);
+      const outstandingReceivable = Math.max(
+        0,
+        Math.round(Number(billedAgg._sum.totalAmount ?? 0) - Number(collectedAgg._sum.amount ?? 0))
+      );
+
       res.json({
         ...withSegments(dealer),
+        outstandingReceivable,
         currentAttainment: attainment,
       });
     } catch (error) {

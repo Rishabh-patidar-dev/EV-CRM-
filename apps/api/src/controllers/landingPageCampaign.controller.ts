@@ -26,8 +26,8 @@ export class LandingPageCampaignController {
       const where: any = {};
       if (search) {
         where.OR = [
-          { name: { contains: search as string } },
-          { description: { contains: search as string } },
+          { name: { contains: search as string, mode: "insensitive" } },
+          { description: { contains: search as string, mode: "insensitive" } },
         ];
       }
       if (status) where.status = status;

@@ -73,11 +73,11 @@ export class LeadController {
 
       if (search) {
         where.OR = [
-          { firstName: { contains: search as string } },
-          { lastName: { contains: search as string } },
-          { email: { contains: search as string } },
-          { phone: { contains: search as string } },
-          { companyName: { contains: search as string } },
+          { firstName: { contains: search as string, mode: "insensitive" } },
+          { lastName: { contains: search as string, mode: "insensitive" } },
+          { email: { contains: search as string, mode: "insensitive" } },
+          { phone: { contains: search as string, mode: "insensitive" } },
+          { companyName: { contains: search as string, mode: "insensitive" } },
         ];
       }
 
@@ -111,19 +111,10 @@ export class LeadController {
   // -------------------------------------------------------------------------
   async stats(_req: Request, res: Response) {
     try {
-      const [byStatus, bySource, total, unassigned, avgScoreRow, recentLeads] = await Promise.all([
-        prisma.lead.groupBy({ by: ["status"], where: { deletedAt: null }, _count: true }),
-        prisma.lead.groupBy({ by: ["source"], where: { deletedAt: null }, _count: true }),
-        prisma.lead.count({ where: { deletedAt: null } }),
-        prisma.lead.count({ where: { deletedAt: null, ownerId: null } }),
-        prisma.lead.aggregate({ where: { deletedAt: null }, _avg: { score: true } }),
-        prisma.lead.findMany({ where: { deletedAt: null }, select: { createdAt: true, source: true } }),
-      ]);
-
       // Weekly lead volume by source, last 8 weeks — the trend the Overview
       // dashboard's "Leads by source" chart reads (real createdAt buckets,
       // not a fabricated series).
-      const SOURCES: string[] = ["LANDING_PAGE", "MANUAL", "IMPORT"];
+      const SOURCES = ["LANDING_PAGE", "MANUAL", "IMPORT"] as const;
       const DAY_MS = 86_400_000;
       const now = Date.now();
       const weekLabels: string[] = [];
@@ -135,11 +126,41 @@ export class LeadController {
         weekLabels.push(`${start.getMonth() + 1}/${start.getDate()}`);
         weekBounds.push({ start: +start, end });
       }
+      const windowStart = new Date(weekBounds[0]!.start);
+
+      const [byStatus, bySource, total, unassigned, avgScoreRow, recentLeads] = await Promise.all([
+        prisma.lead.groupBy({ by: ["status"], where: { deletedAt: null }, _count: true }),
+        prisma.lead.groupBy({ by: ["source"], where: { deletedAt: null }, _count: true }),
+        prisma.lead.count({ where: { deletedAt: null } }),
+        prisma.lead.count({ where: { deletedAt: null, ownerId: null } }),
+        prisma.lead.aggregate({ where: { deletedAt: null }, _avg: { score: true } }),
+        // Only the rows the chart can actually plot. This previously selected
+        // EVERY non-deleted lead ever created and threw away all but the last
+        // eight weeks in JavaScript — so the cost of loading the dashboard grew
+        // with the lifetime size of the table rather than with what it displays.
+        prisma.lead.findMany({
+          where: { deletedAt: null, createdAt: { gte: windowStart }, source: { in: [...SOURCES] } },
+          select: { createdAt: true, source: true },
+        }),
+      ]);
+
+      // One pass over the rows, bucketed by arithmetic. The previous version
+      // ran a full .filter() over the whole array for every source/week pair —
+      // 24 scans of the entire lead table per request.
+      const counts = new Map<(typeof SOURCES)[number], number[]>(
+        SOURCES.map((s) => [s, new Array(weekBounds.length).fill(0) as number[]])
+      );
+      const firstWeekStart = weekBounds[0]!.start;
+      const WEEK_MS = 7 * DAY_MS;
+      for (const lead of recentLeads) {
+        const bucket = Math.floor((+lead.createdAt - firstWeekStart) / WEEK_MS);
+        if (bucket < 0 || bucket >= weekBounds.length) continue;
+        const series = lead.source ? counts.get(lead.source as (typeof SOURCES)[number]) : undefined;
+        if (series) series[bucket]! += 1;
+      }
       const trendSeries = SOURCES.map((source) => ({
         label: source.replace("_", " "),
-        values: weekBounds.map(
-          ({ start, end }) => recentLeads.filter((l) => l.source === source && +l.createdAt >= start && +l.createdAt < end).length
-        ),
+        values: counts.get(source)!,
       }));
 
       res.json({

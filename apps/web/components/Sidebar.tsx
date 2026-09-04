@@ -7,7 +7,6 @@ import apiClient from "@/lib/api/client";
 import { ORDER_MGMT_LAST_SEEN_KEY } from "./orderManagementSeen";
 import { INVOICE_LAST_SEEN_KEY } from "./invoicesSeen";
 import { WARRANTY_LAST_SEEN_KEY } from "./warrantyClaimsSeen";
-import { FINANCE_LAST_SEEN_KEY } from "./financeCasesSeen";
 import {
   LayoutDashboard,
   Workflow,
@@ -31,10 +30,8 @@ import {
   PackageSearch,
   ScrollText,
   Landmark,
-  Undo2,
 } from "lucide-react";
 import Logo from "./Logo";
-import { RETURNS_LAST_SEEN_KEY } from "./sparePartReturnsSeen";
 
 type NavIcon = React.ComponentType<{ className?: string }>;
 // `exactOnly` is for nav items whose href has sibling static routes that
@@ -93,7 +90,6 @@ const NAV: NavEntry[] = [
     items: [
       { href: "/inventory-management/vehicles", label: "Vehicle Inventory", icon: Warehouse },
       { href: "/inventory-management/spare-parts", label: "Spare Parts Inventory", icon: PackageSearch },
-      { href: "/inventory-management/returns", label: "Spare Part Returns", icon: Undo2 },
       { href: "/inventory-management/logs", label: "Inventory Logs", icon: ScrollText },
     ],
   },
@@ -125,8 +121,6 @@ export default function Sidebar() {
   const [newOrderMarker, setNewOrderMarker] = useState(false);
   const [invoiceUnreadCount, setInvoiceUnreadCount] = useState(0);
   const [newClaimMarker, setNewClaimMarker] = useState(false);
-  const [newFinanceMarker, setNewFinanceMarker] = useState(false);
-  const [newReturnMarker, setNewReturnMarker] = useState(false);
 
   const toggleGroup = (id: string) => {
     setOpenGroups((prev) => {
@@ -187,55 +181,6 @@ export default function Sidebar() {
     return () => { active = false; };
   }, [pathname]);
 
-  // Same pattern, for Finance Management — NEW is the one case status that
-  // genuinely needs a staff finance person to pick it up (see
-  // dealerAfterSales.controller.ts#FinanceController.newCount).
-  useEffect(() => {
-    let active = true;
-    apiClient
-      .get("/api/v1/finance-cases/new-count")
-      .then(({ data }) => {
-        if (!active) return;
-        const latest = data?.latestCreatedAt;
-        if (!latest) return setNewFinanceMarker(false);
-        let lastSeen: string | null = null;
-        try {
-          lastSeen = localStorage.getItem(FINANCE_LAST_SEEN_KEY);
-        } catch {
-          // private-mode/unavailable storage — treat as never seen
-        }
-        setNewFinanceMarker(!lastSeen || new Date(latest) > new Date(lastSeen));
-      })
-      .catch(() => {
-        // non-critical UI indicator — a failed check just leaves it as-is
-      });
-    return () => { active = false; };
-  }, [pathname]);
-
-  // Same pattern, for Spare Part Returns — REQUESTED is the one status that
-  // genuinely needs a Warehouse decision.
-  useEffect(() => {
-    let active = true;
-    apiClient
-      .get("/api/v1/spare-part-returns/new-count")
-      .then(({ data }) => {
-        if (!active) return;
-        const latest = data?.latestCreatedAt;
-        if (!latest) return setNewReturnMarker(false);
-        let lastSeen: string | null = null;
-        try {
-          lastSeen = localStorage.getItem(RETURNS_LAST_SEEN_KEY);
-        } catch {
-          // private-mode/unavailable storage — treat as never seen
-        }
-        setNewReturnMarker(!lastSeen || new Date(latest) > new Date(lastSeen));
-      })
-      .catch(() => {
-        // non-critical UI indicator — a failed check just leaves it as-is
-      });
-    return () => { active = false; };
-  }, [pathname]);
-
   // Same re-check-on-route-change reasoning as above, for the Invoices
   // "unread" badge — the endpoint itself computes the count relative to
   // `since`, so no client-side comparison is needed here.
@@ -277,7 +222,7 @@ export default function Sidebar() {
               <SidebarLink
                 {...entry}
                 active={pathname === entry.href}
-                liveIndicator={(entry.href === "/order-management" && newOrderMarker) || (entry.href === "/finance-management" && newFinanceMarker)}
+                liveIndicator={entry.href === "/order-management" && newOrderMarker}
                 badgeCount={entry.href === "/invoices" ? invoiceUnreadCount : undefined}
               />
             </div>
@@ -297,7 +242,7 @@ export default function Sidebar() {
                       key={item.href}
                       {...item}
                       active={pathname === item.href || (!item.exactOnly && !!pathname?.startsWith(item.href + "/"))}
-                      liveIndicator={(item.href === "/order-management" && newOrderMarker) || (item.href === "/warranty" && newClaimMarker) || (item.href === "/inventory-management/returns" && newReturnMarker)}
+                      liveIndicator={(item.href === "/order-management" && newOrderMarker) || (item.href === "/warranty" && newClaimMarker)}
                       badgeCount={item.href === "/order-management/invoices" ? invoiceUnreadCount : undefined}
                     />
                   ))}

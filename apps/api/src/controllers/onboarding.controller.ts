@@ -35,10 +35,10 @@ export class OnboardingController {
       if (status) where.status = status;
       if (search) {
         where.OR = [
-          { legalName: { contains: search } },
-          { tradeName: { contains: search } },
-          { email: { contains: search } },
-          { publicId: { contains: search } },
+          { legalName: { contains: search, mode: "insensitive" } },
+          { tradeName: { contains: search, mode: "insensitive" } },
+          { email: { contains: search, mode: "insensitive" } },
+          { publicId: { contains: search, mode: "insensitive" } },
         ];
       }
 

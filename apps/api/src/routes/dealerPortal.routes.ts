@@ -47,9 +47,6 @@ router.post("/spare-parts-stock", portal.upsertDealerSparePart.bind(portal));
 router.post("/spare-parts-stock/ocr-preview", upload.single("file"), portal.previewSparePartsStockOcr.bind(portal));
 router.patch("/spare-parts-stock/:id", portal.updateDealerSparePart.bind(portal));
 
-router.get("/spare-part-returns", portal.listSparePartReturns.bind(portal));
-router.post("/spare-part-returns", portal.createSparePartReturn.bind(portal));
-router.get("/spare-part-returns/new-count", portal.newSparePartReturnCount.bind(portal));
 
 router.get("/warranty-claims", portal.listWarrantyClaims.bind(portal));
 router.post("/warranty-claims", portal.createWarrantyClaim.bind(portal));
@@ -57,9 +54,6 @@ router.get("/warranty-claims/new-count", portal.newWarrantyClaimCount.bind(porta
 router.get("/warranty-claims/:id", portal.getWarrantyClaim.bind(portal));
 router.get("/warranty-coverage/:identifier", portal.checkWarrantyCoverage.bind(portal));
 
-router.get("/finance-cases", portal.listFinanceCases.bind(portal));
-router.post("/finance-cases", portal.createFinanceCase.bind(portal));
-router.get("/finance-cases/new-count", portal.newFinanceCaseCount.bind(portal));
 
 router.get("/leads", portal.listLeads.bind(portal));
 router.post("/leads", portal.createLead.bind(portal));
@@ -104,10 +98,6 @@ router.get("/bookings/:id/attachments", portal.listAttachments("BOOKING"));
 router.post("/bookings/:id/attachments", upload.single("file"), portal.uploadAttachment("BOOKING"));
 router.get("/warranty-claims/:id/attachments", portal.listAttachments("WARRANTY_CLAIM"));
 router.post("/warranty-claims/:id/attachments", upload.single("file"), portal.uploadAttachment("WARRANTY_CLAIM"));
-router.get("/finance-cases/:id/attachments", portal.listAttachments("FINANCE_CASE"));
-router.post("/finance-cases/:id/attachments", upload.single("file"), portal.uploadAttachment("FINANCE_CASE"));
-router.get("/spare-part-returns/:id/attachments", portal.listAttachments("SPARE_PART_RETURN"));
-router.post("/spare-part-returns/:id/attachments", upload.single("file"), portal.uploadAttachment("SPARE_PART_RETURN"));
 router.delete("/attachments/:id", portal.deleteAttachment.bind(portal));
 
 // Purchase invoices — dealer logs a supplier/OEM invoice; OCR (plain text

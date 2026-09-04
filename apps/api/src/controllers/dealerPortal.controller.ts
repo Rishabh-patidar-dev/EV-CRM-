@@ -20,7 +20,7 @@ import { handleError, handleValidationError, handleNotFoundError } from "../util
 import { generateSequenceNumber, VEHICLE_CATALOG, normalizePhone } from "../services/dealerManagement.service.js";
 import { DEALER_INVOICE_SELECT } from "../services/invoice.service.js";
 import { submitWarrantyClaim } from "../services/warrantyAdjudication.service.js";
-import { segmentWhere } from "./campaignManagement.controller.js";
+import { segmentWhere, attachMemberCounts } from "./campaignManagement.controller.js";
 import { registerComponentsForSale } from "../services/componentRegistration.service.js";
 import { uploadFile, deleteFile } from "../services/fileStorage.service.js";
 import { extractText } from "../services/ocr.service.js";
@@ -33,7 +33,7 @@ import { logInventoryChange } from "../services/inventoryLog.service.js";
 // consignment's taxable value exceeds this statutory threshold.
 const EWAY_BILL_THRESHOLD = 50000;
 
-type AttachmentKind = "CUSTOMER_BILL" | "SERVICE_TICKET" | "BOOKING" | "WARRANTY_CLAIM" | "FINANCE_CASE" | "SPARE_PART_RETURN";
+type AttachmentKind = "CUSTOMER_BILL" | "SERVICE_TICKET" | "BOOKING" | "WARRANTY_CLAIM";
 
 // Which Prisma delegate + FK column owns a given attachment kind — every
 // generic-attachment endpoint is one of these rows away from a full
@@ -43,8 +43,6 @@ const ATTACHMENT_PARENT: Record<AttachmentKind, { delegate: any; fkField: string
   SERVICE_TICKET: { delegate: prisma.serviceTicket, fkField: "serviceTicketId" },
   BOOKING: { delegate: prisma.booking, fkField: "bookingId" },
   WARRANTY_CLAIM: { delegate: prisma.warrantyClaim, fkField: "warrantyClaimId" },
-  FINANCE_CASE: { delegate: prisma.financeCase, fkField: "financeCaseId" },
-  SPARE_PART_RETURN: { delegate: prisma.sparePartReturn, fkField: "sparePartReturnId" },
 };
 
 function sanitizeFileName(name: string): string {
@@ -849,85 +847,6 @@ export class DealerPortalController {
     }
   }
 
-  // ===========================================================================
-  // MODULE — Spare Parts Returns (dealer-facing)
-  // -----------------------------------------------------------------------------
-  // "This part failed quality — I need to send it back": a dealer flags a
-  // defective quantity out of their own DealerSparePart stock, staff review
-  // (approve/reject) and resolve it (replaced/credited) in Inventory
-  // Management. No stock moves until resolution — see
-  // SparePartReturnController#setStatus for the actual reconciliation.
-  // ===========================================================================
-
-  // GET /api/v1/dealer-portal/spare-part-returns
-  async listSparePartReturns(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const returns = await prisma.sparePartReturn.findMany({
-        where: { dealerId },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      });
-      res.json({ returns });
-    } catch (error) {
-      handleError(error, res, "List dealer spare part returns");
-    }
-  }
-
-  // GET /api/v1/dealer-portal/spare-part-returns/new-count — same "unread"
-  // pattern as newWarrantyClaimCount/newFinanceCaseCount above.
-  async newSparePartReturnCount(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const sinceRaw = req.query.since;
-      const since = sinceRaw ? new Date(String(sinceRaw)) : null;
-      const where: any = { dealerId };
-      if (since && !isNaN(+since)) where.updatedAt = { gt: since };
-      const [count, latest] = await Promise.all([
-        prisma.sparePartReturn.count({ where }),
-        prisma.sparePartReturn.findFirst({ where: { dealerId }, orderBy: { updatedAt: "desc" }, select: { updatedAt: true } }),
-      ]);
-      res.json({ count, latestUpdatedAt: latest?.updatedAt ?? null });
-    } catch (error) {
-      handleError(error, res, "Dealer portal new spare part return count");
-    }
-  }
-
-  // POST /api/v1/dealer-portal/spare-part-returns — flag a quantity out of
-  // this dealer's own stock as failing quality. Validated against their own
-  // DealerSparePart row so a dealer can never request a return for more than
-  // they actually have on hand, or for another dealer's stock.
-  async createSparePartReturn(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const b = req.body ?? {};
-      const quantity = parseInt(b.quantity ?? "0");
-      if (!b.dealerSparePartId || quantity < 1 || !b.reason) {
-        return handleValidationError(res, "dealerSparePartId, a positive quantity and a reason are required", "body", "Report spare part quality issue");
-      }
-      const part = await prisma.dealerSparePart.findFirst({ where: { id: parseInt(b.dealerSparePartId), dealerId } });
-      if (!part) return handleNotFoundError(res, "Spare part", "Report spare part quality issue");
-      if (quantity > part.quantityOnHand) {
-        return handleValidationError(res, `Only ${part.quantityOnHand} ${part.partName} in stock`, "quantity", "Report spare part quality issue");
-      }
-
-      const sparePartReturn = await prisma.sparePartReturn.create({
-        data: {
-          dealerId,
-          dealerSparePartId: part.id,
-          partName: part.partName,
-          partCode: part.partCode,
-          quantity,
-          reason: b.reason,
-          status: "REQUESTED",
-        },
-      });
-      res.status(201).json(sparePartReturn);
-    } catch (error) {
-      handleError(error, res, "Report spare part quality issue");
-    }
-  }
-
   // GET /api/v1/dealer-portal/warranty-claims
   async listWarrantyClaims(req: Request, res: Response) {
     try {
@@ -1072,80 +991,6 @@ export class DealerPortalController {
     }
   }
 
-  // ===========================================================================
-  // MODULE — Finance Management (dealer-facing)
-  // -----------------------------------------------------------------------------
-  // A dealer requests buyer financing here; a staff FINANCE user works the
-  // pipeline (NEW -> DOCS_PENDING -> SUBMITTED -> APPROVED -> DISBURSED, or
-  // REJECTED) from finance-management/page.tsx, same FinanceCase row either
-  // side reads. Mirrors the exact shape of the warranty-claims dealer-portal
-  // methods just above — list/create/new-count, same "force dealerId from
-  // session" boundary.
-  // ===========================================================================
-
-  // GET /api/v1/dealer-portal/finance-cases
-  async listFinanceCases(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const cases = await prisma.financeCase.findMany({
-        where: { dealerId },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      });
-      res.json({ cases });
-    } catch (error) {
-      handleError(error, res, "List dealer finance cases");
-    }
-  }
-
-  // GET /api/v1/dealer-portal/finance-cases/new-count — same "unread" pattern
-  // as newInvoiceCount/newWarrantyClaimCount above.
-  async newFinanceCaseCount(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const sinceRaw = req.query.since;
-      const since = sinceRaw ? new Date(String(sinceRaw)) : null;
-      const where: any = { dealerId };
-      if (since && !isNaN(+since)) where.updatedAt = { gt: since };
-      const [count, latest] = await Promise.all([
-        prisma.financeCase.count({ where }),
-        prisma.financeCase.findFirst({ where: { dealerId }, orderBy: { updatedAt: "desc" }, select: { updatedAt: true } }),
-      ]);
-      res.json({ count, latestUpdatedAt: latest?.updatedAt ?? null });
-    } catch (error) {
-      handleError(error, res, "Dealer portal new finance case count");
-    }
-  }
-
-  // POST /api/v1/dealer-portal/finance-cases — dealer requests buyer financing
-  // for a sale. Always lands at NEW; financierName/loanAmount are the staff
-  // finance team's call to make once they've actually worked the case, not
-  // something a dealer can set upfront (the dealer only states what they're
-  // asking for, via notes/vehicleModel).
-  async createFinanceCase(req: Request, res: Response) {
-    try {
-      const { dealerId } = req.dealerPortal!;
-      const b = req.body ?? {};
-      if (!b.buyerName || !b.buyerPhone) {
-        return handleValidationError(res, "buyerName and buyerPhone are required", "body", "Request financing");
-      }
-      const financeCase = await prisma.financeCase.create({
-        data: {
-          dealerId,
-          buyerName: b.buyerName,
-          buyerPhone: normalizePhone(b.buyerPhone) ?? b.buyerPhone,
-          vehicleModel: b.vehicleModel || null,
-          loanAmount: b.loanAmount ? String(b.loanAmount) : null,
-          notes: b.notes || null,
-          status: "NEW",
-        },
-      });
-      res.status(201).json(financeCase);
-    } catch (error) {
-      handleError(error, res, "Request financing");
-    }
-  }
-
   // -------------------------------------------------------------------------
   // Leads & Enquiry (DMS Module D3) — a Lead has no dealerId of its own;
   // "assigned to this dealer" is the DealerLeadAssignment join row. Scoping
@@ -1164,10 +1009,10 @@ export class DealerPortalController {
       if (search) {
         assignmentWhere.lead = {
           OR: [
-            { firstName: { contains: search as string } },
-            { lastName: { contains: search as string } },
-            { email: { contains: search as string } },
-            { phone: { contains: search as string } },
+            { firstName: { contains: search as string, mode: "insensitive" } },
+            { lastName: { contains: search as string, mode: "insensitive" } },
+            { email: { contains: search as string, mode: "insensitive" } },
+            { phone: { contains: search as string, mode: "insensitive" } },
           ],
         };
       }
@@ -1308,10 +1153,8 @@ export class DealerPortalController {
     try {
       const { dealerId } = req.dealerPortal!;
       const segments = await prisma.segment.findMany({ where: { dealerId }, orderBy: { createdAt: "desc" } });
-      const withCounts = await Promise.all(
-        segments.map(async (s) => ({ ...s, memberCount: await prisma.lead.count({ where: segmentWhere(s) }) }))
-      );
-      res.json({ segments: withCounts });
+      // Single grouped query for the whole page — see attachMemberCounts.
+      res.json({ segments: await attachMemberCounts(segments) });
     } catch (error) {
       handleError(error, res, "List dealer segments");
     }

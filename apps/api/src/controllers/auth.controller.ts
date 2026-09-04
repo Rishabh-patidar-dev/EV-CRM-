@@ -7,20 +7,26 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "@repo/db";
 import { handleError } from "../utils/errorHandler.js";
+import { env } from "../config/env.js";
+import { invalidateRoleCache } from "../middleware/auth.middleware.js";
+import { logger } from "../utils/logger.js";
 
-const JWT_SECRET = process.env.JWT_SECRET;
 const COOKIE_NAME = "crm_session";
 
-// Hardcoded demo fallback — for showing the CRM in a demo even if the
-// database is paused/unreachable (e.g. a paused Supabase free-tier
-// project). Checked before any DB call in both login() and me(), so the
-// login screen and the signed-in shell stay usable without the DB. Data
-// panels that query the DB directly still won't populate — this only
-// keeps the login wall and session check from blocking on it.
+// Demo fallback — lets the CRM be demonstrated even if the database is paused
+// or unreachable (e.g. a paused Supabase free-tier project). Checked before
+// any DB call in both login() and me(), so the login screen and the signed-in
+// shell stay usable without the DB.
+//
+// SECURITY: these are hardcoded SYSTEM_ADMIN credentials living in source, so
+// they are gated behind env.enableDemoLogin, which defaults to OFF whenever
+// NODE_ENV=production. Left ungated, this is a published administrator
+// password on the live system. Turning the flag off also invalidates any demo
+// session already issued (see auth.middleware.ts).
 const DEMO_FALLBACK = {
   id: 0,
-  username: "Admin",
-  password: "Admin@123",
+  username: process.env.DEMO_USERNAME?.trim() || "Admin",
+  password: process.env.DEMO_PASSWORD?.trim() || "Admin@123",
   firstName: "Admin",
   lastName: "User",
   role: "SYSTEM_ADMIN",
@@ -32,14 +38,13 @@ const SHORT_TTL_MS = 12 * 60 * 60 * 1000; // 12h
 const LONG_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30d
 
 function signSession(user: { id: number; username: string | null; role: string }, ttlMs: number) {
-  if (!JWT_SECRET) throw new Error("JWT_SECRET is not configured");
-  return jwt.sign({ sub: user.id, username: user.username, role: user.role }, JWT_SECRET, {
+  return jwt.sign({ sub: user.id, username: user.username, role: user.role }, env.jwtSecret, {
     expiresIn: Math.floor(ttlMs / 1000),
   });
 }
 
 function setSessionCookie(res: Response, token: string, remember: boolean) {
-  const isProd = process.env.NODE_ENV === "production";
+  const isProd = env.isProd;
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     // "none" is required for cross-site cookies (Vercel frontend +
@@ -63,7 +68,11 @@ export class AuthController {
         return res.status(400).json({ success: false, message: "Username and password are required" });
       }
 
-      if (String(username).trim() === DEMO_FALLBACK.username && password === DEMO_FALLBACK.password) {
+      if (
+        env.enableDemoLogin &&
+        String(username).trim() === DEMO_FALLBACK.username &&
+        password === DEMO_FALLBACK.password
+      ) {
         const ttlMs = remember ? LONG_TTL_MS : SHORT_TTL_MS;
         const token = signSession({ id: DEMO_FALLBACK.id, username: DEMO_FALLBACK.username, role: DEMO_FALLBACK.role }, ttlMs);
         setSessionCookie(res, token, Boolean(remember));
@@ -92,6 +101,11 @@ export class AuthController {
       const ttlMs = remember ? LONG_TTL_MS : SHORT_TTL_MS;
       const token = signSession({ id: user.id, username: user.username, role: user.role }, ttlMs);
       setSessionCookie(res, token, Boolean(remember));
+      // Drop any cached role for this account so a promotion or demotion
+      // applied just before the user signs in is honoured immediately rather
+      // than after the cache TTL.
+      invalidateRoleCache(user.id);
+      logger.info({ userId: user.id, role: user.role }, "Staff login succeeded");
 
       return res.json({
         success: true,
@@ -111,19 +125,29 @@ export class AuthController {
   /** GET /api/v1/auth/me */
   async me(req: Request, res: Response) {
     try {
-      const token = req.cookies?.[COOKIE_NAME];
-      if (!token || !JWT_SECRET) {
+      // Cookie first, then the Authorization header — same dual path as
+      // auth.middleware.ts, because cross-site cookies are blocked by default
+      // in some browsers when the API and the CRM are on different domains.
+      const bearer = req.get("authorization");
+      const token =
+        req.cookies?.[COOKIE_NAME] || (bearer?.startsWith("Bearer ") ? bearer.slice(7).trim() : undefined);
+      if (!token) {
         return res.status(401).json({ success: false, message: "Not signed in" });
       }
 
       let payload: { sub: number };
       try {
-        payload = jwt.verify(token, JWT_SECRET) as unknown as { sub: number };
+        payload = jwt.verify(token, env.jwtSecret) as unknown as { sub: number };
       } catch {
         return res.status(401).json({ success: false, message: "Session expired" });
       }
 
       if (payload.sub === DEMO_FALLBACK.id) {
+        // Demo sessions stop resolving the moment demo login is switched off,
+        // so disabling the flag revokes tokens already in circulation.
+        if (!env.enableDemoLogin) {
+          return res.status(401).json({ success: false, message: "Not signed in" });
+        }
         return res.json({
           success: true,
           user: {

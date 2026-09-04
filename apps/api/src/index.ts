@@ -1,59 +1,64 @@
-import "dotenv/config";
-import express from "express";
-import cors from "cors";
-import cookieParser from "cookie-parser";
-import path from "path";
-import { fileURLToPath } from "url";
-import routes from "./routes/index.js";
+// =============================================================================
+// index.ts — process entrypoint.
+// -----------------------------------------------------------------------------
+// Node runs JavaScript on one thread. A single process therefore uses exactly
+// one CPU core no matter how many the container has, and every request queues
+// behind whatever synchronous work is currently on that thread — JSON
+// serialization of a large list, a bcrypt comparison, an OCR pass.
+//
+// This forks one worker per core and lets the OS balance accepted connections
+// between them, which multiplies throughput by the core count and means a
+// worker that dies takes ~1/N of in-flight traffic with it rather than all of
+// it. The primary process supervises and respawns.
+//
+// Set CLUSTER_WORKERS=1 to disable forking (correct on a single-core
+// container, where the extra processes only add memory and context switching).
+// =============================================================================
+import cluster from "cluster";
+import os from "os";
+import { env } from "./config/env.js";
+import { logger } from "./utils/logger.js";
+import { startServer } from "./server.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
+function desiredWorkers(): number {
+  if (env.clusterWorkers > 0) return env.clusterWorkers;
+  if (!env.isProd) return 1; // one process in dev keeps logs and debugging sane
+  const cores = os.availableParallelism?.() ?? os.cpus().length;
+  // Leave headroom: the container also has to run the platform's own agents,
+  // and each worker carries its own database connection pool.
+  return Math.max(1, Math.min(cores, 8));
+}
 
-// `credentials: true` + specific origins (not "*") so the browser will both
-// send and accept session cookies on cross-port XHR — the CRM web app
-// (:3000, crm_session), the landing page's onboarding dashboard (:3001,
-// dealer_session), and the DMS operational portal (:3002, same
-// dealer_session) all call this API cross-origin even though everything's
-// on localhost.
-const ALLOWED_ORIGINS = [
-  process.env.WEB_ORIGIN || "http://localhost:3000",
-  process.env.LANDING_ORIGIN || "http://localhost:3001",
-  process.env.DMS_ORIGIN || "http://localhost:3002",
-].filter(Boolean);
-app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
-app.use(cookieParser());
-app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      (req as any).rawBody = buf.toString();
-    },
-  })
-);
+const workers = desiredWorkers();
 
-// Warranty claim evidence — see routes/warranty.routes.ts for the multer
-// config that writes here.
-app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+if (workers > 1 && cluster.isPrimary) {
+  logger.info({ workers, pid: process.pid }, `Primary starting ${workers} workers`);
 
-app.get("/", (_req, res) => {
-  res.json({ success: true, message: "Luxus Green Mobility API", docs: "/api/v1/health" });
-});
-app.get("/api/v1/health", (_req, res) => {
-  res.json({ success: true, status: "ok", timestamp: new Date().toISOString() });
-});
+  for (let i = 0; i < workers; i++) cluster.fork();
 
-app.use("/api/v1", routes);
+  let shuttingDown = false;
 
-app.use((_req, res) => {
-  res.status(404).json({ success: false, message: "Route not found" });
-});
+  cluster.on("exit", (worker, code, signal) => {
+    if (shuttingDown) return;
+    // A worker dying under load is survivable; a worker dying in a tight
+    // restart loop is not, so this is logged loudly enough to alert on.
+    logger.error(
+      { workerPid: worker.process.pid, code, signal },
+      "Worker exited unexpectedly — replacing"
+    );
+    cluster.fork();
+  });
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("Unhandled error:", err);
-  res.status(500).json({ success: false, message: "Internal server error" });
-});
-
-app.listen(PORT, () => {
-  console.log(`Luxus Green Mobility API listening on http://localhost:${PORT}`);
-});
+  // Forward shutdown to the workers so each one drains its own connections,
+  // instead of the primary vanishing and orphaning them.
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.on(signal, () => {
+      shuttingDown = true;
+      logger.info({ signal }, "Primary shutting down — signalling workers");
+      for (const worker of Object.values(cluster.workers ?? {})) worker?.process.kill(signal);
+      setTimeout(() => process.exit(0), env.shutdownGraceMs).unref();
+    });
+  }
+} else {
+  startServer();
+}

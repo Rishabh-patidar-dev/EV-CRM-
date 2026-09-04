@@ -162,7 +162,7 @@ export default function DealerDetailPage() {
 
         <div className="grid grid-cols-3 gap-2 text-center">
           <RollupCard icon={<TrendingUp className="w-3.5 h-3.5" />} label="Routed leads" value={(data.leadAssignments ?? []).length} />
-          <RollupCard icon={<Wallet className="w-3.5 h-3.5" />} label="Finance" value={(data.financeCases ?? []).length} />
+          <RollupCard icon={<Wallet className="w-3.5 h-3.5" />} label="Outstanding" value={`₹${(data.outstandingReceivable ?? 0).toLocaleString("en-IN")}`} />
           <RollupCard icon={<Package className="w-3.5 h-3.5" />} label="Spares" value={(data.sparePartRequests ?? []).length} />
         </div>
       </section>
@@ -272,7 +272,7 @@ function Metric({ label, value, sub }: { label: string; value: string; sub?: str
   );
 }
 
-function RollupCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
+function RollupCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-[var(--radius)] border border-border bg-card p-3">
       <div className="flex justify-center text-muted-foreground mb-1">{icon}</div>

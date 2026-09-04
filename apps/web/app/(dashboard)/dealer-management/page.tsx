@@ -35,13 +35,13 @@ interface DealerRow {
   status: OpStatus;
   segments: string[];
   relationshipManager?: { firstName?: string; lastName?: string } | null;
-  _count?: { territories: number; leadAssignments: number; financeCases: number; serviceTickets: number };
+  _count?: { territories: number; leadAssignments: number; serviceTickets: number };
 }
 
 interface Stats {
   totalDealers: number;
   statesCovered: number;
-  openFinanceCases: number;
+  outstandingReceivable: number;
   openServiceTickets: number;
   byStatus: Record<string, number>;
   byTier: Record<string, number>;
@@ -123,7 +123,7 @@ export default function DealerManagementPage() {
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <KpiCard icon={<Users className="w-4 h-4" />} label="Active dealers" value={stats?.totalDealers ?? "—"} />
         <KpiCard icon={<MapPin className="w-4 h-4" />} label="States covered" value={stats?.statesCovered ?? "—"} />
-        <KpiCard icon={<Wallet className="w-4 h-4" />} label="Open finance cases" value={stats?.openFinanceCases ?? "—"} />
+        <KpiCard icon={<Wallet className="w-4 h-4" />} label="Outstanding receivable" value={stats?.outstandingReceivable != null ? `₹${stats.outstandingReceivable.toLocaleString("en-IN")}` : "—"} />
         <KpiCard icon={<Wrench className="w-4 h-4" />} label="Open service tickets" value={stats?.openServiceTickets ?? "—"} />
       </section>
 

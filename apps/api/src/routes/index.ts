@@ -47,11 +47,10 @@ router.use("/onboarding", onboardingRoutes);
 // Protected dealer management (Module 2)
 router.use("/dealers", dealerRoutes.dealers);
 router.use("/dealer-routing", dealerRoutes.routing);
-router.use("/finance-cases", dealerRoutes.finance);
+router.use("/finance", dealerRoutes.finance);
 router.use("/service-tickets", dealerRoutes.service);
 router.use("/spare-parts", dealerRoutes.spares);
 router.use("/spare-part-inventory", dealerRoutes.sparePartInventory);
-router.use("/spare-part-returns", dealerRoutes.sparePartReturns);
 
 // New submodules
 router.use("/vehicle-units", dealerInventoryRoutes.vehicleUnits);

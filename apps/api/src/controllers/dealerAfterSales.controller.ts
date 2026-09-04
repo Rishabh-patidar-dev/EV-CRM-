@@ -1,19 +1,29 @@
 // ============================================================================
-// Dealer Management — finance facilitation + after-sales controllers
+// Dealer Management — finance + after-sales controllers
 // ============================================================================
-// Two of Luxus Green Mobility's key dealer-retention pillars:
-//   - FinanceController: the NBFC/bank bridge (buyer finance pipeline)
-//   - AfterSalesController: service tickets + spare-part requests
-// Copied from the delivered bundle with no changes — no Postgres-specific
-// query syntax in this file.
+// Three staff-side controllers that all hang off the dealer relationship:
+//   - FinanceController          — dealer receivables (billed / collected /
+//                                  outstanding / aging), the manufacturer's
+//                                  own money view. Not a buyer-loan desk:
+//                                  retail financing is the dealer's business,
+//                                  not something the OEM's ERP tracks.
+//   - AfterSalesController       — service tickets + spare-part requests
+//   - SparePartInventoryController — the OEM's spare-part stock catalog
 // ============================================================================
 import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 import { generateSequenceNumber, normalizePhone } from "../services/dealerManagement.service.js";
 import { issueInvoice, resolveUnitPrice } from "../services/invoice.service.js";
-import { sendInvoiceEmail, sendFinanceCaseStatusEmail, sendSparePartReturnStatusEmail } from "../services/email.service.js";
+import { sendInvoiceEmail } from "../services/email.service.js";
 import { logInventoryChange } from "../services/inventoryLog.service.js";
+import {
+  BILLABLE_INVOICE_TYPES,
+  settleInvoices,
+  bucketAging,
+  overdueAmount,
+  type AgingBuckets,
+} from "../services/receivables.service.js";
 
 // Same demo-login guard as orderManagement.controller.ts's actingUserId.
 function actingUserId(req: Request): number | null {
@@ -22,136 +32,279 @@ function actingUserId(req: Request): number | null {
 }
 
 // ------------------------------- FINANCE ------------------------------------
+// Manufacturer-side finance: what each dealer has been billed, what they've
+// paid, what's still open against their credit limit, and how old that
+// balance is. See services/receivables.service.ts for the two rules the
+// whole module rests on (only delivered goods create a payable; outstanding
+// is always computed FIFO, never stored).
 export class FinanceController {
-  // POST /api/v1/finance-cases
-  async create(req: Request, res: Response) {
+  // GET /api/v1/finance/summary — the headline numbers + network-wide aging.
+  async summary(_req: Request, res: Response) {
     try {
-      const b = req.body ?? {};
-      if (!b.dealerId || !b.buyerName || !b.buyerPhone) {
-        return handleValidationError(
-          res,
-          "dealerId, buyerName and buyerPhone are required",
-          "body",
-          "Create finance case"
-        );
-      }
-      const fc = await prisma.financeCase.create({
-        data: {
-          dealerId: parseInt(b.dealerId),
-          leadId: b.leadId ?? null,
-          buyerName: b.buyerName,
-          buyerPhone: normalizePhone(b.buyerPhone) ?? b.buyerPhone,
-          vehicleModel: b.vehicleModel ?? null,
-          loanAmount: b.loanAmount ?? null,
-          financierName: b.financierName ?? null,
-          status: b.status ?? "NEW",
-          notes: b.notes ?? null,
-        },
-      });
-      res.status(201).json(fc);
-    } catch (error) {
-      handleError(error, res, "Create finance case");
-    }
-  }
-
-  // GET /api/v1/finance-cases/new-count — same "unseen work" signal Order
-  // Management's sidebar asterisk uses: NEW is the one status that genuinely
-  // needs a staff finance person to pick it up. Must stay mounted before
-  // any /:id route.
-  async newCount(_req: Request, res: Response) {
-    try {
-      const where = { status: "NEW" as const };
-      const [count, latest] = await Promise.all([
-        prisma.financeCase.count({ where }),
-        prisma.financeCase.findFirst({ where, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
-      ]);
-      res.json({ count, latestCreatedAt: latest?.createdAt ?? null });
-    } catch (error) {
-      handleError(error, res, "Finance cases new-count");
-    }
-  }
-
-  // GET /api/v1/finance-cases/:id/attachments — staff-side counterpart of the
-  // dealer-portal generic Attachment endpoints (dealerPortal.controller.ts),
-  // duplicated rather than shared for the same reason warranty.controller.ts's
-  // WarrantyClaimController#listAttachments is: staff auth (crm_session,
-  // req.user) and dealer auth (dealer_session, req.dealerPortal) are
-  // different trust domains with no common middleware to hang a shared
-  // handler off of.
-  async listAttachments(req: Request, res: Response) {
-    try {
-      const financeCaseId = parseInt(req.params.id as string);
-      const attachments = await prisma.attachment.findMany({
-        where: { kind: "FINANCE_CASE", financeCaseId },
-        orderBy: { createdAt: "desc" },
-      });
-      res.json({ attachments });
-    } catch (error) {
-      handleError(error, res, "List finance case attachments");
-    }
-  }
-
-  // GET /api/v1/finance-cases  (?dealerId= &status= )
-  async list(req: Request, res: Response) {
-    try {
-      const { dealerId, status, page = "1", limit = "20" } = req.query;
-      const pageNum = Math.max(1, parseInt(page as string) || 1);
-      const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 20));
-
-      const where: any = {};
-      if (dealerId) where.dealerId = parseInt(dealerId as string);
-      if (status) where.status = status;
-
-      const [items, total, pipeline] = await Promise.all([
-        prisma.financeCase.findMany({
-          where,
-          include: { dealer: { select: { id: true, dealerCode: true, legalName: true } } },
-          orderBy: { createdAt: "desc" },
-          skip: (pageNum - 1) * limitNum,
-          take: limitNum,
+      const [invoices, payments, dealerCount] = await Promise.all([
+        prisma.invoice.findMany({
+          where: { type: { in: [...BILLABLE_INVOICE_TYPES] } },
+          select: { id: true, invoiceNumber: true, item: true, issuedAt: true, totalAmount: true, dealerId: true },
         }),
-        prisma.financeCase.count({ where }),
-        prisma.financeCase.groupBy({ by: ["status"], _count: true, where: dealerId ? { dealerId: parseInt(dealerId as string) } : {} }),
+        prisma.dealerPayment.findMany({ select: { amount: true, invoiceId: true, dealerId: true } }),
+        prisma.dealer.count(),
       ]);
+
+      // Allocation is per dealer — one dealer's payment can never settle
+      // another's invoice, so the FIFO queue has to be run per ledger.
+      const byDealer = new Map<number, { invoices: typeof invoices; payments: typeof payments }>();
+      for (const inv of invoices) {
+        if (!byDealer.has(inv.dealerId)) byDealer.set(inv.dealerId, { invoices: [], payments: [] });
+        byDealer.get(inv.dealerId)!.invoices.push(inv);
+      }
+      for (const p of payments) {
+        if (!byDealer.has(p.dealerId)) byDealer.set(p.dealerId, { invoices: [], payments: [] });
+        byDealer.get(p.dealerId)!.payments.push(p);
+      }
+
+      const aging: AgingBuckets = { current: 0, d30: 0, d60: 0, d90plus: 0 };
+      let outstanding = 0;
+      let overdue = 0;
+      let dealersWithBalance = 0;
+
+      for (const { invoices: inv, payments: pay } of byDealer.values()) {
+        const settled = settleInvoices(inv, pay);
+        const dealerOutstanding = settled.reduce((s, i) => s + i.balance, 0);
+        outstanding += dealerOutstanding;
+        overdue += overdueAmount(settled);
+        if (dealerOutstanding > 0.005) dealersWithBalance++;
+        const b = bucketAging(settled);
+        aging.current += b.current;
+        aging.d30 += b.d30;
+        aging.d60 += b.d60;
+        aging.d90plus += b.d90plus;
+      }
+
+      const totalBilled = invoices.reduce((s, i) => s + Number(i.totalAmount ?? 0), 0);
+      const totalCollected = payments.reduce((s, p) => s + Number(p.amount ?? 0), 0);
 
       res.json({
-        financeCases: items,
-        pipeline: Object.fromEntries(pipeline.map((r) => [r.status, r._count])),
-        pagination: { total, page: pageNum, limit: limitNum },
+        totalBilled: Math.round(totalBilled),
+        totalCollected: Math.round(totalCollected),
+        outstanding: Math.round(outstanding),
+        overdue: Math.round(overdue),
+        dealerCount,
+        dealersWithBalance,
+        aging: {
+          current: Math.round(aging.current),
+          d30: Math.round(aging.d30),
+          d60: Math.round(aging.d60),
+          d90plus: Math.round(aging.d90plus),
+        },
       });
     } catch (error) {
-      handleError(error, res, "List finance cases");
+      handleError(error, res, "Finance summary");
     }
   }
 
-  // PATCH /api/v1/finance-cases/:id  — advance status / edit
-  async update(req: Request, res: Response) {
+  // GET /api/v1/finance/dealers — one row per dealer: billed, collected,
+  // outstanding, how much of their credit limit that eats, and the age of
+  // their oldest unpaid invoice.
+  async dealers(req: Request, res: Response) {
     try {
-      const id = parseInt(req.params.id as string);
-      if (!id) return handleValidationError(res, "Case ID is required", "id", "Update finance case");
-      const b = req.body ?? {};
-      const current = await prisma.financeCase.findUnique({ where: { id }, select: { status: true } });
-      if (!current) return handleNotFoundError(res, "Finance case", "Update finance case");
+      const onlyOutstanding = String(req.query.onlyOutstanding ?? "") === "true";
 
-      const data: any = {};
-      for (const f of ["status", "financierName", "loanAmount", "vehicleModel", "notes"]) {
-        if (b[f] !== undefined) data[f] = b[f];
-      }
-      const fc = await prisma.financeCase.update({
-        where: { id },
-        data,
-        include: { dealer: { select: { legalName: true, tradeName: true, email: true } } },
+      const [dealers, invoices, payments] = await Promise.all([
+        prisma.dealer.findMany({
+          select: { id: true, dealerCode: true, legalName: true, tradeName: true, state: true, creditLimit: true, status: true },
+          orderBy: { legalName: "asc" },
+        }),
+        prisma.invoice.findMany({
+          where: { type: { in: [...BILLABLE_INVOICE_TYPES] } },
+          select: { id: true, invoiceNumber: true, item: true, issuedAt: true, totalAmount: true, dealerId: true },
+        }),
+        prisma.dealerPayment.findMany({ select: { amount: true, invoiceId: true, dealerId: true } }),
+      ]);
+
+      const rows = dealers.map((d) => {
+        const dealerInvoices = invoices.filter((i) => i.dealerId === d.id);
+        const dealerPayments = payments.filter((p) => p.dealerId === d.id);
+        const settled = settleInvoices(dealerInvoices, dealerPayments);
+
+        const billed = dealerInvoices.reduce((s, i) => s + Number(i.totalAmount ?? 0), 0);
+        const collected = dealerPayments.reduce((s, p) => s + Number(p.amount ?? 0), 0);
+        const outstanding = settled.reduce((s, i) => s + i.balance, 0);
+        const open = settled.filter((i) => i.balance > 0);
+        const creditLimit = d.creditLimit != null ? Number(d.creditLimit) : null;
+
+        return {
+          id: d.id,
+          dealerCode: d.dealerCode,
+          legalName: d.legalName,
+          tradeName: d.tradeName,
+          state: d.state,
+          status: d.status,
+          creditLimit,
+          billed: Math.round(billed),
+          collected: Math.round(collected),
+          outstanding: Math.round(outstanding),
+          // Null when no limit is on file — the UI shows "—" rather than
+          // implying 0% utilisation of a limit that doesn't exist.
+          utilisationPct: creditLimit && creditLimit > 0 ? Math.round((outstanding / creditLimit) * 100) : null,
+          overLimit: creditLimit != null && creditLimit > 0 && outstanding > creditLimit,
+          openInvoiceCount: open.length,
+          oldestUnpaidDays: open.length > 0 ? Math.max(...open.map((i) => i.ageDays)) : 0,
+          overdue: Math.round(overdueAmount(settled)),
+        };
       });
 
-      // Every staff-driven status change closes the loop back to the dealer,
-      // same "the app tells you" contract Order Management/Warranty already
-      // give — fire-and-forget, never blocks the update itself.
-      if (data.status && data.status !== current.status) void sendFinanceCaseStatusEmail(fc);
+      res.json({ dealers: onlyOutstanding ? rows.filter((r) => r.outstanding > 0) : rows });
+    } catch (error) {
+      handleError(error, res, "Finance dealer receivables");
+    }
+  }
 
-      res.json(fc);
+  // GET /api/v1/finance/dealers/:id/ledger — the drill-down: every billable
+  // invoice with how much of it is still open, plus the payment history.
+  async ledger(req: Request, res: Response) {
+    try {
+      const dealerId = parseInt(req.params.id as string);
+      if (!dealerId) return handleValidationError(res, "Dealer ID is required", "id", "Dealer ledger");
+
+      const dealer = await prisma.dealer.findUnique({
+        where: { id: dealerId },
+        select: { id: true, dealerCode: true, legalName: true, tradeName: true, email: true, phone: true, state: true, creditLimit: true, securityDeposit: true },
+      });
+      if (!dealer) return handleNotFoundError(res, "Dealer", "Dealer ledger");
+
+      const [invoices, payments] = await Promise.all([
+        prisma.invoice.findMany({
+          where: { dealerId, type: { in: [...BILLABLE_INVOICE_TYPES] } },
+          select: { id: true, invoiceNumber: true, item: true, issuedAt: true, totalAmount: true, type: true },
+          orderBy: { issuedAt: "desc" },
+        }),
+        prisma.dealerPayment.findMany({
+          where: { dealerId },
+          include: {
+            invoice: { select: { id: true, invoiceNumber: true } },
+            recordedBy: { select: { id: true, firstName: true, lastName: true } },
+          },
+          orderBy: { paidAt: "desc" },
+        }),
+      ]);
+
+      const settled = settleInvoices(invoices, payments);
+      const settledById = new Map(settled.map((s) => [s.id, s]));
+      const outstanding = settled.reduce((s, i) => s + i.balance, 0);
+
+      res.json({
+        dealer: {
+          ...dealer,
+          creditLimit: dealer.creditLimit != null ? Number(dealer.creditLimit) : null,
+          securityDeposit: dealer.securityDeposit != null ? Number(dealer.securityDeposit) : null,
+        },
+        invoices: invoices.map((i) => {
+          const s = settledById.get(i.id);
+          return {
+            id: i.id,
+            invoiceNumber: i.invoiceNumber,
+            item: i.item,
+            type: i.type,
+            issuedAt: i.issuedAt,
+            amount: Math.round(Number(i.totalAmount ?? 0)),
+            paid: Math.round(s?.paid ?? 0),
+            balance: Math.round(s?.balance ?? 0),
+            ageDays: s?.ageDays ?? 0,
+            settled: s?.settled ?? false,
+          };
+        }),
+        payments,
+        totals: {
+          billed: Math.round(invoices.reduce((s, i) => s + Number(i.totalAmount ?? 0), 0)),
+          collected: Math.round(payments.reduce((s, p) => s + Number(p.amount ?? 0), 0)),
+          outstanding: Math.round(outstanding),
+          overdue: Math.round(overdueAmount(settled)),
+        },
+        aging: bucketAging(settled),
+      });
+    } catch (error) {
+      handleError(error, res, "Dealer ledger");
+    }
+  }
+
+  // POST /api/v1/finance/payments — record money received from a dealer.
+  //   body: { dealerId, amount, mode?, referenceNumber?, paidAt?, invoiceId?, notes? }
+  async recordPayment(req: Request, res: Response) {
+    try {
+      const b = req.body ?? {};
+      const dealerId = parseInt(b.dealerId);
+      const amount = Number(b.amount);
+      if (!dealerId || !(amount > 0)) {
+        return handleValidationError(res, "dealerId and a positive amount are required", "body", "Record payment");
+      }
+
+      const dealer = await prisma.dealer.findUnique({ where: { id: dealerId }, select: { id: true } });
+      if (!dealer) return handleNotFoundError(res, "Dealer", "Record payment");
+
+      // An invoice can only be tagged if it actually belongs to this dealer —
+      // otherwise a typo would silently settle someone else's balance.
+      let invoiceId: number | null = null;
+      if (b.invoiceId) {
+        const invoice = await prisma.invoice.findFirst({ where: { id: parseInt(b.invoiceId), dealerId }, select: { id: true } });
+        if (!invoice) return handleValidationError(res, "That invoice doesn't belong to this dealer", "invoiceId", "Record payment");
+        invoiceId = invoice.id;
+      }
+
+      const payment = await prisma.dealerPayment.create({
+        data: {
+          dealerId,
+          amount: String(amount),
+          mode: b.mode ?? "BANK_TRANSFER",
+          referenceNumber: b.referenceNumber || null,
+          paidAt: b.paidAt ? new Date(b.paidAt) : new Date(),
+          notes: b.notes || null,
+          invoiceId,
+          recordedById: actingUserId(req),
+        },
+        include: { dealer: { select: { id: true, dealerCode: true, legalName: true } } },
+      });
+
+      res.status(201).json(payment);
+    } catch (error) {
+      handleError(error, res, "Record payment");
+    }
+  }
+
+  // GET /api/v1/finance/payments  (?dealerId=&limit=)
+  async listPayments(req: Request, res: Response) {
+    try {
+      const { dealerId, limit = "100" } = req.query;
+      const where: any = {};
+      if (dealerId) where.dealerId = parseInt(dealerId as string);
+
+      const payments = await prisma.dealerPayment.findMany({
+        where,
+        include: {
+          dealer: { select: { id: true, dealerCode: true, legalName: true } },
+          invoice: { select: { id: true, invoiceNumber: true } },
+          recordedBy: { select: { id: true, firstName: true, lastName: true } },
+        },
+        orderBy: { paidAt: "desc" },
+        take: Math.min(500, Math.max(1, parseInt(limit as string) || 100)),
+      });
+      res.json({ payments });
+    } catch (error) {
+      handleError(error, res, "List payments");
+    }
+  }
+
+  // DELETE /api/v1/finance/payments/:id — undo a mis-keyed receipt. The
+  // ledger is derived, so removing the row is enough to correct every
+  // downstream number.
+  async deletePayment(req: Request, res: Response) {
+    try {
+      const id = parseInt(req.params.id as string);
+      if (!id) return handleValidationError(res, "Payment ID is required", "id", "Delete payment");
+      await prisma.dealerPayment.delete({ where: { id } });
+      res.status(204).send();
     } catch (error: any) {
-      if (error.code === "P2025") return handleNotFoundError(res, "Finance case", "Update finance case");
-      handleError(error, res, "Update finance case");
+      if (error.code === "P2025") return handleNotFoundError(res, "Payment", "Delete payment");
+      handleError(error, res, "Delete payment");
     }
   }
 }
@@ -435,152 +588,6 @@ export class SparePartInventoryController {
     } catch (error: any) {
       if (error.code === "P2025") return handleNotFoundError(res, "Spare part inventory", "Update spare part inventory");
       handleError(error, res, "Update spare part inventory");
-    }
-  }
-}
-
-// --------------------------- SPARE PART RETURNS -----------------------------
-// The closed loop for "this part failed quality": a dealer flags it from
-// their own stock (dealerPortal.controller.ts#createSparePartReturn, no
-// stock movement yet); staff review here and resolve it, which is the
-// actual physical/financial event.
-export class SparePartReturnController {
-  // GET /api/v1/spare-part-returns/new-count — same "unseen work" signal
-  // every other module's sidebar asterisk uses: REQUESTED is the one status
-  // that genuinely needs a staff decision. Must stay mounted before /:id.
-  async newCount(_req: Request, res: Response) {
-    try {
-      const where = { status: "REQUESTED" as const };
-      const [count, latest] = await Promise.all([
-        prisma.sparePartReturn.count({ where }),
-        prisma.sparePartReturn.findFirst({ where, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
-      ]);
-      res.json({ count, latestCreatedAt: latest?.createdAt ?? null });
-    } catch (error) {
-      handleError(error, res, "Spare part returns new-count");
-    }
-  }
-
-  // GET /api/v1/spare-part-returns/:id/attachments — staff-side counterpart
-  // of the dealer-portal generic Attachment endpoints, same duplicated-
-  // trust-domain reasoning as WarrantyClaimController#listAttachments and
-  // FinanceController#listAttachments.
-  async listAttachments(req: Request, res: Response) {
-    try {
-      const sparePartReturnId = parseInt(req.params.id as string);
-      const attachments = await prisma.attachment.findMany({
-        where: { kind: "SPARE_PART_RETURN", sparePartReturnId },
-        orderBy: { createdAt: "desc" },
-      });
-      res.json({ attachments });
-    } catch (error) {
-      handleError(error, res, "List spare part return attachments");
-    }
-  }
-
-  // GET /api/v1/spare-part-returns  (?dealerId=&status=)
-  async list(req: Request, res: Response) {
-    try {
-      const { dealerId, status } = req.query;
-      const where: any = {};
-      if (dealerId) where.dealerId = parseInt(dealerId as string);
-      if (status) where.status = status;
-
-      const [returns, pipeline] = await Promise.all([
-        prisma.sparePartReturn.findMany({
-          where,
-          include: { dealer: { select: { id: true, dealerCode: true, legalName: true } } },
-          orderBy: { createdAt: "desc" },
-          take: 200,
-        }),
-        prisma.sparePartReturn.groupBy({ by: ["status"], _count: true, where: dealerId ? { dealerId: parseInt(dealerId as string) } : {} }),
-      ]);
-
-      res.json({ returns, pipeline: Object.fromEntries(pipeline.map((r) => [r.status, r._count])) });
-    } catch (error) {
-      handleError(error, res, "List spare part returns");
-    }
-  }
-
-  // POST /api/v1/spare-part-returns/:id/status
-  //   body: { status: 'APPROVED'|'REJECTED'|'RESOLVED', resolution?: 'REPLACED'|'CREDITED', staffNotes? }
-  //
-  // REQUESTED -> APPROVED/REJECTED: no stock movement, just the decision.
-  // -> RESOLVED (requires a resolution): the actual event. The bad quantity
-  // always leaves the dealer's stock. REPLACED additionally sends a fresh
-  // unit back out — dealer stock re-added, OEM SparePartInventory drawn
-  // down by the same amount, exactly the "both pools move together"
-  // contract dealerAfterSales.controller.ts#updateSparePart's delivery
-  // reconciliation already uses. CREDITED is a financial settlement only —
-  // no replacement unit, so no OEM stock change.
-  async setStatus(req: Request, res: Response) {
-    try {
-      const id = parseInt(req.params.id as string);
-      if (!id) return handleValidationError(res, "Return ID is required", "id", "Update spare part return status");
-      const status = req.body?.status;
-      if (!status) return handleValidationError(res, "status is required", "status", "Update spare part return status");
-      const resolution = req.body?.resolution;
-      const staffNotes: string | undefined = req.body?.staffNotes;
-
-      const current = await prisma.sparePartReturn.findUnique({ where: { id } });
-      if (!current) return handleNotFoundError(res, "Spare part return", "Update spare part return status");
-      if (current.status === "RESOLVED") {
-        return handleValidationError(res, "This return is already resolved", "status", "Update spare part return status");
-      }
-      if (status === "RESOLVED" && !["REPLACED", "CREDITED"].includes(resolution)) {
-        return handleValidationError(res, "resolution must be REPLACED or CREDITED to resolve a return", "resolution", "Update spare part return status");
-      }
-
-      const updated = await prisma.$transaction(async (tx) => {
-        if (status === "RESOLVED") {
-          const existingStock = await tx.dealerSparePart.findFirst({ where: { dealerId: current.dealerId, partName: current.partName } });
-          if (existingStock) {
-            await tx.dealerSparePart.update({
-              where: { id: existingStock.id },
-              data: { quantityOnHand: { decrement: Math.min(current.quantity, existingStock.quantityOnHand) } },
-            });
-          }
-          await logInventoryChange(tx, { entity: "SPARE_PART", bucket: "DEALER", direction: "REMOVED", quantity: current.quantity, itemLabel: current.partName, dealerId: current.dealerId, source: "QUALITY_RETURN" });
-
-          if (resolution === "REPLACED") {
-            if (existingStock) {
-              await tx.dealerSparePart.update({
-                where: { id: existingStock.id },
-                data: { quantityOnHand: { increment: current.quantity } },
-              });
-            } else {
-              await tx.dealerSparePart.create({
-                data: { dealerId: current.dealerId, partName: current.partName, partCode: current.partCode, quantityOnHand: current.quantity, unitPrice: "0" },
-              });
-            }
-            await logInventoryChange(tx, { entity: "SPARE_PART", bucket: "DEALER", direction: "ADDED", quantity: current.quantity, itemLabel: current.partName, dealerId: current.dealerId, source: "QUALITY_RETURN_REPLACEMENT" });
-
-            const oemStock = await tx.sparePartInventory.findUnique({ where: { partName: current.partName } });
-            if (oemStock) {
-              const oemRemoved = Math.min(current.quantity, oemStock.quantityOnHand);
-              await tx.sparePartInventory.update({ where: { id: oemStock.id }, data: { quantityOnHand: Math.max(0, oemStock.quantityOnHand - current.quantity) } });
-              await logInventoryChange(tx, { entity: "SPARE_PART", bucket: "OEM", direction: "REMOVED", quantity: oemRemoved, itemLabel: current.partName, source: "QUALITY_RETURN_REPLACEMENT" });
-            }
-          }
-        }
-
-        return tx.sparePartReturn.update({
-          where: { id },
-          data: {
-            status,
-            resolution: status === "RESOLVED" ? resolution : undefined,
-            staffNotes: staffNotes !== undefined ? staffNotes : undefined,
-            resolvedAt: status === "RESOLVED" ? new Date() : undefined,
-          },
-          include: { dealer: { select: { legalName: true, tradeName: true, email: true } } },
-        });
-      });
-
-      void sendSparePartReturnStatusEmail(updated);
-
-      res.json(updated);
-    } catch (error) {
-      handleError(error, res, "Update spare part return status");
     }
   }
 }

@@ -140,12 +140,12 @@ flowchart TD
 |---|---|---|---|
 | Sales / Order Desk | `SALES`, `RELATIONSHIP_MANAGER` *(existing)* | Receives order, dealer communication, sends notices | Order Management, Dealer 360 |
 | Warehouse / Inventory | `WAREHOUSE` *(new)* | Check Inventory, stock allocation, Close Orders queue | Vehicle Inventory, Order Management |
-| Finance | `FINANCE` *(new)* | Dealer credit-limit / payment-terms gate before dispatch | Finance Cases, Dealer 360 |
+| Finance | `FINANCE` *(new)* | Dealer credit-limit / payment-terms gate before dispatch; receivables & collections after | Finance Management, Dealer 360 |
 | Warehouse / Logistics | `WAREHOUSE` or `LOGISTICS` *(new)* | Dispatch → Delivered, shipment tracking | Order Management |
 | Marketing | `MARKETING` *(new)* | Lead-gen & campaigns — upstream of orders only | Campaign Management |
 | Admin / System Admin | `ADMIN`, `SYSTEM_ADMIN` *(existing)* | Oversight across all departments | All modules |
 
-**Status:** `WAREHOUSE`, `FINANCE`, `MARKETING` now exist on `UserRole` and are wired **additively** into the routes in their row (Order Management + Check Inventory + Close Orders + Spare Part Inventory accept `WAREHOUSE`, Finance Cases accepts `FINANCE`, Campaign Management accepts `MARKETING` — always alongside `ADMIN`/`SYSTEM_ADMIN`, never instead of).
+**Status:** `WAREHOUSE`, `FINANCE`, `MARKETING` now exist on `UserRole` and are wired **additively** into the routes in their row (Order Management + Check Inventory + Close Orders + Spare Part Inventory accept `WAREHOUSE`, Finance Management accepts `FINANCE`, Campaign Management accepts `MARKETING` — always alongside `ADMIN`/`SYSTEM_ADMIN`, never instead of).
 **Known gap:** `requireAuth` is still a dev-only stub (`apps/api/src/middleware/auth.middleware.ts`) that defaults every request to `SYSTEM_ADMIN` regardless of who's logged in — so today these roles don't yet *restrict* anyone in practice. Real enforcement needs `requireAuth` to resolve the logged-in user's actual role from their session, not the stub default — that's the next step, not a UI change.
 
 ## 5. Close Orders — Best Fit & Partial Fulfillment

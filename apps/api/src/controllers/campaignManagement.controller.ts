@@ -12,7 +12,7 @@
 // of that would be real data.
 // ============================================================================
 import { Request, Response } from "express";
-import { prisma } from "@repo/db";
+import { prisma, Prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
 
 // Exported so the dealer-portal Campaign Management endpoints
@@ -31,18 +31,80 @@ export function segmentWhere(s: { statusFilter: string | null; sourceFilter: str
   return where;
 }
 
+// ---------------------------------------------------------------------------
+// Segment membership counts
+// ---------------------------------------------------------------------------
+// This used to be one `lead.count()` per segment, fired in parallel inside a
+// Promise.all. Two problems with that at scale:
+//
+//   * It is N queries for one page. With 40 segments that is 40 round trips.
+//   * They all launch at once against a pool of a handful of connections, so a
+//     single request to this endpoint can occupy the entire pool and stall
+//     every other request on the worker behind it. A few concurrent users on
+//     this one page were enough to starve the rest of the API.
+//
+// Every segment filters on some combination of three scalar columns, so the
+// whole page can be answered by grouping leads on those columns once and
+// summing the groups in memory. Dealer-owned segments additionally intersect
+// with that dealer's assigned leads, which is a relation and can't be grouped
+// alongside — so they get one grouped query per distinct dealer.
+//
+// Result: 1 + (distinct dealers) queries instead of N. For the dealer portal,
+// where every segment belongs to the one signed-in dealer, that is a single query.
+// ---------------------------------------------------------------------------
+type SegmentFilters = {
+  statusFilter: string | null;
+  sourceFilter: string | null;
+  stateFilter: string | null;
+  dealerId?: number | null;
+};
+
+type LeadGroup = { status: string | null; source: string | null; state: string | null; _count: { _all: number } };
+
+function sumMatching(groups: LeadGroup[], s: SegmentFilters): number {
+  let total = 0;
+  for (const g of groups) {
+    if (s.statusFilter && g.status !== s.statusFilter) continue;
+    if (s.sourceFilter && g.source !== s.sourceFilter) continue;
+    if (s.stateFilter && g.state !== s.stateFilter) continue;
+    total += g._count._all;
+  }
+  return total;
+}
+
+export async function attachMemberCounts<T extends SegmentFilters>(segments: T[]): Promise<(T & { memberCount: number })[]> {
+  if (segments.length === 0) return [];
+
+  const dealerIds = [...new Set(segments.map((s) => s.dealerId).filter((id): id is number => typeof id === "number"))];
+  const needsNetworkWide = segments.some((s) => !s.dealerId);
+
+  const groupLeadsBy = (where: Prisma.LeadWhereInput) =>
+    prisma.lead.groupBy({
+      by: ["status", "source", "state"],
+      _count: { _all: true },
+      where,
+    }) as unknown as Promise<LeadGroup[]>;
+
+  const [networkGroups, ...dealerGroupSets] = await Promise.all([
+    needsNetworkWide ? groupLeadsBy({ deletedAt: null }) : Promise.resolve([] as LeadGroup[]),
+    ...dealerIds.map((dealerId) => groupLeadsBy({ deletedAt: null, dealerAssignment: { dealerId } })),
+  ]);
+
+  const byDealer = new Map<number, LeadGroup[]>();
+  dealerIds.forEach((id, i) => byDealer.set(id, dealerGroupSets[i] ?? []));
+
+  return segments.map((s) => ({
+    ...s,
+    memberCount: sumMatching(s.dealerId ? (byDealer.get(s.dealerId) ?? []) : networkGroups, s),
+  }));
+}
+
 export class SegmentController {
   // GET /api/v1/campaign-management/segments
   async list(_req: Request, res: Response) {
     try {
       const segments = await prisma.segment.findMany({ orderBy: { createdAt: "desc" } });
-      const withCounts = await Promise.all(
-        segments.map(async (s) => ({
-          ...s,
-          memberCount: await prisma.lead.count({ where: segmentWhere(s) }),
-        }))
-      );
-      res.json({ segments: withCounts });
+      res.json({ segments: await attachMemberCounts(segments) });
     } catch (error) {
       handleError(error, res, "List segments");
     }

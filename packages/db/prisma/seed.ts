@@ -64,7 +64,7 @@ async function main() {
   await prisma.vehicleUnit.deleteMany();
   await prisma.sparePartRequest.deleteMany();
   await prisma.serviceTicket.deleteMany();
-  await prisma.financeCase.deleteMany();
+  await prisma.dealerPayment.deleteMany();
   await prisma.dealerLeadAssignment.deleteMany();
   await prisma.dealerPerformanceSnapshot.deleteMany();
   await prisma.dealerTarget.deleteMany();
@@ -758,17 +758,20 @@ async function main() {
     ],
   });
 
-  console.log("Seeding finance cases…");
-  await prisma.financeCase.createMany({
+  // Dealer payments — receipts against what the OEM has billed. Finance
+  // Management computes outstanding/aging by allocating these against
+  // DELIVERY/PARTIAL invoices oldest-first, so a partial set here is exactly
+  // the point: some dealers are square, some are carrying a balance.
+  console.log("Seeding dealer payments…");
+  await prisma.dealerPayment.createMany({
     data: [
-      { dealerId: dealers["EVV-CG-001"]!.id, buyerName: "Anita Rao", buyerPhone: "9812345678", vehicleModel: "LX Lifter", loanAmount: 650000, financierName: "Shriram Finance", status: "SUBMITTED" },
-      { dealerId: dealers["EVV-MP-001"]!.id, buyerName: "Vikas Kumar", buyerPhone: "9812345679", vehicleModel: "Queen EV", loanAmount: 320000, financierName: "L&T Finance", status: "APPROVED" },
-      { dealerId: dealers["EVV-DL-001"]!.id, buyerName: "Rahul Gupta", buyerPhone: "9812345681", vehicleModel: "LX Spark", loanAmount: 480000, status: "DOCS_PENDING" },
-      { dealerId: dealers["EVV-RJ-001"]!.id, buyerName: "Farah Sheikh", buyerPhone: "9812345680", vehicleModel: "LX DV", loanAmount: 280000, financierName: "Shriram Finance", status: "DISBURSED" },
-      { dealerId: dealers["EVV-KA-001"]!.id, buyerName: "Karthik Iyer", buyerPhone: "9812345687", vehicleModel: "LX Lifter", loanAmount: 610000, financierName: "L&T Finance", status: "APPROVED" },
-      { dealerId: dealers["EVV-GJ-001"]!.id, buyerName: "Rajiv Solanki", buyerPhone: "9812345689", vehicleModel: "LX Foodcart", loanAmount: 390000, financierName: "Shriram Finance", status: "DISBURSED" },
-      { dealerId: dealers["EVV-PB-001"]!.id, buyerName: "Gurpreet Kaur", buyerPhone: "9812345691", vehicleModel: "Queen EV", loanAmount: 300000, status: "SUBMITTED" },
-      { dealerId: dealers["EVV-KL-001"]!.id, buyerName: "Meera Pillai", buyerPhone: "9812345690", vehicleModel: "LX DV", loanAmount: 260000, status: "REJECTED" },
+      { dealerId: dealers["EVV-CG-001"]!.id, amount: 450000, mode: "BANK_TRANSFER", referenceNumber: "UTR2026031201", paidAt: daysFromNow(-38) },
+      { dealerId: dealers["EVV-CG-001"]!.id, amount: 275000, mode: "BANK_TRANSFER", referenceNumber: "UTR2026040902", paidAt: daysFromNow(-12) },
+      { dealerId: dealers["EVV-MP-001"]!.id, amount: 320000, mode: "UPI", referenceNumber: "UPI8871204", paidAt: daysFromNow(-21) },
+      { dealerId: dealers["EVV-DL-001"]!.id, amount: 180000, mode: "CHEQUE", referenceNumber: "CHQ-004512", paidAt: daysFromNow(-56) },
+      { dealerId: dealers["EVV-RJ-001"]!.id, amount: 600000, mode: "BANK_TRANSFER", referenceNumber: "UTR2026022803", paidAt: daysFromNow(-9) },
+      { dealerId: dealers["EVV-KA-001"]!.id, amount: 240000, mode: "BANK_TRANSFER", referenceNumber: "UTR2026041104", paidAt: daysFromNow(-4) },
+      { dealerId: dealers["EVV-GJ-001"]!.id, amount: 95000, mode: "ADJUSTMENT", notes: "Credit note against damaged unit on GRN-2026-000004", paidAt: daysFromNow(-30) },
     ],
   });
 

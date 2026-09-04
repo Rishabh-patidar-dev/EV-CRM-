@@ -105,21 +105,40 @@ Before this module, seeing "which zone orders the most of what" meant opening ev
 
 ---
 
-## Purchase Management (`/purchase-management`)
+## Finance Management (`/finance-management`)
 
 **How does this module work?**
-Distinct from Order Management (dealer → OEM orders): this is the manufacturer's *own* procurement — a `VehiclePurchaseOrder` per batch bought from a manufacturing plant or import source, with a supplier name, model, quantity, unit cost, and a status (`ORDERED → IN_TRANSIT → RECEIVED`, or `CANCELLED`). Marking a PO Received sets its received date and is what counts it as "imported." The "sold" side of the module isn't a separate record — it's read directly from `VehicleUnit.status = SOLD`, the real sales data Vehicle Inventory already keeps, so imported-vs-sold is a genuine cross-reference between two real tables, not two halves of one invented number.
+Dealer receivables — the manufacturer's own money view of the network. Billing is derived, not entered: a dealer owes money once goods actually reach them, so only `DELIVERY` and `PARTIAL` invoices count as billable (a single order also produces `CONFIRMATION` and `DISPATCH` documents; counting those would bill it three times). Against that sits one `DealerPayment` row per receipt — amount, mode (bank transfer / cheque / UPI / cash / adjustment), reference, date, optionally tagged to one invoice. Outstanding and aging are **never stored**: every page load re-allocates payments against invoices oldest-first (FIFO), which is what a real ledger does with an unallocated "on account" receipt, so the numbers can't drift from the underlying records. Credit-limit utilisation reads `Dealer.creditLimit`. Deleting a mis-keyed payment instantly corrects every downstream figure, because none of them are cached.
 
 **What do the BI graphs explain?**
-- *Imported by model* (donut) — units received into stock, by model, from Received purchase orders only (not Ordered/In Transit — those haven't landed yet).
-- *Sold by model* (donut) — units marked Sold in Vehicle Inventory, by model — placed right next to "Imported by model" so the two are easy to compare model-for-model.
-- *Purchase order status* (donut) — where every PO currently sits (Ordered/In Transit/Received/Cancelled) — the procurement pipeline itself.
-- The KPI row's *net stock movement* (received − sold) and *spend on received stock* (Σ quantity × unit cost, Received orders only) are the two headline numbers a procurement view needs.
+- *Receivables aging* (stacked bar + breakdown) — the open balance split by age: ≤30 days, 31–60, 61–90, 90+. This is the only view a collections desk really works from; ₹5 lakh that's 90 days old is a different problem from ₹20 lakh billed last week, and a single "outstanding" number hides that completely.
+- The KPI row — *billed to date*, *collected*, *outstanding*, *overdue (30+ days)* — is the four-number summary of the whole network's position.
+- Per dealer, the *credit-limit utilisation bar* (amber past 80%, red over limit) answers the one question that gates further dispatch: can this dealer take on more stock, or are they already past their line?
 
 **What problem does this submodule solve?**
-Vehicle Inventory tracks what's on the ground and Order Management tracks what dealers are asking for, but neither answers "are we buying enough to keep up with what's selling" — that's a manufacturer-side procurement question, not a dealer-facing one. This module is where the OEM places and tracks its own purchase orders and can see, at a glance, whether inbound supply is running ahead of or behind actual sales.
+Order Management knows what was shipped and Invoices knows what was documented, but neither answers "who owes us money, how much, and for how long." Without this, the receivable lives in a spreadsheet that nobody reconciles against the actual invoices. Here the ledger *is* the invoices — there's no second set of books to fall out of step.
 
-*Deliberately not included:* Received purchase orders don't automatically create matching `VehicleUnit` rows yet — a PO tracks the batch, not individual VINs. Wiring "mark Received" to bulk-create serialized units is the natural next step, not built here, so the two stay honestly separate rather than half-linked.
+*Deliberately not included:* buyer/retail finance. A customer taking a loan to buy a scooter is the dealer's own arrangement with their own bank; it isn't the manufacturer's receivable and doesn't belong in the manufacturer's ERP. This module was rebuilt specifically to drop that and track the OEM↔dealer money instead.
+
+---
+
+## Purchase Management (`/purchase-management`, `/purchase-management/[id]`)
+
+**How does this module work?**
+The mirror image of Order Management: there dealers buy from the manufacturer, here the manufacturer buys from vendors. A `Vendor` master (the Approved Vendor List, with a system-managed 1–5 star quality rating and a blacklist gate), `VehiclePurchaseOrder` rows raised against a vendor, and `GoodsReceiptNote` rows recording each delivery against a PO. Receiving is the important step: it takes a quantity and a quality result (`PASS` / `PARTIAL_ACCEPT` / `REJECT`), and for anything not rejected it creates **real `VehicleUnit` rows** — actual serialized stock, not a counter. The PO's status is derived from cumulative received quantity, over-receipt is refused server-side, and the vendor's star rating moves by outcome (Pass +1, Partial −1, Reject −2, clamped 1–5).
+
+**Bill scanning (OCR).** Goods receipt is the most data-entry-heavy step, so it's the one with a scan path: photograph the vendor's challan/invoice and the same tesseract pipeline the dealer portal uses suggests the received quantity (summed from the bill's line items), invoice number, date, and amount. Every suggestion is editable, shown next to the scanned image and the raw extracted text, and the scan itself stays attached to the GRN permanently. PDFs attach but can't be pre-filled from — the OCR reads images.
+
+**Where the detail lives.** The list page is a working queue; `/purchase-management/[id]` is the record. It carries the PO header, the vendor card, ordered-vs-received-vs-outstanding, cost-vs-paid, and the full receipt history — every GRN with its quality result, rejection reason, captured vendor-invoice details, and the scanned bill.
+
+**What do the BI graphs explain?**
+- *Imported by model* (donut) — units received into stock by model, from Received/Partially received POs.
+- *Sold by model* (donut) — units marked Sold in Vehicle Inventory, sat next to Imported so the two compare model-for-model.
+- *Purchase order status* and *payment status* (donuts) — where the procurement pipeline and the money out currently sit.
+- The KPI row's *net stock movement* (received − sold), *spend*, *outstanding payable*, and *average vendor rating* are the headline procurement numbers.
+
+**What problem does this submodule solve?**
+Vehicle Inventory tracks what's on the ground and Order Management tracks what dealers want, but neither answers "are we buying enough to keep up with what's selling, and are our vendors any good." This module is the OEM's own supply side: procurement volume against real sales, a vendor list that scores itself on delivered quality, and a receipt trail with the actual paperwork attached.
 
 ---
 
@@ -158,4 +177,4 @@ Two things this CRM was explicitly built around: (1) instant, serial-level cover
 
 ## What doesn't have a BI dashboard, and why
 
-Not every module has charts, and that's a deliberate choice, not a gap: a chart only earns its place when there's real cross-record volume to summarize. Campaigns, Compliance, and a single dealer's Warranty/Dealer-360 detail page are all either lookup/contract screens or single-record views where a chart would either be empty, trivial, or fabricated from too little data. Where the BI does exist (Dashboard, Vehicle Inventory, Order Management, Purchase Management), it's built directly from the same tables the rest of the module reads and writes — there's no separate reporting layer to fall out of sync.
+Not every module has charts, and that's a deliberate choice, not a gap: a chart only earns its place when there's real cross-record volume to summarize. Campaigns, Compliance, and a single dealer's Warranty/Dealer-360 detail page are all either lookup/contract screens or single-record views where a chart would either be empty, trivial, or fabricated from too little data. Where the BI does exist (Dashboard, Vehicle Inventory, Order Management, Purchase Management, Finance Management), it's built directly from the same tables the rest of the module reads and writes — there's no separate reporting layer to fall out of sync.

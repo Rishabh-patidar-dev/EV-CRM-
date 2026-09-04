@@ -50,7 +50,15 @@ export default function LoginForm() {
         // Full navigation, not router.push — the (dashboard) layout and every
         // page under it read session state fresh on load; a client-side
         // transition would carry over the pre-login render.
-        window.location.href = "/";
+        //
+        // `?next=` is set when an expired session bounced the user out of a
+        // page mid-task (see lib/api/client.ts), so signing back in returns
+        // them where they were. Only same-site paths are honoured — accepting
+        // an arbitrary URL here would make this login page an open redirect,
+        // which is exactly the shape phishing links look for.
+        const requested = new URLSearchParams(window.location.search).get("next");
+        const safeNext = requested && /^\/(?!\/)/.test(requested) ? requested : "/";
+        window.location.href = safeNext;
         return;
       } catch {
         if (i === attempts - 1) {

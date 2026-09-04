@@ -4,28 +4,28 @@
 // Finance Management
 // ============================================================================
 // Route: /finance-management
-// The buyer-finance pipeline every dealer feeds into: a walk-in buyer needs a
-// loan, the dealer opens a case here, staff track it through the NBFC/bank
-// process (docs → submitted → approved → disbursed) and can reject it at any
-// point. Backed by the existing, previously-unused /api/v1/finance-cases API.
+// The manufacturer's own money view of the dealer network: what each dealer
+// has been billed, what they've paid, what's still open against their credit
+// limit, and how old that balance is.
+//
+// This is deliberately NOT a buyer-loan desk. Retail financing (a customer
+// taking a loan to buy a scooter) is the dealer's own business with their own
+// bank — it isn't something the OEM's ERP tracks. What an OEM's finance
+// function actually owns is the receivable: goods went out, money needs to
+// come back.
+//
+// Two rules, both enforced server-side in services/receivables.service.ts:
+//   1. A dealer owes money when goods reach them — only DELIVERY and PARTIAL
+//      invoices are billable. CONFIRMATION and DISPATCH are workflow
+//      documents for the same order; counting them would bill it 3x.
+//   2. Outstanding and aging are computed, never stored — payments are
+//      allocated against invoices oldest-first, so the ledger can't drift.
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Wallet,
-  Plus,
-  Search,
-  RefreshCw,
-  Loader2,
-  Pencil,
-  FileText,
-  Clock,
-  Send,
-  CheckCircle2,
-  Landmark,
-  XCircle,
-  ChevronLeft,
-  ChevronRight,
+  Landmark, Search, RefreshCw, Loader2, Plus, IndianRupee, Wallet,
+  AlertTriangle, TrendingUp, ChevronLeft, X, Trash2,
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import Modal from "@/components/ui/Modal";
@@ -33,151 +33,204 @@ import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { StatCard } from "@/components/ui/StatCard";
 import { useDeepLinkQuery } from "@/lib/useDeepLinkQuery";
-import { FINANCE_LAST_SEEN_KEY } from "@/components/financeCasesSeen";
 
-type FinanceCaseStatus = "NEW" | "DOCS_PENDING" | "SUBMITTED" | "APPROVED" | "DISBURSED" | "REJECTED";
+type PaymentMode = "BANK_TRANSFER" | "CHEQUE" | "UPI" | "CASH" | "ADJUSTMENT";
 
-interface FinanceDealer {
+const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
+  { value: "BANK_TRANSFER", label: "Bank transfer" },
+  { value: "CHEQUE", label: "Cheque" },
+  { value: "UPI", label: "UPI" },
+  { value: "CASH", label: "Cash" },
+  { value: "ADJUSTMENT", label: "Adjustment / credit note" },
+];
+
+interface Summary {
+  totalBilled: number;
+  totalCollected: number;
+  outstanding: number;
+  overdue: number;
+  dealerCount: number;
+  dealersWithBalance: number;
+  aging: { current: number; d30: number; d60: number; d90plus: number };
+}
+
+interface DealerRow {
   id: number;
   dealerCode: string;
   legalName: string;
-}
-
-interface FinanceCaseRow {
-  id: number;
-  dealerId: number;
-  leadId: number | null;
-  buyerName: string;
-  buyerPhone: string;
-  vehicleModel: string | null;
-  loanAmount: number | string | null;
-  financierName: string | null;
-  status: FinanceCaseStatus;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
-  dealer: FinanceDealer | null;
-}
-
-interface DealerOption {
-  id: number;
-  legalName: string;
   tradeName: string | null;
+  state: string;
+  status: string;
+  creditLimit: number | null;
+  billed: number;
+  collected: number;
+  outstanding: number;
+  utilisationPct: number | null;
+  overLimit: boolean;
+  openInvoiceCount: number;
+  oldestUnpaidDays: number;
+  overdue: number;
 }
 
-type PipelineCounts = Partial<Record<FinanceCaseStatus, number>>;
+interface LedgerInvoice {
+  id: number;
+  invoiceNumber: string;
+  item: string;
+  type: string;
+  issuedAt: string;
+  amount: number;
+  paid: number;
+  balance: number;
+  ageDays: number;
+  settled: boolean;
+}
 
-const ALL_STATUSES: FinanceCaseStatus[] = ["NEW", "DOCS_PENDING", "SUBMITTED", "APPROVED", "DISBURSED", "REJECTED"];
+interface LedgerPayment {
+  id: number;
+  amount: string | number;
+  mode: PaymentMode;
+  referenceNumber: string | null;
+  paidAt: string;
+  notes: string | null;
+  invoice: { id: number; invoiceNumber: string } | null;
+  recordedBy: { id: number; firstName: string | null; lastName: string | null } | null;
+}
 
-const STATUS_META: Record<FinanceCaseStatus, { label: string; tone: BadgeTone; statTone: "blue" | "amber" | "purple" | "green" | "teal" | "red"; icon: typeof FileText }> = {
-  NEW: { label: "New", tone: "pending", statTone: "blue", icon: FileText },
-  DOCS_PENDING: { label: "Docs Pending", tone: "pending", statTone: "amber", icon: Clock },
-  SUBMITTED: { label: "Submitted", tone: "pending", statTone: "purple", icon: Send },
-  APPROVED: { label: "Approved", tone: "approved", statTone: "green", icon: CheckCircle2 },
-  DISBURSED: { label: "Disbursed", tone: "approved", statTone: "teal", icon: Landmark },
-  REJECTED: { label: "Rejected", tone: "rejected", statTone: "red", icon: XCircle },
-};
+interface Ledger {
+  dealer: {
+    id: number; dealerCode: string; legalName: string; tradeName: string | null;
+    email: string | null; phone: string | null; state: string;
+    creditLimit: number | null; securityDeposit: number | null;
+  };
+  invoices: LedgerInvoice[];
+  payments: LedgerPayment[];
+  totals: { billed: number; collected: number; outstanding: number; overdue: number };
+  aging: { current: number; d30: number; d60: number; d90plus: number };
+}
 
-const inr = (n: number) => `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 
-const LIMIT = 20;
+/** Red once a balance is genuinely late, amber as it approaches, else neutral. */
+function ageTone(days: number): BadgeTone {
+  if (days > 60) return "rejected";
+  if (days > 30) return "pending";
+  return "neutral";
+}
 
 export default function FinanceManagementPage() {
   const deepLinkQ = useDeepLinkQuery();
-  const [cases, setCases] = useState<FinanceCaseRow[]>([]);
-  const [pipeline, setPipeline] = useState<PipelineCounts>({});
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [dealerFilter, setDealerFilter] = useState("");
-  const [search, setSearch] = useState(deepLinkQ);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [dealers, setDealers] = useState<DealerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<FinanceCaseRow | null>(null);
-  const [dealers, setDealers] = useState<DealerOption[]>([]);
+  const [search, setSearch] = useState(deepLinkQ);
+  const [onlyOutstanding, setOnlyOutstanding] = useState(false);
+  const [openDealerId, setOpenDealerId] = useState<number | null>(null);
+  const [payFor, setPayFor] = useState<DealerRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const params: Record<string, string | number> = { page, limit: LIMIT };
-      if (statusFilter) params.status = statusFilter;
-      if (dealerFilter) params.dealerId = dealerFilter;
-      const { data } = await apiClient.get("/api/v1/finance-cases", { params });
-      setCases(data.financeCases ?? data.cases ?? []);
-      setPipeline(data.pipeline ?? {});
-      setTotal(data.pagination?.total ?? 0);
+      const [s, d] = await Promise.all([
+        apiClient.get("/api/v1/finance/summary"),
+        apiClient.get("/api/v1/finance/dealers"),
+      ]);
+      setSummary(s.data);
+      setDealers(d.data.dealers ?? []);
     } catch (error: any) {
-      console.error("[FinanceManagementPage] failed to load finance cases:", error);
-      setCases([]);
-      setLoadError(error?.response?.data?.message || error?.message || "Could not load finance cases. Try refreshing.");
+      console.error("[FinanceManagementPage] failed to load receivables:", error);
+      setSummary(null);
+      setDealers([]);
+      setLoadError(error?.response?.data?.message || error?.message || "Could not load receivables. Try refreshing.");
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, dealerFilter]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    apiClient.get("/api/v1/dealers", { params: { limit: 200 } }).then((res) => {
-      setDealers(res.data.dealers ?? res.data.data ?? []);
-    }).catch(() => {});
-  }, []);
-
-  // Filter changes reset paging — a filtered result set has its own page 1.
-  useEffect(() => { setPage(1); }, [statusFilter, dealerFilter]);
-
-  // Clears the sidebar's new-case asterisk — Sidebar re-checks on every
-  // route change, so every case sitting at NEW up to this moment no longer
-  // counts as unseen the next time it does.
-  useEffect(() => {
-    try {
-      localStorage.setItem(FINANCE_LAST_SEEN_KEY, new Date().toISOString());
-    } catch {
-      // localStorage unavailable (private mode etc.) — the indicator just
-      // won't clear locally, not worth surfacing an error for.
-    }
-  }, []);
-
-  const filteredCases = useMemo(() => {
+  const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return cases;
-    return cases.filter((c) => c.buyerName.toLowerCase().includes(q) || c.buyerPhone.toLowerCase().includes(q));
-  }, [cases, search]);
+    let rows = dealers;
+    if (onlyOutstanding) rows = rows.filter((d) => d.outstanding > 0);
+    if (q) rows = rows.filter((d) => d.legalName.toLowerCase().includes(q) || d.dealerCode.toLowerCase().includes(q) || (d.tradeName ?? "").toLowerCase().includes(q));
+    // Biggest debtors first — that's the order a collections desk works in.
+    return [...rows].sort((a, b) => b.outstanding - a.outstanding);
+  }, [dealers, search, onlyOutstanding]);
 
-  const totalPages = Math.max(1, Math.ceil(total / LIMIT));
+  const aging = summary?.aging;
+  const agingTotal = aging ? aging.current + aging.d30 + aging.d60 + aging.d90plus : 0;
 
   return (
-    <div className="mx-auto max-w-[1300px] p-6">
+    <div className="mx-auto max-w-[1400px] p-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <Wallet className="h-6 w-6 text-muted-foreground" />
+          <Landmark className="h-6 w-6 text-muted-foreground" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Finance Management</h1>
-            <p className="mt-1 text-sm text-muted-foreground">The buyer-finance pipeline — track every case from a dealer through NBFC/bank approval and disbursal.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Dealer receivables — what the network has been billed, what it has paid, and what is still open.</p>
           </div>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" /> New finance case
+        <Button onClick={() => setPayFor(dealers[0] ?? null)} disabled={dealers.length === 0}>
+          <Plus className="h-4 w-4" /> Record payment
         </Button>
       </header>
 
-      <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {ALL_STATUSES.map((s) => {
-          const meta = STATUS_META[s];
-          const Icon = meta.icon;
-          return (
-            <StatCard
-              key={s}
-              icon={<Icon className="h-3.5 w-3.5" />}
-              label={meta.label}
-              value={pipeline[s] ?? 0}
-              tone={meta.statTone}
-            />
-          );
-        })}
+      <section className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard icon={<TrendingUp className="h-4 w-4" />} label="Billed to date" value={summary ? inr(summary.totalBilled) : "—"} tone="blue" />
+        <StatCard icon={<Wallet className="h-4 w-4" />} label="Collected" value={summary ? inr(summary.totalCollected) : "—"} tone="green" />
+        <StatCard icon={<IndianRupee className="h-4 w-4" />} label="Outstanding" value={summary ? inr(summary.outstanding) : "—"} tone="amber" />
+        <StatCard icon={<AlertTriangle className="h-4 w-4" />} label="Overdue (30+ days)" value={summary ? inr(summary.overdue) : "—"} tone="red" />
       </section>
+
+      {/* Aging is the one view a finance desk actually works from — how old
+          the open money is, not just how much of it there is. */}
+      {aging && agingTotal > 0 && (
+        <section className="mb-6 rounded-[var(--radius)] border border-border bg-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Receivables aging</h2>
+            <span className="text-xs text-muted-foreground">{summary?.dealersWithBalance ?? 0} of {summary?.dealerCount ?? 0} dealers carrying a balance</span>
+          </div>
+          <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
+            {([
+              ["current", aging.current, "var(--zira-approved)"],
+              ["d30", aging.d30, "var(--zira-pending)"],
+              ["d60", aging.d60, "var(--zira-info)"],
+              ["d90plus", aging.d90plus, "var(--zira-rejected)"],
+            ] as const).map(([key, value, color]) => (
+              value > 0 ? <div key={key} style={{ width: `${(value / agingTotal) * 100}%`, background: color }} /> : null
+            ))}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            {([
+              ["Current (≤30d)", aging.current, "var(--zira-approved)"],
+              ["31–60 days", aging.d30, "var(--zira-pending)"],
+              ["61–90 days", aging.d60, "var(--zira-info)"],
+              ["90+ days", aging.d90plus, "var(--zira-rejected)"],
+            ] as const).map(([label, value, color]) => (
+              <div key={label} className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+                <div className="min-w-0">
+                  <div className="truncate text-xs text-muted-foreground">{label}</div>
+                  <div className="tabular-nums">{inr(value)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {loadError && (
+        <div className="mb-4 rounded-[var(--radius)] border px-4 py-3 text-sm" style={{ borderColor: "var(--zira-rejected)", color: "var(--zira-rejected)" }}>
+          {loadError}
+          <div className="mt-2">
+            <Button size="sm" variant="secondary" onClick={() => load()}>
+              <RefreshCw className="h-4 w-4" /> Retry
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative">
@@ -185,167 +238,340 @@ export default function FinanceManagementPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search buyer name or phone…"
-            className="w-60 rounded-[var(--radius)] border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground"
+            placeholder="Search dealer name or code…"
+            className="w-64 rounded-[var(--radius)] border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm">
-          <option value="">All statuses</option>
-          {ALL_STATUSES.map((s) => (
-            <option key={s} value={s}>{STATUS_META[s].label}</option>
-          ))}
-        </select>
-        <select value={dealerFilter} onChange={(e) => setDealerFilter(e.target.value)} className="rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm">
-          <option value="">All dealers</option>
-          {dealers.map((d) => (
-            <option key={d.id} value={d.id}>{d.tradeName || d.legalName}</option>
-          ))}
-        </select>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+          <input type="checkbox" checked={onlyOutstanding} onChange={(e) => setOnlyOutstanding(e.target.checked)} className="h-4 w-4" />
+          Only dealers with a balance
+        </label>
       </div>
 
       <div className="overflow-x-auto rounded-[var(--radius)] border border-border bg-card">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Buyer</th>
-              <th className="px-4 py-3 font-medium">Phone</th>
               <th className="px-4 py-3 font-medium">Dealer</th>
-              <th className="px-4 py-3 font-medium">Vehicle</th>
-              <th className="px-4 py-3 font-medium">Loan amount</th>
-              <th className="px-4 py-3 font-medium">Financier</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Created</th>
+              <th className="px-4 py-3 font-medium">Billed</th>
+              <th className="px-4 py-3 font-medium">Collected</th>
+              <th className="px-4 py-3 font-medium">Outstanding</th>
+              <th className="px-4 py-3 font-medium">Credit limit</th>
+              <th className="px-4 py-3 font-medium">Oldest open</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
-            ) : loadError ? (
-              <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-[color:var(--zira-rejected)]">
-                  {loadError}
-                  <div className="mt-3">
-                    <Button size="sm" variant="secondary" onClick={() => load()}>
-                      <RefreshCw className="h-4 w-4" /> Retry
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ) : filteredCases.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">{cases.length === 0 ? "No finance cases yet." : "No cases match your search."}</td></tr>
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">{dealers.length === 0 ? "No dealers yet." : "No dealers match your search."}</td></tr>
             ) : (
-              filteredCases.map((c) => {
-                const meta = STATUS_META[c.status];
-                const loan = c.loanAmount != null ? Number(c.loanAmount) : null;
-                return (
-                  <tr key={c.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 font-medium">{c.buyerName}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{c.buyerPhone}</td>
-                    <td className="px-4 py-3">
-                      {c.dealer ? (
-                        <Link href={`/dealer-management/${c.dealer.id}`} className="hover:underline">{c.dealer.legalName}</Link>
-                      ) : "—"}
-                    </td>
-                    <td className="px-4 py-3">{c.vehicleModel || "—"}</td>
-                    <td className="px-4 py-3 tabular-nums">{loan != null ? inr(loan) : "—"}</td>
-                    <td className="px-4 py-3">{c.financierName || "—"}</td>
-                    <td className="px-4 py-3"><Badge label={meta.label} tone={meta.tone} /></td>
-                    <td className="px-4 py-3 text-muted-foreground">{new Date(c.createdAt).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Button size="sm" variant="secondary" onClick={() => setEditing(c)}>
-                        <Pencil className="h-3 w-3" /> Edit
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })
+              filtered.map((d) => (
+                <tr
+                  key={d.id}
+                  onClick={() => setOpenDealerId(d.id)}
+                  className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/50"
+                >
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{d.tradeName || d.legalName}</div>
+                    <div className="text-xs text-muted-foreground">{d.dealerCode} · {d.state}</div>
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-muted-foreground">{inr(d.billed)}</td>
+                  <td className="px-4 py-3 tabular-nums text-muted-foreground">{inr(d.collected)}</td>
+                  <td className="px-4 py-3 tabular-nums font-medium">
+                    {inr(d.outstanding)}
+                    {d.overdue > 0 && <div className="text-xs" style={{ color: "var(--zira-rejected)" }}>{inr(d.overdue)} overdue</div>}
+                  </td>
+                  <td className="px-4 py-3">
+                    {d.creditLimit == null ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <div>
+                        <div className="tabular-nums text-muted-foreground">{inr(d.creditLimit)}</div>
+                        {d.utilisationPct != null && (
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full"
+                                style={{
+                                  width: `${Math.min(100, d.utilisationPct)}%`,
+                                  background: d.overLimit ? "var(--zira-rejected)" : d.utilisationPct > 80 ? "var(--zira-pending)" : "var(--zira-approved)",
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs tabular-nums text-muted-foreground">{d.utilisationPct}%</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {d.openInvoiceCount === 0 ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <Badge label={`${d.oldestUnpaidDays}d · ${d.openInvoiceCount} open`} tone={ageTone(d.oldestUnpaidDays)} />
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); setPayFor(d); }}>
+                      Record payment
+                    </Button>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
       </div>
 
-      {!loading && !loadError && total > LIMIT && (
-        <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-          <span>Page {page} of {totalPages} · {total} case{total === 1 ? "" : "s"}</span>
-          <div className="flex gap-1.5">
-            <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-              <ChevronLeft className="h-3.5 w-3.5" /> Prev
-            </Button>
-            <Button size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
-              Next <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <CreateCaseModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={load} dealers={dealers} />
-      <EditCaseModal caseRow={editing} onClose={() => setEditing(null)} onSaved={load} />
+      <LedgerDrawer dealerId={openDealerId} onClose={() => setOpenDealerId(null)} onChanged={load} />
+      <RecordPaymentModal dealer={payFor} dealers={dealers} onClose={() => setPayFor(null)} onSaved={load} />
     </div>
   );
 }
 
-function CreateCaseModal({
-  open,
-  onClose,
-  onCreated,
+// ----------------------------------------------------------------------------
+// Per-dealer ledger — every billable invoice with how much of it is still
+// open, plus the payment history that settled the rest.
+// ----------------------------------------------------------------------------
+function LedgerDrawer({ dealerId, onClose, onChanged }: { dealerId: number | null; onClose: () => void; onChanged: () => void }) {
+  const [ledger, setLedger] = useState<Ledger | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<"invoices" | "payments">("invoices");
+  const [deleting, setDeleting] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    if (!dealerId) return;
+    setLoading(true);
+    try {
+      const { data } = await apiClient.get(`/api/v1/finance/dealers/${dealerId}/ledger`);
+      setLedger(data);
+    } catch (error) {
+      console.error("[FinanceManagementPage] failed to load ledger:", error);
+      setLedger(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [dealerId]);
+
+  useEffect(() => {
+    setTab("invoices");
+    load();
+  }, [load]);
+
+  async function deletePayment(id: number) {
+    setDeleting(id);
+    try {
+      await apiClient.delete(`/api/v1/finance/payments/${id}`);
+      await load();
+      onChanged();
+    } catch (error) {
+      console.error("[FinanceManagementPage] failed to delete payment:", error);
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  return (
+    <Modal open={!!dealerId} onClose={onClose} title={ledger ? `${ledger.dealer.tradeName || ledger.dealer.legalName} — Ledger` : "Ledger"} width="max-w-3xl">
+      {loading || !ledger ? (
+        <div className="py-10 text-center text-muted-foreground"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></div>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {([
+              ["Billed", ledger.totals.billed],
+              ["Collected", ledger.totals.collected],
+              ["Outstanding", ledger.totals.outstanding],
+              ["Overdue", ledger.totals.overdue],
+            ] as const).map(([label, value]) => (
+              <div key={label} className="rounded-[var(--radius)] border border-border p-3">
+                <div className="text-xs text-muted-foreground">{label}</div>
+                <div className="mt-1 tabular-nums font-medium">{inr(value)}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span>{ledger.dealer.dealerCode} · {ledger.dealer.state}</span>
+            {ledger.dealer.creditLimit != null && <span>Credit limit {inr(ledger.dealer.creditLimit)}</span>}
+            {ledger.dealer.securityDeposit != null && <span>Security deposit {inr(ledger.dealer.securityDeposit)}</span>}
+            <Link href={`/dealer-management/${ledger.dealer.id}`} className="text-primary hover:underline">Open Dealer 360 →</Link>
+          </div>
+
+          <div className="inline-flex items-center gap-1 rounded-[var(--radius)] border border-border bg-card p-1">
+            {([["invoices", `Invoices (${ledger.invoices.length})`], ["payments", `Payments (${ledger.payments.length})`]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${tab === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "invoices" ? (
+            <div className="max-h-[45vh] overflow-y-auto rounded-[var(--radius)] border border-border">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-card">
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Invoice</th>
+                    <th className="px-3 py-2 font-medium">Item</th>
+                    <th className="px-3 py-2 font-medium">Issued</th>
+                    <th className="px-3 py-2 font-medium">Amount</th>
+                    <th className="px-3 py-2 font-medium">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledger.invoices.length === 0 ? (
+                    <tr><td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">Nothing billed to this dealer yet.</td></tr>
+                  ) : ledger.invoices.map((i) => (
+                    <tr key={i.id} className="border-b border-border last:border-0">
+                      <td className="px-3 py-2 font-mono text-xs">{i.invoiceNumber}</td>
+                      <td className="px-3 py-2">{i.item}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{new Date(i.issuedAt).toLocaleDateString()}</td>
+                      <td className="px-3 py-2 tabular-nums">{inr(i.amount)}</td>
+                      <td className="px-3 py-2">
+                        {i.settled ? (
+                          <Badge label="Settled" tone="approved" />
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="tabular-nums font-medium">{inr(i.balance)}</span>
+                            <Badge label={`${i.ageDays}d`} tone={ageTone(i.ageDays)} />
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="max-h-[45vh] overflow-y-auto rounded-[var(--radius)] border border-border">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-card">
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Date</th>
+                    <th className="px-3 py-2 font-medium">Amount</th>
+                    <th className="px-3 py-2 font-medium">Mode</th>
+                    <th className="px-3 py-2 font-medium">Reference</th>
+                    <th className="px-3 py-2 font-medium">Against</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledger.payments.length === 0 ? (
+                    <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">No payments recorded yet.</td></tr>
+                  ) : ledger.payments.map((p) => (
+                    <tr key={p.id} className="border-b border-border last:border-0">
+                      <td className="px-3 py-2 text-muted-foreground">{new Date(p.paidAt).toLocaleDateString()}</td>
+                      <td className="px-3 py-2 tabular-nums font-medium">{inr(Number(p.amount))}</td>
+                      <td className="px-3 py-2">{PAYMENT_MODES.find((m) => m.value === p.mode)?.label ?? p.mode}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{p.referenceNumber || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{p.invoice ? p.invoice.invoiceNumber : "On account"}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={() => deletePayment(p.id)}
+                          disabled={deleting === p.id}
+                          title="Remove this receipt"
+                          className="text-muted-foreground hover:text-[color:var(--zira-rejected)]"
+                        >
+                          {deleting === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Record a receipt. Leaving the invoice unset is the normal case — an
+// on-account payment settles the oldest open invoices first, same as a real
+// ledger does.
+// ----------------------------------------------------------------------------
+function RecordPaymentModal({
+  dealer,
   dealers,
+  onClose,
+  onSaved,
 }: {
-  open: boolean;
+  dealer: DealerRow | null;
+  dealers: DealerRow[];
   onClose: () => void;
-  onCreated: () => void;
-  dealers: DealerOption[];
+  onSaved: () => void;
 }) {
   const [dealerId, setDealerId] = useState("");
-  const [buyerName, setBuyerName] = useState("");
-  const [buyerPhone, setBuyerPhone] = useState("");
-  const [vehicleModel, setVehicleModel] = useState("");
-  const [loanAmount, setLoanAmount] = useState("");
-  const [financierName, setFinancierName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [mode, setMode] = useState<PaymentMode>("BANK_TRANSFER");
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
+  const [openInvoices, setOpenInvoices] = useState<LedgerInvoice[]>([]);
+  const [invoiceId, setInvoiceId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function reset() {
-    setDealerId("");
-    setBuyerName("");
-    setBuyerPhone("");
-    setVehicleModel("");
-    setLoanAmount("");
-    setFinancierName("");
+  useEffect(() => {
+    if (!dealer) return;
+    setDealerId(String(dealer.id));
+    setAmount("");
+    setMode("BANK_TRANSFER");
+    setReferenceNumber("");
+    setPaidAt(new Date().toISOString().slice(0, 10));
     setNotes("");
+    setInvoiceId("");
     setError(null);
-  }
+  }, [dealer]);
+
+  // The invoice picker only ever offers what's actually still open for the
+  // chosen dealer, so a receipt can't be tagged to a settled document.
+  useEffect(() => {
+    if (!dealerId) return setOpenInvoices([]);
+    let active = true;
+    apiClient.get(`/api/v1/finance/dealers/${dealerId}/ledger`)
+      .then(({ data }) => { if (active) setOpenInvoices((data.invoices ?? []).filter((i: LedgerInvoice) => !i.settled)); })
+      .catch(() => { if (active) setOpenInvoices([]); });
+    return () => { active = false; };
+  }, [dealerId]);
+
+  const selected = dealers.find((d) => String(d.id) === dealerId);
 
   async function handleSubmit() {
     setError(null);
     if (!dealerId) return setError("Choose a dealer");
-    if (!buyerName.trim()) return setError("Enter the buyer's name");
-    if (!buyerPhone.trim()) return setError("Enter the buyer's phone number");
+    if (!(Number(amount) > 0)) return setError("Enter an amount greater than zero");
 
     setSubmitting(true);
     try {
-      await apiClient.post("/api/v1/finance-cases", {
+      await apiClient.post("/api/v1/finance/payments", {
         dealerId,
-        buyerName: buyerName.trim(),
-        buyerPhone: buyerPhone.trim(),
-        vehicleModel: vehicleModel.trim() || undefined,
-        loanAmount: loanAmount || undefined,
-        financierName: financierName.trim() || undefined,
+        amount,
+        mode,
+        referenceNumber: referenceNumber.trim() || undefined,
+        paidAt,
+        invoiceId: invoiceId || undefined,
         notes: notes.trim() || undefined,
       });
-      onCreated();
-      reset();
+      onSaved();
       onClose();
     } catch (err: any) {
-      setError(err?.response?.data?.message || "Could not create the finance case.");
+      setError(err?.response?.data?.message || "Could not record the payment.");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <Modal open={open} onClose={() => { reset(); onClose(); }} title="New finance case">
+    <Modal open={!!dealer} onClose={onClose} title="Record payment">
       <div className="space-y-4">
         {error && (
           <div className="rounded-[var(--radius)] border px-3.5 py-2.5 text-sm" style={{ borderColor: "var(--destructive)", backgroundColor: "color-mix(in srgb, var(--destructive) 8%, transparent)", color: "var(--destructive)" }}>
@@ -355,178 +581,63 @@ function CreateCaseModal({
 
         <div>
           <label className="mb-1.5 block text-sm font-medium">Dealer</label>
-          <select value={dealerId} onChange={(e) => setDealerId(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }}>
+          <select value={dealerId} onChange={(e) => { setDealerId(e.target.value); setInvoiceId(""); }} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }}>
             <option value="">Select a dealer…</option>
             {dealers.map((d) => (
-              <option key={d.id} value={d.id}>{d.tradeName || d.legalName}</option>
+              <option key={d.id} value={d.id}>{d.tradeName || d.legalName} — {inr(d.outstanding)} open</option>
             ))}
           </select>
+          {selected && selected.outstanding > 0 && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {inr(selected.outstanding)} outstanding{selected.overdue > 0 ? `, ${inr(selected.overdue)} of it overdue` : ""}.
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block text-sm font-medium">Buyer name</label>
-            <input value={buyerName} onChange={(e) => setBuyerName(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
+            <label className="mb-1.5 block text-sm font-medium">Amount, ₹</label>
+            <input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium">Buyer phone</label>
-            <input value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
+            <label className="mb-1.5 block text-sm font-medium">Received on</label>
+            <input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">Mode</label>
+            <select value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }}>
+              {PAYMENT_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">Reference no. (optional)</label>
+            <input value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="UTR / cheque no." className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
           </div>
         </div>
 
         <div>
-          <label className="mb-1.5 block text-sm font-medium">Vehicle model (optional)</label>
-          <input value={vehicleModel} onChange={(e) => setVehicleModel(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Loan amount, ₹ (optional)</label>
-            <input type="number" min={0} value={loanAmount} onChange={(e) => setLoanAmount(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Financier (optional)</label>
-            <input value={financierName} onChange={(e) => setFinancierName(e.target.value)} placeholder="e.g. HDFC Bank" className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
-          </div>
+          <label className="mb-1.5 block text-sm font-medium">Against invoice (optional)</label>
+          <select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }}>
+            <option value="">On account — settle oldest first</option>
+            {openInvoices.map((i) => (
+              <option key={i.id} value={i.id}>{i.invoiceNumber} — {inr(i.balance)} open ({i.ageDays}d)</option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-xs text-muted-foreground">Leave as &ldquo;on account&rdquo; unless the dealer paid one specific invoice.</p>
         </div>
 
         <div>
           <label className="mb-1.5 block text-sm font-medium">Notes (optional)</label>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
         </div>
 
         <Button onClick={handleSubmit} disabled={submitting} className="w-full">
-          {submitting ? "Creating…" : "Create case"}
+          {submitting ? "Recording…" : "Record payment"}
         </Button>
       </div>
-    </Modal>
-  );
-}
-
-interface FinanceAttachment {
-  id: number;
-  fileName: string;
-  fileUrl: string;
-  createdAt: string;
-}
-
-function resolveAttachmentUrl(fileUrl: string) {
-  if (fileUrl.startsWith("http")) return fileUrl;
-  const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-  return `${base}${fileUrl}`;
-}
-
-function EditCaseModal({
-  caseRow,
-  onClose,
-  onSaved,
-}: {
-  caseRow: FinanceCaseRow | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [status, setStatus] = useState<FinanceCaseStatus>("NEW");
-  const [financierName, setFinancierName] = useState("");
-  const [loanAmount, setLoanAmount] = useState("");
-  const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<FinanceAttachment[]>([]);
-
-  useEffect(() => {
-    if (!caseRow) return;
-    setStatus(caseRow.status);
-    setFinancierName(caseRow.financierName ?? "");
-    setLoanAmount(caseRow.loanAmount != null ? String(caseRow.loanAmount) : "");
-    setNotes(caseRow.notes ?? "");
-    setError(null);
-    apiClient.get(`/api/v1/finance-cases/${caseRow.id}/attachments`)
-      .then((r) => setAttachments(r.data.attachments ?? []))
-      .catch(() => setAttachments([]));
-  }, [caseRow]);
-
-  async function handleSubmit() {
-    if (!caseRow) return;
-    setError(null);
-    setSubmitting(true);
-    try {
-      await apiClient.patch(`/api/v1/finance-cases/${caseRow.id}`, {
-        status,
-        financierName: financierName.trim() || null,
-        loanAmount: loanAmount ? loanAmount : null,
-        notes: notes.trim() || null,
-      });
-      onSaved();
-      onClose();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Could not update the finance case.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <Modal open={!!caseRow} onClose={onClose} title={caseRow ? `${caseRow.buyerName} — Finance case` : "Finance case"}>
-      {caseRow && (
-        <div className="space-y-4">
-          {error && (
-            <div className="rounded-[var(--radius)] border px-3.5 py-2.5 text-sm" style={{ borderColor: "var(--destructive)", backgroundColor: "color-mix(in srgb, var(--destructive) 8%, transparent)", color: "var(--destructive)" }}>
-              {error}
-            </div>
-          )}
-
-          <div className="text-xs text-muted-foreground">
-            {caseRow.buyerPhone} · {caseRow.dealer?.legalName ?? "—"}{caseRow.vehicleModel ? ` · ${caseRow.vehicleModel}` : ""}
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Status</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value as FinanceCaseStatus)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }}>
-              {ALL_STATUSES.map((s) => (
-                <option key={s} value={s}>{STATUS_META[s].label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Loan amount, ₹</label>
-              <input type="number" min={0} value={loanAmount} onChange={(e) => setLoanAmount(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">Financier</label>
-              <input value={financierName} onChange={(e) => setFinancierName(e.target.value)} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full rounded-[var(--radius)] border bg-transparent px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }} />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Documents from dealer</label>
-            {attachments.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No documents uploaded yet.</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {attachments.map((a) => (
-                  <li key={a.id}>
-                    <a href={resolveAttachmentUrl(a.fileUrl)} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">
-                      {a.fileName}
-                    </a>
-                    <span className="ml-2 text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleDateString()}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <Button onClick={handleSubmit} disabled={submitting} className="w-full">
-            {submitting ? "Saving…" : "Save changes"}
-          </Button>
-        </div>
-      )}
     </Modal>
   );
 }

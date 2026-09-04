@@ -17,17 +17,19 @@ import { handleError, handleValidationError, handleNotFoundError } from "../util
 import { ONBOARDING_DOC_CATALOG } from "../services/applicationRouting.service.js";
 import { uploadFile } from "../services/fileStorage.service.js";
 import { extractText } from "../services/ocr.service.js";
+import { env } from "../config/env.js";
 
-const JWT_SECRET = process.env.JWT_DEALER_SECRET;
+// Resolved and validated at boot by config/env.ts, so a deployment missing
+// this secret fails to start rather than failing on its first login.
+const JWT_SECRET = env.jwtDealerSecret;
 const COOKIE_NAME = "dealer_session";
 
 function sign(applicationId: number, username: string) {
-  if (!JWT_SECRET) throw new Error("JWT_DEALER_SECRET is not configured");
   return jwt.sign({ sub: applicationId, username }, JWT_SECRET, { expiresIn: "30d" });
 }
 
 function setCookie(res: Response, token: string) {
-  const isProd = process.env.NODE_ENV === "production";
+  const isProd = env.isProd;
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: isProd ? "none" : "lax",

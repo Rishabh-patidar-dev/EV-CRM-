@@ -87,6 +87,7 @@ model User {
   sentStockNotices     OrderStockNotice[] @relation("StockNoticeSender")
   resolvedStockNotices OrderStockNotice[] @relation("StockNoticeResolver")
   issuedInvoices       Invoice[]          @relation("InvoiceIssuer")
+  recordedPayments     DealerPayment[]    @relation("DealerPaymentRecorder")
 
   @@map("users")
 }
@@ -543,13 +544,15 @@ enum RoutingMethod {
   MANUAL
 }
 
-enum FinanceCaseStatus {
-  NEW
-  DOCS_PENDING
-  SUBMITTED
-  APPROVED
-  DISBURSED
-  REJECTED
+// How a dealer settled money owed to the manufacturer. ADJUSTMENT covers
+// credit notes / write-offs booked against the ledger rather than cash
+// actually moving.
+enum DealerPaymentMode {
+  BANK_TRANSFER
+  CHEQUE
+  UPI
+  CASH
+  ADJUSTMENT
 }
 
 enum ServiceTicketPriority {
@@ -628,7 +631,7 @@ model Dealer {
   targets              DealerTarget[]
   performance          DealerPerformanceSnapshot[]
   leadAssignments      DealerLeadAssignment[]
-  financeCases         FinanceCase[]
+  payments             DealerPayment[]
   serviceTickets       ServiceTicket[]
   spareParts           DealerSparePart[]
   sparePartRequests    SparePartRequest[]
@@ -643,7 +646,6 @@ model Dealer {
   campaigns             MarketingCampaign[]
   invoices              Invoice[]
   inventoryLogs         InventoryLog[]
-  sparePartReturns      SparePartReturn[]
 
   // Sales & Booking
   bookings Booking[]
@@ -735,27 +737,41 @@ model DealerLeadAssignment {
   @@map("dealer_lead_assignments")
 }
 
-model FinanceCase {
-  id            Int               @id @default(autoincrement())
-  dealerId      Int               @map("dealer_id")
-  leadId        Int?              @map("lead_id")
-  buyerName     String            @map("buyer_name")
-  buyerPhone    String            @map("buyer_phone")
-  vehicleModel  String?           @map("vehicle_model")
-  loanAmount    Decimal?          @map("loan_amount")
-  financierName String?           @map("financier_name")
-  status        FinanceCaseStatus @default(NEW)
-  notes         String?
+// =============================================================================
+// Finance Management (manufacturer-side) — dealer receivables.
+// -----------------------------------------------------------------------------
+// The money side of the OEM<->dealer relationship: what each dealer has been
+// billed (DELIVERY/PARTIAL invoices — goods actually received are what
+// creates a payable, a CONFIRMATION or DISPATCH document does not), what
+// they've paid, and what's still open against their credit limit. One row
+// per payment received; outstanding/aging is computed by allocating those
+// payments against invoices oldest-first (FIFO), never stored, so it can
+// never drift from the underlying invoices.
+// =============================================================================
+model DealerPayment {
+  id       Int    @id @default(autoincrement())
+  dealerId Int    @map("dealer_id")
+  dealer   Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  amount          Decimal
+  mode            DealerPaymentMode @default(BANK_TRANSFER)
+  referenceNumber String?           @map("reference_number")
+  paidAt          DateTime          @default(now()) @map("paid_at")
+  notes           String?
+
+  // Optional allocation to one specific invoice — an unallocated payment is
+  // a normal "on account" receipt and settles the oldest open invoices first.
+  invoiceId Int?     @map("invoice_id")
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  recordedById Int?  @map("recorded_by_id")
+  recordedBy   User? @relation("DealerPaymentRecorder", fields: [recordedById], references: [id])
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  dealer      Dealer       @relation(fields: [dealerId], references: [id], onDelete: Cascade)
-  attachments Attachment[]
 
   @@index([dealerId])
-  @@index([status])
-  @@map("finance_cases")
+  @@index([paidAt])
+  @@map("dealer_payments")
 }
 
 model ServiceTicket {
@@ -804,67 +820,12 @@ model DealerSparePart {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  dealer  Dealer               @relation(fields: [dealerId], references: [id], onDelete: Cascade)
-  usages  ServiceTicketPart[]
-  returns SparePartReturn[]
+  dealer Dealer              @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  usages ServiceTicketPart[]
 
   @@unique([dealerId, partName])
   @@index([dealerId])
   @@map("dealer_spare_parts")
-}
-
-// =============================================================================
-// Spare Parts quality returns — the closed loop for "this part failed
-// quality, I need to send it back": a dealer flags a defective part out of
-// their own DealerSparePart stock (no stock movement yet — they still have
-// it in hand), staff review and either reject it or approve + resolve it.
-// Resolving is the actual physical/financial event: the bad quantity always
-// leaves the dealer's stock; a REPLACED resolution also sends a fresh unit
-// back out (dealer stock re-added, OEM stock drawn down), same "the OEM's
-// pool and the dealer's pool must move together" contract
-// dealerAfterSales.controller.ts's delivery reconciliation already uses.
-// =============================================================================
-enum SparePartReturnStatus {
-  REQUESTED
-  APPROVED
-  REJECTED
-  RESOLVED
-}
-
-enum SparePartReturnResolution {
-  REPLACED
-  CREDITED
-}
-
-model SparePartReturn {
-  id Int @id @default(autoincrement())
-
-  dealerId          Int              @map("dealer_id")
-  dealer            Dealer           @relation(fields: [dealerId], references: [id], onDelete: Cascade)
-  dealerSparePartId Int?             @map("dealer_spare_part_id")
-  dealerSparePart   DealerSparePart? @relation(fields: [dealerSparePartId], references: [id], onDelete: SetNull)
-
-  // Snapshot, not just the FK — stays readable even if the dealer's stock
-  // row is later renamed/consolidated.
-  partName String  @map("part_name")
-  partCode String? @map("part_code")
-  quantity Int
-  reason   String
-
-  status     SparePartReturnStatus      @default(REQUESTED)
-  resolution SparePartReturnResolution?
-  staffNotes String?                    @map("staff_notes")
-
-  requestedAt DateTime  @default(now()) @map("requested_at")
-  resolvedAt  DateTime? @map("resolved_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-
-  attachments Attachment[]
-
-  @@index([dealerId])
-  @@index([status])
-  @@map("spare_part_returns")
 }
 
 // One row per part consumed against a service ticket, added one at a time as
@@ -1056,6 +1017,8 @@ model Invoice {
   issuedAt   DateTime @default(now()) @map("issued_at")
 
   createdAt DateTime @default(now()) @map("created_at")
+
+  payments DealerPayment[]
 
   @@index([dealerId])
   @@index([type])
@@ -1359,6 +1322,22 @@ model GoodsReceiptNote {
   qualityResult    GrnQualityResult @default(PASS) @map("quality_result")
   rejectionReason  String?          @map("rejection_reason")
   notes            String?
+
+  // The vendor's own bill/challan for this delivery. Captured by scanning
+  // the paper document at receipt time — OCR suggests these three, the
+  // storekeeper confirms them (same "suggestion, never auto-filled"
+  // contract as DealerPurchaseInvoice's intake).
+  vendorInvoiceNumber String?   @map("vendor_invoice_number")
+  vendorInvoiceDate   DateTime? @map("vendor_invoice_date")
+  vendorInvoiceAmount Decimal?  @map("vendor_invoice_amount")
+
+  fileUrl     String? @map("file_url")
+  storagePath String? @map("storage_path")
+  fileName    String? @map("file_name")
+  mimeType    String? @map("mime_type")
+
+  ocrExtractedText String?    @map("ocr_extracted_text")
+  ocrStatus        OcrStatus? @map("ocr_status")
 
   receivedAt DateTime @default(now()) @map("received_at")
   createdAt  DateTime @default(now()) @map("created_at")
@@ -1851,8 +1830,6 @@ enum AttachmentKind {
   SERVICE_TICKET
   BOOKING
   WARRANTY_CLAIM
-  FINANCE_CASE
-  SPARE_PART_RETURN
 }
 
 model Attachment {
@@ -1867,10 +1844,6 @@ model Attachment {
   booking           Booking?         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   warrantyClaimId   Int?             @map("warranty_claim_id")
   warrantyClaim     WarrantyClaim?   @relation(fields: [warrantyClaimId], references: [id], onDelete: Cascade)
-  financeCaseId     Int?             @map("finance_case_id")
-  financeCase       FinanceCase?     @relation(fields: [financeCaseId], references: [id], onDelete: Cascade)
-  sparePartReturnId Int?             @map("spare_part_return_id")
-  sparePartReturn   SparePartReturn? @relation(fields: [sparePartReturnId], references: [id], onDelete: Cascade)
 
   fileName      String  @map("file_name")
   fileUrl       String  @map("file_url")
@@ -1887,8 +1860,6 @@ model Attachment {
   @@index([serviceTicketId])
   @@index([bookingId])
   @@index([warrantyClaimId])
-  @@index([financeCaseId])
-  @@index([sparePartReturnId])
   @@map("attachments")
 }
 

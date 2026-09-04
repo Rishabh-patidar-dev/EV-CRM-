@@ -96,7 +96,7 @@ export class ComponentUnitController {
       const where: any = {};
       if (vehicleUnitId) where.vehicleUnitId = parseInt(vehicleUnitId as string);
       if (componentType) where.componentType = componentType;
-      if (search) where.serialNumber = { contains: search as string };
+      if (search) where.serialNumber = { contains: search as string, mode: "insensitive" };
 
       const units = await prisma.componentUnit.findMany({
         where,

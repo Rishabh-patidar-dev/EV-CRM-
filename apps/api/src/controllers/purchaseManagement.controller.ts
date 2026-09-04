@@ -16,6 +16,14 @@
 import { Request, Response } from "express";
 import { prisma } from "@repo/db";
 import { handleError, handleValidationError, handleNotFoundError } from "../utils/errorHandler.js";
+import { uploadFile } from "../services/fileStorage.service.js";
+import { extractText } from "../services/ocr.service.js";
+import { parseInvoiceFields } from "../services/invoiceParsing.service.js";
+import { parseSparePartLineItems } from "../services/sparePartsBillParsing.service.js";
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
 
 async function generatePoNumber(): Promise<string> {
   const year = new Date().getFullYear();
@@ -111,6 +119,92 @@ export class PurchaseManagementController {
     }
   }
 
+  // GET /api/v1/purchase-management/orders/:id — the PO drill-down: header,
+  // vendor, and the full receipt history (every GRN with its quality result,
+  // scanned vendor bill, and notes). The list view can only ever show a
+  // rolled-up "N received"; this is where the actual paper trail lives.
+  async getOrder(req: Request, res: Response) {
+    try {
+      const id = parseInt(req.params.id as string);
+      if (!id) return handleValidationError(res, "Order ID is required", "id", "Get purchase order");
+
+      const order = await prisma.vehiclePurchaseOrder.findUnique({
+        where: { id },
+        include: {
+          vendor: true,
+          goodsReceipts: { orderBy: { receivedAt: "desc" } },
+        },
+      });
+      if (!order) return handleNotFoundError(res, "Purchase order", "Get purchase order");
+
+      const quantityReceived = order.goodsReceipts.reduce((sum, g) => sum + g.quantityReceived, 0);
+      const total = order.quantity * Number(order.unitCost);
+
+      res.json({
+        ...order,
+        quantityReceived,
+        quantityOutstanding: Math.max(0, order.quantity - quantityReceived),
+        totalCost: total,
+        amountOutstanding: Math.max(0, total - Number(order.amountPaid)),
+      });
+    } catch (error) {
+      handleError(error, res, "Get purchase order");
+    }
+  }
+
+  // POST /api/v1/purchase-management/grn/ocr-preview  (multipart, field "file")
+  // Scan the vendor's delivery challan/invoice at goods-receipt time. Runs
+  // the same tesseract + heuristic-parse pipeline the dealer-side purchase
+  // invoice intake uses (dealerPortal.controller.ts#previewPurchaseInvoiceOcr),
+  // and additionally runs the line-item parser so the received quantity can
+  // be suggested too. Creates no GRN — everything comes back as suggestions
+  // the storekeeper confirms or overrides before the actual receipt is
+  // booked, because a wrong number here would create real VehicleUnit rows.
+  async previewGrnOcr(req: Request, res: Response) {
+    try {
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) return handleValidationError(res, "file is required", "file", "Scan vendor bill");
+
+      const key = `purchase-management/grn/${Date.now()}_${sanitizeFileName(file.originalname)}`;
+      const { url, path: storagePath } = await uploadFile(file.buffer, key, file.mimetype);
+
+      let ocrExtractedText: string | null = null;
+      let ocrStatus: "DONE" | "FAILED" | "SKIPPED" = "SKIPPED";
+      let suggested: ReturnType<typeof parseInvoiceFields> = {};
+      let items: ReturnType<typeof parseSparePartLineItems> = [];
+      // tesseract reads raster images, not PDFs — a PDF still uploads and
+      // attaches to the GRN, it just can't be pre-filled from.
+      if (file.mimetype?.startsWith("image/")) {
+        try {
+          ocrExtractedText = await extractText(file.buffer);
+          ocrStatus = "DONE";
+          suggested = parseInvoiceFields(ocrExtractedText);
+          items = parseSparePartLineItems(ocrExtractedText);
+        } catch {
+          ocrStatus = "FAILED";
+        }
+      }
+
+      // A challan usually lists the delivered units as line items; their
+      // quantities summed is the best available guess at "how many arrived".
+      const suggestedQuantity = items.reduce((sum, i) => sum + i.quantity, 0) || null;
+
+      res.json({
+        fileUrl: url,
+        storagePath,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        ocrExtractedText,
+        ocrStatus,
+        suggested,
+        items,
+        suggestedQuantity,
+      });
+    } catch (error) {
+      handleError(error, res, "Scan vendor bill");
+    }
+  }
+
   // PATCH /api/v1/purchase-management/orders/:id — body: { status }
   // Only for simple no-side-effect transitions (IN_TRANSIT, CANCELLED).
   // RECEIVED/PARTIALLY_RECEIVED are derived from GRNs — see receiveGoods().
@@ -160,6 +254,18 @@ export class PurchaseManagementController {
       }
 
       const alreadyReceived = order.goodsReceipts.reduce((sum, g) => sum + g.quantityReceived, 0);
+      const outstandingQty = order.quantity - alreadyReceived;
+      // Over-receipt was previously only blocked by the form's `max`, which
+      // meant any direct API call could book more units into stock than were
+      // ever ordered — and every one of those becomes a real VehicleUnit.
+      if (quantityReceived > outstandingQty) {
+        return handleValidationError(
+          res,
+          `Only ${outstandingQty} of ${order.quantity} still to receive on this order`,
+          "quantityReceived",
+          "Receive goods"
+        );
+      }
       const grnNumber = await generateGrnNumber();
 
       const result = await prisma.$transaction(async (tx) => {
@@ -171,6 +277,17 @@ export class PurchaseManagementController {
             qualityResult,
             rejectionReason: qualityResult === "REJECT" ? (b.rejectionReason ?? null) : null,
             notes: b.notes ?? null,
+            // Vendor bill captured at receipt — the fields the storekeeper
+            // confirmed after the scan, plus the scan itself for audit.
+            vendorInvoiceNumber: b.vendorInvoiceNumber || null,
+            vendorInvoiceDate: b.vendorInvoiceDate ? new Date(b.vendorInvoiceDate) : null,
+            vendorInvoiceAmount: b.vendorInvoiceAmount ? String(Number(b.vendorInvoiceAmount)) : null,
+            fileUrl: b.fileUrl || null,
+            storagePath: b.storagePath || null,
+            fileName: b.fileName || null,
+            mimeType: b.mimeType || null,
+            ocrExtractedText: b.ocrExtractedText || null,
+            ocrStatus: b.ocrStatus || null,
           },
         });
 
@@ -287,9 +404,11 @@ export class PurchaseManagementController {
   }
 
   // PATCH /api/v1/purchase-management/vendors/:id
-  // body: { status: ACTIVE|BLACKLISTED, blacklistReason? } — blocked vendors
-  // can't receive new POs (enforced in create()); existing open POs are
-  // untouched.
+  // body: { status?, blacklistReason?, name?, gstNumber?, panNumber?, isMsme?,
+  //         contactName?, phone?, email?, address?, category? }
+  // Blacklisted vendors can't receive new POs (enforced in create()); existing
+  // open POs are untouched. qualityRating stays system-managed — it only ever
+  // moves through a GRN outcome, never by hand.
   async updateVendor(req: Request, res: Response) {
     try {
       const id = parseInt(req.params.id as string);
@@ -301,14 +420,20 @@ export class PurchaseManagementController {
       if (b.status === "BLACKLISTED" && !b.blacklistReason) {
         return handleValidationError(res, "blacklistReason is required to blacklist a vendor", "blacklistReason", "Update vendor");
       }
+      if (b.name !== undefined && !String(b.name).trim()) {
+        return handleValidationError(res, "name cannot be empty", "name", "Update vendor");
+      }
 
-      const vendor = await prisma.vendor.update({
-        where: { id },
-        data: {
-          ...(b.status ? { status: b.status } : {}),
-          blacklistReason: b.status === "BLACKLISTED" ? b.blacklistReason : b.status === "ACTIVE" ? null : undefined,
-        },
-      });
+      const data: any = {};
+      for (const f of ["name", "gstNumber", "panNumber", "contactName", "phone", "email", "address", "category"]) {
+        if (b[f] !== undefined) data[f] = b[f] === "" ? null : b[f];
+      }
+      if (b.isMsme !== undefined) data.isMsme = !!b.isMsme;
+      if (b.status) data.status = b.status;
+      if (b.status === "BLACKLISTED") data.blacklistReason = b.blacklistReason;
+      else if (b.status === "ACTIVE") data.blacklistReason = null;
+
+      const vendor = await prisma.vendor.update({ where: { id }, data });
       res.json(vendor);
     } catch (error: any) {
       if (error.code === "P2025") return handleNotFoundError(res, "Vendor", "Update vendor");

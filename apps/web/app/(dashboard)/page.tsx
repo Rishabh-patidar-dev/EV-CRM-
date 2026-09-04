@@ -31,7 +31,7 @@ interface DealerStats {
   totalDealers: number;
   statesCovered: number;
   citiesCovered: number;
-  openFinanceCases: number;
+  outstandingReceivable: number;
   openServiceTickets: number;
   byStatus: Record<string, number>;
   byState: { state: string; count: number }[];

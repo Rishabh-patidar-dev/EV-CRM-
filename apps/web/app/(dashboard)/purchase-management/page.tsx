@@ -9,21 +9,28 @@
 // gate, auto-creates real VehicleUnit stock) + PO-level payment tracking.
 // "Sold" figures are read directly from VehicleUnit.status = SOLD, the real
 // sales record Vehicle Inventory already keeps.
+//
+// This page is the roll-up: every PO row drills through to
+// /purchase-management/[id], where the receipt history (GRNs, scanned vendor
+// bills, OCR text) actually lives. Every vendor row opens its edit modal.
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ShoppingCart, PackageCheck, TrendingDown, Wallet, Plus, Loader2, Star, Ban, CheckCircle2, Truck, IndianRupee, RefreshCw, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ShoppingCart, PackageCheck, TrendingDown, Wallet, Plus, Loader2, Star, Ban, CheckCircle2, Truck, IndianRupee, RefreshCw, Search, Pencil, ChevronRight } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import DonutChart from "@/components/charts/DonutChart";
 import ChartCard from "@/components/charts/ChartCard";
 import { StatCard } from "@/components/ui/StatCard";
-import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import Modal from "@/components/ui/Modal";
 import { useDeepLinkQuery } from "@/lib/useDeepLinkQuery";
-
-const SEGMENTS = ["L5", "L3", "CUSTOMISED"];
-const CATEGORIES = ["BATTERY_PACK", "BMS", "MOTOR", "CONTROLLER", "CHASSIS", "BODY", "ELECTRICAL", "TYRES", "MISC"];
-const PO_STATUSES = ["ORDERED", "IN_TRANSIT", "PARTIALLY_RECEIVED", "RECEIVED", "CANCELLED"];
+import {
+  CATEGORIES, PAYMENT_TONE, PO_STATUSES, SEGMENTS, STATUS_TONE,
+  ReceiveGoodsModal, RecordPaymentModal, Stars,
+  type PurchaseOrder, type Vendor,
+} from "./shared";
 
 interface Analytics {
   totalOrderedQty: number;
@@ -41,60 +48,8 @@ interface Analytics {
   paymentStatusBreakdown: { label: string; value: number }[];
 }
 
-interface Vendor {
-  id: number;
-  name: string;
-  category: string;
-  qualityRating: number;
-  status: "ACTIVE" | "BLACKLISTED";
-  blacklistReason: string | null;
-  _count?: { purchaseOrders: number };
-}
-
-interface PurchaseOrder {
-  id: number;
-  poNumber: string;
-  supplierName: string;
-  vendorId: number | null;
-  vendor: { id: number; name: string; qualityRating: number; status: string } | null;
-  model: string;
-  segment: string;
-  quantity: number;
-  quantityReceived: number;
-  unitCost: string;
-  status: string;
-  paymentStatus: "UNPAID" | "PARTIAL" | "PAID";
-  amountPaid: string;
-  orderedAt: string;
-  expectedAt: string | null;
-  receivedAt: string | null;
-}
-
-const STATUS_TONE: Record<string, BadgeTone> = {
-  ORDERED: "pending",
-  IN_TRANSIT: "pending",
-  PARTIALLY_RECEIVED: "pending",
-  RECEIVED: "approved",
-  CANCELLED: "rejected",
-};
-
-const PAYMENT_TONE: Record<string, BadgeTone> = {
-  UNPAID: "rejected",
-  PARTIAL: "pending",
-  PAID: "approved",
-};
-
-function Stars({ rating }: { rating: number }) {
-  return (
-    <span className="inline-flex items-center gap-0.5" title={`${rating}/5`}>
-      {Array.from({ length: 5 }, (_, i) => (
-        <Star key={i} className={`h-3 w-3 ${i < rating ? "fill-current text-[color:var(--zira-pending)]" : "text-muted-foreground/30"}`} />
-      ))}
-    </span>
-  );
-}
-
 export default function PurchaseManagementPage() {
+  const router = useRouter();
   const deepLinkQ = useDeepLinkQuery();
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -107,6 +62,7 @@ export default function PurchaseManagementPage() {
   const [search, setSearch] = useState(deepLinkQ);
   const [receivingOrder, setReceivingOrder] = useState<PurchaseOrder | null>(null);
   const [payingOrder, setPayingOrder] = useState<PurchaseOrder | null>(null);
+  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
 
   const loadAnalytics = useCallback(async () => {
     const { data } = await apiClient.get("/api/v1/purchase-management/analytics");
@@ -142,18 +98,6 @@ export default function PurchaseManagementPage() {
 
   const advance = async (order: PurchaseOrder, status: string) => {
     await apiClient.patch(`/api/v1/purchase-management/orders/${order.id}`, { status });
-    await refresh();
-  };
-
-  const blacklistVendor = async (vendor: Vendor) => {
-    const reason = window.prompt(`Reason for blacklisting ${vendor.name}?`);
-    if (!reason) return;
-    await apiClient.patch(`/api/v1/purchase-management/vendors/${vendor.id}`, { status: "BLACKLISTED", blacklistReason: reason });
-    await refresh();
-  };
-
-  const reactivateVendor = async (vendor: Vendor) => {
-    await apiClient.patch(`/api/v1/purchase-management/vendors/${vendor.id}`, { status: "ACTIVE" });
     await refresh();
   };
 
@@ -256,9 +200,14 @@ export default function PurchaseManagementPage() {
                 <tr><td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">No vendors yet — add one to raise purchase orders.</td></tr>
               ) : (
                 vendors.map((v) => (
-                  <tr key={v.id} className="border-b border-border last:border-0">
+                  <tr
+                    key={v.id}
+                    onClick={() => setEditingVendor(v)}
+                    className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-accent"
+                    title={`Edit ${v.name}`}
+                  >
                     <td className="px-4 py-2.5 font-medium">{v.name}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{v.category.replace("_", " ")}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{v.category.replace(/_/g, " ")}</td>
                     <td className="px-4 py-2.5"><Stars rating={v.qualityRating} /></td>
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{v._count?.purchaseOrders ?? 0}</td>
                     <td className="px-4 py-2.5">
@@ -266,15 +215,11 @@ export default function PurchaseManagementPage() {
                       {v.status === "BLACKLISTED" && v.blacklistReason && <span className="ml-1.5 text-xs text-muted-foreground">— {v.blacklistReason}</span>}
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      {v.status === "ACTIVE" ? (
-                        <Button size="sm" variant="secondary" onClick={() => blacklistVendor(v)}>
-                          <Ban className="h-3 w-3" /> Blacklist
+                      <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+                        <Button size="sm" variant="secondary" onClick={() => setEditingVendor(v)}>
+                          <Pencil className="h-3 w-3" /> Edit
                         </Button>
-                      ) : (
-                        <Button size="sm" variant="secondary" onClick={() => reactivateVendor(v)}>
-                          <CheckCircle2 className="h-3 w-3" /> Reactivate
-                        </Button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -324,8 +269,18 @@ export default function PurchaseManagementPage() {
               <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">{orders.length === 0 ? "No purchase orders yet." : "No orders match your search."}</td></tr>
             ) : (
               filteredOrders.map((o) => (
-                <tr key={o.id} className="border-b border-border last:border-0">
-                  <td className="px-4 py-3 font-mono text-xs">{o.poNumber}</td>
+                <tr
+                  key={o.id}
+                  onClick={() => router.push(`/purchase-management/${o.id}`)}
+                  className="group cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-accent"
+                  title={`Open ${o.poNumber}`}
+                >
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center gap-1 font-mono text-xs group-hover:text-primary group-hover:underline">
+                      {o.poNumber}
+                      <ChevronRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                    </span>
+                  </td>
                   <td className="px-4 py-3">
                     {o.supplierName}
                     {o.vendor && <span className="ml-1.5 inline-block align-middle"><Stars rating={o.vendor.qualityRating} /></span>}
@@ -340,7 +295,8 @@ export default function PurchaseManagementPage() {
                   <td className="px-4 py-3"><Badge status={o.status} tone={STATUS_TONE[o.status] ?? "neutral"} /></td>
                   <td className="px-4 py-3"><Badge status={o.paymentStatus} tone={PAYMENT_TONE[o.paymentStatus] ?? "neutral"} /></td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-1.5">
+                    {/* Row actions must not also drill through to the PO */}
+                    <div className="flex justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                       {o.status === "ORDERED" && (
                         <Button size="sm" variant="secondary" onClick={() => advance(o, "IN_TRANSIT")}>
                           Mark in transit
@@ -384,12 +340,22 @@ export default function PurchaseManagementPage() {
           onDone={() => { setPayingOrder(null); refresh(); }}
         />
       )}
+      {editingVendor && (
+        <EditVendorModal
+          vendor={editingVendor}
+          onClose={() => setEditingVendor(null)}
+          onDone={() => { setEditingVendor(null); refresh(); }}
+        />
+      )}
     </div>
   );
 }
 
 function NewVendorForm({ onDone }: { onDone: () => void }) {
-  const [form, setForm] = useState({ name: "", category: "MISC", gstNumber: "", contactName: "", phone: "" });
+  const [form, setForm] = useState({
+    name: "", category: "MISC", gstNumber: "", panNumber: "", isMsme: false,
+    contactName: "", phone: "", email: "", address: "",
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -412,11 +378,18 @@ function NewVendorForm({ onDone }: { onDone: () => void }) {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <input placeholder="Vendor / supplier name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
         <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm">
-          {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace("_", " ")}</option>)}
+          {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
         </select>
         <input placeholder="GST number" value={form.gstNumber} onChange={(e) => setForm({ ...form, gstNumber: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
+        <input placeholder="PAN number" value={form.panNumber} onChange={(e) => setForm({ ...form, panNumber: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
         <input placeholder="Contact name" value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
         <input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
+        <input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
+        <input placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm md:col-span-2" />
+        <label className="flex items-center gap-2 px-1 text-sm">
+          <input type="checkbox" checked={form.isMsme} onChange={(e) => setForm({ ...form, isMsme: e.target.checked })} className="h-4 w-4 rounded border-border" />
+          MSME registered
+        </label>
       </div>
       {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
       <div className="mt-3 flex gap-2">
@@ -428,14 +401,148 @@ function NewVendorForm({ onDone }: { onDone: () => void }) {
   );
 }
 
+// Vendor master edit — everything the PATCH accepts, plus blacklist /
+// reactivate handled here with a real reason field (this replaces the
+// window.prompt the row action used to raise).
+function EditVendorModal({ vendor, onClose, onDone }: { vendor: Vendor; onClose: () => void; onDone: () => void }) {
+  const [form, setForm] = useState({
+    name: vendor.name,
+    category: vendor.category,
+    gstNumber: vendor.gstNumber ?? "",
+    panNumber: vendor.panNumber ?? "",
+    isMsme: !!vendor.isMsme,
+    contactName: vendor.contactName ?? "",
+    phone: vendor.phone ?? "",
+    email: vendor.email ?? "",
+    address: vendor.address ?? "",
+  });
+  const [blacklistReason, setBlacklistReason] = useState("");
+  const [showBlacklist, setShowBlacklist] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const patch = async (body: Record<string, any>) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await apiClient.patch(`/api/v1/purchase-management/vendors/${vendor.id}`, body);
+      onDone();
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? "Could not update vendor");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputClass = "w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm";
+
+  return (
+    <Modal open onClose={onClose} title={`Vendor — ${vendor.name}`} width="max-w-2xl">
+      <div className="mb-4 flex flex-wrap items-center gap-4 rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          Quality rating <Stars rating={vendor.qualityRating} /> <span className="tabular-nums">{vendor.qualityRating}/5</span>
+        </span>
+        <span>·</span>
+        <span>{vendor._count?.purchaseOrders ?? 0} purchase orders</span>
+        <span>·</span>
+        <Badge status={vendor.status} tone={vendor.status === "ACTIVE" ? "approved" : "rejected"} />
+        <span className="ml-auto">Rating is system-managed — it moves with each goods receipt.</span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Vendor name</label>
+          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Category</label>
+          <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className={inputClass}>
+            {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
+          </select>
+        </div>
+        <div className="flex items-end">
+          <label className="flex items-center gap-2 pb-2 text-sm">
+            <input type="checkbox" checked={form.isMsme} onChange={(e) => setForm({ ...form, isMsme: e.target.checked })} className="h-4 w-4 rounded border-border" />
+            MSME registered
+          </label>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">GST number</label>
+          <input value={form.gstNumber} onChange={(e) => setForm({ ...form, gstNumber: e.target.value })} className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">PAN number</label>
+          <input value={form.panNumber} onChange={(e) => setForm({ ...form, panNumber: e.target.value })} className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Contact name</label>
+          <input value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Phone</label>
+          <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={inputClass} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Email</label>
+          <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inputClass} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Address</label>
+          <textarea rows={2} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={inputClass} />
+        </div>
+      </div>
+
+      {/* Blacklist / reactivate */}
+      <div className="mt-4 border-t border-border pt-4">
+        {vendor.status === "ACTIVE" ? (
+          showBlacklist ? (
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-muted-foreground">
+                Reason for blacklisting {vendor.name} — required, and shown wherever this vendor appears
+              </label>
+              <textarea rows={2} value={blacklistReason} onChange={(e) => setBlacklistReason(e.target.value)} className={inputClass} placeholder="e.g. repeated quality failures on battery packs" />
+              <div className="flex gap-2">
+                <Button size="sm" variant="destructive" disabled={saving || !blacklistReason.trim()} onClick={() => patch({ status: "BLACKLISTED", blacklistReason: blacklistReason.trim() })}>
+                  <Ban className="h-3 w-3" /> Confirm blacklist
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setShowBlacklist(false)}>Never mind</Button>
+              </div>
+            </div>
+          ) : (
+            <Button size="sm" variant="destructive" onClick={() => setShowBlacklist(true)}>
+              <Ban className="h-3 w-3" /> Blacklist vendor
+            </Button>
+          )
+        ) : (
+          <div className="space-y-2">
+            {vendor.blacklistReason && <p className="text-xs text-muted-foreground">Blacklisted — {vendor.blacklistReason}</p>}
+            <Button size="sm" variant="secondary" disabled={saving} onClick={() => patch({ status: "ACTIVE" })}>
+              <CheckCircle2 className="h-3 w-3" /> Reactivate vendor
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {error && <p className="mt-3 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button size="sm" disabled={saving || !form.name.trim()} onClick={() => patch(form)}>
+          {saving ? "Saving…" : "Save changes"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 function NewPurchaseOrderForm({ vendors, onDone }: { vendors: Vendor[]; onDone: () => void }) {
-  const [form, setForm] = useState<{ vendorId: number | string; model: string; segment: string; quantity: number; unitCost: string; expectedAt: string }>({
+  const [form, setForm] = useState<{ vendorId: number | string; model: string; segment: string; quantity: number; unitCost: string; expectedAt: string; notes: string }>({
     vendorId: vendors[0]?.id ?? "",
     model: "",
     segment: "L5",
     quantity: 1,
     unitCost: "",
     expectedAt: "",
+    notes: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -444,7 +551,11 @@ function NewPurchaseOrderForm({ vendors, onDone }: { vendors: Vendor[]; onDone: 
     setSaving(true);
     setError(null);
     try {
-      await apiClient.post("/api/v1/purchase-management/orders", { ...form, expectedAt: form.expectedAt || undefined });
+      await apiClient.post("/api/v1/purchase-management/orders", {
+        ...form,
+        expectedAt: form.expectedAt || undefined,
+        notes: form.notes || undefined,
+      });
       onDone();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? "Could not create purchase order");
@@ -471,6 +582,16 @@ function NewPurchaseOrderForm({ vendors, onDone }: { vendors: Vendor[]; onDone: 
             <input type="number" min={1} placeholder="Quantity" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: parseInt(e.target.value) || 1 })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
             <input type="number" min={0} placeholder="Unit cost (₹)" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: e.target.value })} className="rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
           </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-5">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Expected delivery</label>
+              <input type="date" value={form.expectedAt} onChange={(e) => setForm({ ...form, expectedAt: e.target.value })} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
+            </div>
+            <div className="md:col-span-4">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Notes</label>
+              <input placeholder="Terms, delivery instructions, anything worth keeping on the order" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
+            </div>
+          </div>
           {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
           <div className="mt-3 flex gap-2">
             <Button size="sm" disabled={saving || !form.model || !form.unitCost} onClick={submit}>
@@ -480,106 +601,5 @@ function NewPurchaseOrderForm({ vendors, onDone }: { vendors: Vendor[]; onDone: 
         </>
       )}
     </Card>
-  );
-}
-
-function ReceiveGoodsModal({ order, onClose, onDone }: { order: PurchaseOrder; onClose: () => void; onDone: () => void }) {
-  const remaining = order.quantity - order.quantityReceived;
-  const [quantityReceived, setQuantityReceived] = useState(remaining);
-  const [qualityResult, setQualityResult] = useState("PASS");
-  const [rejectionReason, setRejectionReason] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await apiClient.post(`/api/v1/purchase-management/orders/${order.id}/receive`, {
-        quantityReceived,
-        qualityResult,
-        rejectionReason: qualityResult === "REJECT" ? rejectionReason : undefined,
-      });
-      onDone();
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Could not record receipt");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <Card className="w-full max-w-sm">
-        <h3 className="mb-1 text-sm font-semibold">Receive goods — {order.poNumber}</h3>
-        <p className="mb-3 text-xs text-muted-foreground">{order.model} · {remaining} of {order.quantity} still outstanding</p>
-        <div className="space-y-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Quantity received</label>
-            <input type="number" min={1} max={remaining} value={quantityReceived} onChange={(e) => setQuantityReceived(Math.min(remaining, Math.max(1, parseInt(e.target.value) || 1)))} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Quality check</label>
-            <select value={qualityResult} onChange={(e) => setQualityResult(e.target.value)} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm">
-              <option value="PASS">Pass — accept into stock</option>
-              <option value="PARTIAL_ACCEPT">Partial accept — accept with note</option>
-              <option value="REJECT">Reject — does not enter stock</option>
-            </select>
-          </div>
-          {qualityResult === "REJECT" && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Rejection reason</label>
-              <input value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" placeholder="e.g. damaged in transit" />
-            </div>
-          )}
-        </div>
-        {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
-        <div className="mt-4 flex justify-end gap-2">
-          <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={saving || (qualityResult === "REJECT" && !rejectionReason)} onClick={submit}>
-            {saving ? "Recording…" : "Record GRN"}
-          </Button>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function RecordPaymentModal({ order, onClose, onDone }: { order: PurchaseOrder; onClose: () => void; onDone: () => void }) {
-  const total = order.quantity * Number(order.unitCost);
-  const outstanding = total - Number(order.amountPaid);
-  const [amount, setAmount] = useState(outstanding);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await apiClient.post(`/api/v1/purchase-management/orders/${order.id}/payment`, { amount });
-      onDone();
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Could not record payment");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <Card className="w-full max-w-sm">
-        <h3 className="mb-1 text-sm font-semibold">Record payment — {order.poNumber}</h3>
-        <p className="mb-3 text-xs text-muted-foreground">₹{Number(order.amountPaid).toLocaleString("en-IN")} paid of ₹{total.toLocaleString("en-IN")} · ₹{outstanding.toLocaleString("en-IN")} outstanding</p>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">Amount (₹)</label>
-        <input type="number" min={1} max={outstanding} value={amount} onChange={(e) => setAmount(Math.min(outstanding, Math.max(1, Number(e.target.value) || 1)))} className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-2 text-sm" />
-        {error && <p className="mt-2 text-xs text-[color:var(--zira-rejected)]">{error}</p>}
-        <div className="mt-4 flex justify-end gap-2">
-          <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={saving} onClick={submit}>
-            {saving ? "Recording…" : "Record payment"}
-          </Button>
-        </div>
-      </Card>
-    </div>
   );
 }

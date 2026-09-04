@@ -1,224 +1,221 @@
-# Closed-Loop Modules — Finance, Warranty & Inventory
+# Module Operations Guide — Warranty, Inventory, Finance & Purchase
 
-How **Finance Management**, **Warranty Management**, and **Inventory Management** (specifically its Spare Part Returns loop) work, and how to operate each one — for dealers in **DMS** and staff in the **CRM**.
+How the four modules that were most recently reworked actually behave, and how to operate each one. Two of them (**Warranty**, **Inventory**) are dealer↔manufacturer *closed loops*; two of them (**Finance**, **Purchase**) are manufacturer-internal and deliberately have no dealer-facing side at all.
 
-## The idea behind "closed loop"
+## The two shapes in this system
 
-DMS and the CRM exist to solve one problem: getting a manufacturer and a dealer talking to each other without phone calls and spreadsheets. **Order Management** is the module that already does this well, and it's the template every module below copies:
+Not every module is a loop, and knowing which is which is most of understanding the app.
 
 ```mermaid
-flowchart LR
-    D(("Dealer<br/>in DMS")) -->|"1. Raises a request"| DB[("Shared<br/>database")]
-    DB -->|"2. Shows up in the CRM,<br/>with an unread badge"| S(("Staff<br/>in CRM"))
-    S -->|"3. Reviews & decides"| DB
-    DB -->|"4. Email + unread badge<br/>tell the dealer what changed"| D
+flowchart TB
+    subgraph LOOP["Closed loop — dealer and manufacturer both act"]
+        direction LR
+        D(("Dealer<br/>in DMS")) -->|"raises"| DB[("Shared<br/>database")]
+        DB -->|"unread badge"| S(("Staff<br/>in CRM"))
+        S -->|"decides"| DB
+        DB -->|"email + badge"| D
+    end
+
+    subgraph INTERNAL["Manufacturer-only — the dealer never sees it"]
+        direction LR
+        S2(("Staff<br/>in CRM")) -->|"records"| DB2[("Shared<br/>database")]
+        DB2 -->|"reports back to"| S2
+    end
 ```
 
-Four pieces, every time:
+**Closed-loop modules** — Order Management, Warranty Management, and Inventory's delivery reconciliation. A dealer starts something in DMS, staff act on it in the CRM, and the outcome travels back to the dealer as an email *and* an unread badge. Nobody has to keep re-checking a page.
 
-1. **A dealer raises something in DMS** — an order, a finance request, a warranty claim, a quality complaint.
-2. **It shows up in the CRM** with a small green **\*** or a red count badge in the sidebar, so staff know something needs attention without hunting for it.
-3. **Staff make a decision** — approve, reject, dispatch, resolve, whatever the module calls it.
-4. **The dealer finds out two ways**: an email lands in their inbox, and a badge lights up in DMS next time they're in the app. Nobody has to go re-check a page "just in case."
-
-If a status change also moves physical stock (a delivery, a warranty part replacement, a returned part), it's logged permanently in **Inventory Logs** — one place to see every unit that ever moved between the manufacturer and a dealer, and why.
-
-The rest of this document covers each module's own version of that loop.
+**Manufacturer-internal modules** — Finance Management and Purchase Management. These are the OEM's own books and own buying. A dealer has no login, no page, and no notification for either, and that's correct: how the factory pays its vendors and how it chases its own receivables is not the dealer's business.
 
 ---
 
-## 1. Finance Management
+## 1. Warranty Management — closed loop
 
-**What it's for:** a dealer's customer wants a loan to buy a vehicle. The dealer requests financing; the manufacturer's finance desk works it through to a bank/NBFC and tells the dealer when it's approved and money has moved.
+**What it's for:** a customer's vehicle has a covered fault. The claim is auto-checked against the real policy the instant it's submitted; anything that isn't clear-cut goes to a human, who takes it through repair, reimbursement, and (if a supplier's part was at fault) recovering the cost from that supplier.
 
-### How it works
-
-```mermaid
-sequenceDiagram
-    participant Dealer as Dealer (DMS → Finance)
-    participant DB as Database
-    participant Staff as Staff (CRM → Finance Management)
-
-    Dealer->>DB: Request financing (buyer name, phone, vehicle, desired loan amount)
-    Note over DB: Status: NEW
-    DB-->>Staff: Green * on Finance Management
-    Staff->>DB: Move to Docs Pending (asks for KYC/income docs)
-    DB-->>Dealer: Email + badge — "Documents Needed"
-    Dealer->>DB: Uploads documents to the case
-    Staff->>DB: Move to Submitted → Approved → Disbursed (or Rejected)
-    DB-->>Dealer: Email + badge on every one of those moves
-```
-
-### Status pipeline
-
-| Status | Meaning | Who sets it |
-|---|---|---|
-| **New** | Just requested, nobody's looked at it yet | Dealer (automatic on request) |
-| **Docs Pending** | Finance desk needs KYC/income documents before proceeding | Staff |
-| **Submitted** | Sent to the bank/NBFC | Staff |
-| **Approved** | Financier approved the loan | Staff |
-| **Disbursed** | Money has moved — safe to deliver the vehicle | Staff |
-| **Rejected** | Financier declined | Staff |
-
-### How to operate it
-
-**As a dealer (DMS → Finance Management):**
-1. Click **Request financing**.
-2. Fill in the buyer's name and phone (required), vehicle model and desired loan amount (optional — the finance desk fills in the real financier/approved amount once they've worked the case).
-3. Submit. You'll see it in your list immediately at status **New**.
-4. If it moves to **Docs Pending**, open the request and upload the buyer's documents — there's an upload box right there with a banner telling you what's needed.
-5. Watch the status badge and your email for every update — no need to keep refreshing.
-
-**As staff (CRM → Finance Management):**
-1. The sidebar's green **\*** tells you there's a new, unworked case.
-2. Open the case, review the buyer/vehicle details and any documents the dealer uploaded (visible in the same edit panel).
-3. Update the **Status** dropdown as the case actually moves — Docs Pending, Submitted, Approved, Disbursed, or Rejected — and fill in Financier / Loan Amount once you know them.
-4. Save. The dealer gets an email and their badge lights up automatically — you don't send anything separately.
-
----
-
-## 2. Warranty Management
-
-**What it's for:** a customer's vehicle has a problem covered by warranty. A claim gets auto-checked against the actual policy the moment it's submitted, and — for anything that isn't a clean-cut case — a human takes it the rest of the way through repair, reimbursement, and (if a supplier's part was at fault) recovering the cost from that supplier.
-
-### How it works
+### Lifecycle
 
 ```mermaid
 stateDiagram-v2
     [*] --> Submitted: Dealer raises a claim
     Submitted --> Auto_Adjudication
-    Auto_Adjudication --> Approved: Clean claim, rules pass
-    Auto_Adjudication --> Rejected: Rules fail (outside term, etc.)
-    Auto_Adjudication --> Under_Review: Missing evidence or a soft flag
+    Auto_Adjudication --> Approved: Clean claim, every rule passes
+    Auto_Adjudication --> Rejected: A hard rule fails
+    Auto_Adjudication --> Under_Review: Evidence missing, or a duplicate flag
 
-    Under_Review --> Approved: Staff approves
-    Under_Review --> Rejected: Staff rejects
-    Approved --> In_Repair: Staff marks in repair
-    In_Repair --> Reimbursed: Staff marks reimbursed
-    Reimbursed --> Recovery: Staff opens a supplier recovery (optional)
-    Reimbursed --> Closed: Staff closes
-    Recovery --> Closed: Recovery resolved
+    Under_Review --> Approved: Staff approves (with an amount)
+    Under_Review --> Rejected: Staff rejects (with a reason)
+    Approved --> In_Repair
+    In_Repair --> Reimbursed
+    Reimbursed --> Recovery: Supplier recovery opened (optional)
+    Reimbursed --> Closed
+    Recovery --> Closed
     Rejected --> [*]
     Closed --> [*]
 ```
 
-The moment a claim is submitted, the **adjudication engine** checks it against the vehicle's actual warranty policy — no human involved yet:
+### What the auto-adjudication actually checks
 
-| It checks | Against | Result if it fails |
+| Check | Against | Fails if |
 |---|---|---|
-| Time since registration | Plan's term (months) | **Rejected** — outside time term |
-| Odometer reading | Plan's term (km) | **Rejected** — outside distance term |
-| Measured battery health % | Plan's SoH floor (battery claims only) | **Rejected** if SoH is still above the floor |
-| Charger type used | Plan's approved-charger list | **Rejected** if not an approved charger |
-| Service records complete | Yes/no | **Rejected** if incomplete |
+| Time since registration | Plan term (months) | Outside the term |
+| Odometer reading | Plan term (km) | Over the limit |
+| Measured battery health % | Plan SoH floor (battery claims) | SoH still above the floor |
+| Charger used | Plan's approved-charger list | Not an approved charger |
+| Service records complete | Yes / no | Incomplete |
 | Duplicate open claim on the same part | — | Flagged for review, not auto-rejected |
 
-- **Every check passes** → auto-**Approved**, no human needed.
-- **Any hard rule fails** → auto-**Rejected**.
-- **Evidence is missing** (no odometer reading, no charger type, etc.) → **Under Review**, waiting on a person.
+Every rule passes → **auto-approved**. Any hard rule fails → **auto-rejected**. Evidence missing → **Under Review**, waiting on a person.
 
-This is exactly why the intake form asks for odometer reading, battery health %, charger type, and a service-records checkbox — skip those and a claim that could have auto-approved instead sits in the review queue for no reason.
+That last row is why the DMS intake form asks for odometer, battery SoH %, charger type, and the service-records checkbox. Leave them blank and a claim that could have settled itself instead queues up for manual review.
 
 ### How to operate it
 
-**As a dealer (DMS → Warranty Management):**
-1. Enter the vehicle's VIN and click **Check coverage** — it shows every covered component and whether it's currently in warranty.
-2. Pick the affected component, fill in the customer's name and the issue.
-3. Fill in **all** the evidence fields that apply — odometer, measured SoH % (battery issues), charger type (charger issues), and confirm service records are complete. This is what lets a clean claim auto-approve instead of waiting on a person.
-4. Submit — you'll see the auto-adjudication result immediately.
-5. From then on, watch the claim's status badge and your email. Click **Details** on any claim to see the full timeline (every decision, in order), the approved amount or rejection reason, and to attach evidence photos.
+**Dealer — DMS → Warranty Management**
+1. Enter the VIN, click **Check coverage** — every covered component and whether it's still in warranty.
+2. Pick the affected component, fill in the customer and the issue.
+3. Fill in every evidence field that applies. This is what lets a clean claim auto-approve.
+4. Submit — the adjudication result appears immediately.
+5. Click **Details** on any claim afterwards for the full timeline, the approved amount or rejection reason, supplier-recovery status, and to attach photos.
 
-**As staff (CRM → Warranty Management → Claims & Coverage):**
-1. The sidebar's green **\*** flags claims sitting at **Under Review** — the ones that genuinely need a decision.
-2. Open a claim, review the adjudication notes and evidence, then **Approve** (with an amount) or **Reject** (with a reason).
-3. As the physical repair happens, walk it forward: **Mark in repair → Mark reimbursed → Mark closed**.
-4. If a supplier's part was actually at fault, open a **Supplier Recovery** case from the claim (the "Supplier Recovery" tab tracks it to Recovered or Written Off) — this is the manufacturer's own internal accounting, dealers don't see it.
-5. Every one of your status changes emails the dealer automatically.
+**Staff — CRM → Warranty Management → Claims & Coverage**
+1. The green **\*** in the sidebar flags claims at **Under Review** — the ones needing a decision.
+2. Open one, read the adjudication notes and evidence, then **Approve** (with an amount) or **Reject** (with a reason).
+3. Walk it forward as the repair happens: **Mark in repair → Mark reimbursed → Mark closed**.
+4. If a supplier's part was at fault, open a **Supplier Recovery** from the claim; the Supplier Recovery tab tracks it to Recovered or Written Off.
+5. Every status change emails the dealer automatically.
 
 ---
 
-## 3. Inventory Management — two loops
+## 2. Inventory Management — closed loop (delivery) + audit trail
 
-Inventory Management closes two different loops: **stock actually moving on delivery** (automatic, nothing to operate) and **a dealer reporting a defective part** (the Spare Part Returns queue).
+### Delivery reconciliation — automatic
 
-### 3a. Delivery reconciliation (automatic)
-
-When Order Management marks a vehicle or spare-part order **Delivered**, stock moves for real — this isn't a status label, it's the actual inventory:
+When Order Management marks an order **Delivered**, stock moves for real:
 
 ```mermaid
 flowchart LR
-    OEM[("OEM stock")] -->|"quantity delivered"| Dealer[("Dealer's own stock")]
+    OEM[("Manufacturer stock")] -->|"delivered quantity"| Dealer[("Dealer's own stock")]
     OEM -.->|"logged"| Log[("Inventory Logs")]
     Dealer -.->|"logged"| Log
 ```
 
-- The dealer's own inventory goes up by the delivered quantity; the manufacturer's stock goes down by the same amount — you never have to update both sides by hand.
-- A green banner appears right there in **Order Management** the moment you mark something delivered, showing exactly what moved.
-- Every movement is written permanently to **Inventory Management → Inventory Logs** — filterable by vehicle/spare part, by dealer, by direction (added/removed). This is the one place to answer "where did this stock go" months later.
+- The dealer's inventory goes up, the manufacturer's goes down, by the same amount — nobody updates two places by hand.
+- A green banner appears in Order Management showing exactly what moved.
+- Every movement is written permanently to **Inventory Logs**, filterable by vehicle/spare part, dealer, and direction. This is where "where did this stock go" gets answered months later.
 
-Nothing to operate here beyond marking an order Delivered as usual — the reconciliation and the log entry happen for you.
+Nothing to operate — mark the order Delivered as usual and the rest happens.
 
-### 3b. Spare Part Returns (quality issues)
+### The three Inventory screens (CRM)
 
-**What it's for:** a spare part a dealer already has in stock turns out to be defective. Rather than it just sitting there, the dealer flags it and the manufacturer decides what happens to it.
+| Screen | What it shows |
+|---|---|
+| **Vehicle Inventory** | Every VIN, manufacturer stock gallery, stock-transfer requests |
+| **Spare Parts Inventory** | The manufacturer's spare-part catalogue and quantities on hand |
+| **Inventory Logs** | The append-only audit trail of every movement, and what caused it |
+
+Dealers see their own side of this in DMS under **Inventory → My Inventory / Spare Parts**, including adding stock manually or by scanning a purchase bill (OCR).
+
+---
+
+## 3. Finance Management — manufacturer-only
+
+**What it's for:** the money side of the dealer network. What each dealer has been billed, what they've paid, what's still open against their credit limit, and how old that balance is.
+
+> **Why there is no dealer-facing side.** Retail financing — a walk-in customer taking a loan to buy a scooter — is the dealer's own business with their own bank. It isn't something the manufacturer's ERP tracks. What an OEM's finance function actually owns is the **receivable**: goods went out, money has to come back. That's what this module is.
+
+### The two rules the module rests on
+
+1. **A dealer owes money when goods reach them.** Order Management issues several documents per order — Confirmation when stock is reserved, Dispatch when it leaves, Delivery when it lands. Only **Delivery** and **Partial** are real liabilities; counting all of them would bill the same order three times.
+2. **Outstanding and aging are computed, never stored.** Payments are allocated against invoices **oldest-first (FIFO)**, which is what a real ledger does with an unallocated "on account" receipt. The numbers can't drift away from the underlying invoices and payments, because they're re-derived every time you load the page.
 
 ```mermaid
-sequenceDiagram
-    participant Dealer as Dealer (DMS → Spare Parts)
-    participant DB as Database
-    participant Staff as Staff (CRM → Spare Part Returns)
-
-    Dealer->>DB: "Report issue" on a part (quantity + reason)
-    Note over DB: Status: Requested (dealer keeps the part for now)
-    DB-->>Staff: Green * on Spare Part Returns
-    Staff->>DB: Approve or Reject
-    alt Approved
-        Staff->>DB: Resolve as Replaced or Credited
-        Note over DB: Replaced = bad part removed,<br/>fresh unit credited, OEM stock drawn down.<br/>Credited = bad part removed, no replacement.
-    end
-    DB-->>Dealer: Email + badge on every decision
+flowchart LR
+    INV["Delivery / Partial<br/>invoices"] --> BILLED["Billed"]
+    PAY["Payments received"] --> COLLECTED["Collected"]
+    BILLED --> OUT["Outstanding<br/>(FIFO allocation)"]
+    COLLECTED --> OUT
+    OUT --> AGE["Aging buckets<br/>≤30 / 31–60 / 61–90 / 90+"]
+    OUT --> LIMIT["Credit-limit<br/>utilisation"]
 ```
-
-| Status | Meaning |
-|---|---|
-| **Requested** | Dealer flagged it; nothing has physically moved yet |
-| **Approved** | Staff agree it's a genuine quality issue |
-| **Rejected** | Staff don't accept the return — nothing changes |
-| **Resolved** | The actual event — see resolution below |
-
-| Resolution (only at Resolved) | What happens to stock |
-|---|---|
-| **Replaced** | Bad quantity leaves the dealer's stock; a fresh good unit is credited straight back to them; the manufacturer's own stock is drawn down for the replacement |
-| **Credited** | Bad quantity leaves the dealer's stock; settled as a financial credit, no replacement unit sent |
 
 ### How to operate it
 
-**As a dealer (DMS → Inventory → Spare Parts):**
-1. Find the part on your spare-parts table and click **Report issue**.
-2. Enter how many units are affected and why.
-3. Submit — it appears in the **Quality Returns** section below the main table at status **Requested**.
-4. Click **Details** on any return to add photos of the defect, read staff's notes, or see the resolution once it's set.
+**Staff — CRM → Finance Management**
+1. The top row gives the headline: **Billed to date**, **Collected**, **Outstanding**, and **Overdue (30+ days)**.
+2. The **aging bar** below it splits the open money by age — this is what a collections desk actually works from. Chasing ₹5 lakh that's 90 days old matters more than ₹20 lakh billed last week.
+3. The dealer table lists every dealer, biggest debtor first, with billed / collected / outstanding, a credit-limit utilisation bar (amber past 80%, red over limit), and the age of their oldest open invoice. Tick **Only dealers with a balance** to hide the settled ones.
+4. **Click any dealer row** to open their ledger — every billable invoice with how much of it is still open and how old it is, plus the full payment history.
+5. **Record payment** (from the header, or per-row): pick the dealer, enter the amount, mode (bank transfer / cheque / UPI / cash / adjustment), reference number, and date.
+   - Leave **Against invoice** as *"On account"* in the normal case — it settles the oldest open invoices first.
+   - Only tag a specific invoice when the dealer genuinely paid that one document.
+   - An **Adjustment** is how you book a credit note or write-off without pretending cash moved.
+6. A mis-keyed receipt can be deleted from the ledger's Payments tab — because everything is derived, removing the row corrects every number downstream instantly.
 
-**As staff (CRM → Inventory Management → Spare Part Returns):**
-1. The sidebar's green **\*** flags new, unworked requests.
-2. Click **Review**, check the dealer's reason and any photos they attached, then **Approve** or **Reject**.
-3. Once approved, choose how to **Resolve** it — Replaced or Credited — and hit Resolve. That's the moment stock actually moves; it's logged to Inventory Logs automatically.
-4. The dealer is emailed at every step.
+---
+
+## 4. Purchase Management — manufacturer-only, with bill scanning
+
+**What it's for:** the OEM's own buying. Vendors, purchase orders raised against them, goods received against those orders with a quality gate, and payments out.
+
+This is the mirror image of Order Management: there, dealers buy from the manufacturer; here, the manufacturer buys from vendors.
+
+```mermaid
+flowchart LR
+    V["Vendor<br/>(Approved Vendor List)"] --> PO["Purchase Order<br/>ORDERED → IN TRANSIT"]
+    PO --> SCAN["Goods arrive:<br/>scan the vendor's bill"]
+    SCAN -->|"OCR suggests qty,<br/>invoice no., date, amount"| GRN["Goods Receipt Note<br/>+ quality result"]
+    GRN -->|"PASS / PARTIAL ACCEPT"| STOCK[("Manufacturer<br/>vehicle stock")]
+    GRN -->|"outcome"| RATING["Vendor quality rating<br/>(1–5 stars)"]
+```
+
+### Bill scanning at goods receipt
+
+Receiving goods is the data-entry-heaviest step in the module, so it's the one with OCR. When stock physically arrives:
+
+1. Choose **Scan vendor bill** and upload a photo of the delivery challan or invoice (or **Enter manually** to skip).
+2. The scan runs through the same OCR pipeline the dealer portal uses and comes back with suggestions: the **received quantity** (summed from the bill's line items), the **vendor invoice number**, **date**, and **amount**.
+3. Everything lands in the form pre-filled and **fully editable**, with the scanned image and the extracted text shown side by side so you can check the numbers against the paper. A banner reminds you that these are suggestions, not gospel.
+4. Confirm the quantity, set the **quality result** (Pass / Partial accept / Reject, with a reason when rejecting), add notes, and save.
+
+The scanned bill stays attached to that receipt permanently, so the paper trail is in the system rather than a filing cabinet.
+
+> PDFs upload and attach fine but can't be pre-filled from — the OCR engine reads images, not PDFs. Photograph the bill rather than scanning it to a PDF if you want the pre-fill.
+
+### What happens when you save a receipt
+
+- A **Goods Receipt Note** is created with its own GRN number.
+- For a **Pass** or **Partial accept**, the accepted units become real vehicle stock — actual VIN rows, not a counter.
+- The PO moves to **Partially received** or **Received** based on cumulative quantity.
+- The vendor's **quality rating** moves: Pass +1, Partial accept −1, Reject −2, clamped to 1–5 stars.
+- Receiving more than was ordered is now rejected outright — the server tells you exactly how many are still outstanding on that order.
+
+### How to operate it
+
+**Staff — CRM → Dealer Management → Purchase Management**
+1. **Add a vendor first** — a PO can't be raised without one. Blacklisted vendors are blocked from new POs.
+2. **New purchase order** — pick the vendor, model, segment, quantity, unit cost, and the expected date.
+3. **Click any PO row** to open its detail page: the full header, the vendor card, ordered-vs-received-vs-outstanding, cost-vs-paid, and — most importantly — the complete **receipt history**: every GRN with its quantity, quality result, rejection reason, the captured vendor invoice details, and the scanned bill itself.
+4. **Receive goods** when stock arrives (scan or manual, as above). Partial deliveries are normal — record each one and the PO tracks the running total.
+5. **Pay** records money out against the PO.
+6. **Click any vendor row** to edit their details, or to blacklist/reactivate them with a proper reason. The quality rating is system-managed and can't be edited by hand — it only moves through actual receipt outcomes.
 
 ---
 
 ## Where everything lives
 
-| Module | DMS route | CRM route |
+| Module | DMS (dealer) | CRM (staff) |
 |---|---|---|
-| Finance Management | `/finance` | `/finance-management` |
 | Warranty Management | `/warranty` | `/warranty` |
-| Spare Part Returns | Inside `/inventory/spare-parts` | `/inventory-management/returns` |
-| Inventory Logs (the audit trail) | — (staff-only) | `/inventory-management/logs` |
+| Inventory | `/inventory`, `/inventory/spare-parts` | `/inventory-management/vehicles`, `/spare-parts`, `/logs` |
+| Finance Management | — *(manufacturer-only)* | `/finance-management` |
+| Purchase Management | — *(manufacturer-only)* | `/purchase-management`, `/purchase-management/[id]` |
 
-## The notification mechanics, in one place
+## Notification mechanics (closed-loop modules only)
 
-Every module reuses the exact same two signals, so once you know how one works you know them all:
+Two signals, reused identically everywhere they appear:
 
-- **Unread badge** — a small green **\*** (something new/unworked exists) or a red count (N things you haven't looked at) next to the module's name in the sidebar. It clears itself the moment you open that module — no "mark as read" button anywhere.
-- **Email** — sent automatically the moment staff change a status. If a dealer's email address isn't on file, or the outgoing-email service isn't configured, the update still happens — the dealer just won't get the email, the in-app badge still works.
+- **Unread badge** — a green **\*** (something new needs attention) or a red count (N things you haven't looked at) next to a module in the sidebar. It clears when you open that module. There is no "mark as read" button anywhere.
+- **Email** — sent automatically when staff change a status. If a dealer has no email on file, or the outgoing mail service isn't configured, the status change still happens and the in-app badge still works; only the email is skipped.
+
+Finance and Purchase Management have neither, by design — there's no counterparty waiting on the other side of them.
