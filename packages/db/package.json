@@ -3,30 +3,30 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./index.js",
+  "types": "./index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./index.d.ts",
+      "default": "./index.js"
     }
   },
   "files": [
-    "dist"
+    "index.js",
+    "index.d.ts"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node -e \"console.log('@repo/db is plain JavaScript — nothing to build.')\"",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "studio": "prisma studio"
   },
   "dependencies": {
-    "@prisma/client": "6.19.3",
-    "tsx": "^4.19.2"
+    "@prisma/client": "6.19.3"
   },
   "devDependencies": {
     "prisma": "6.19.3",
-    "typescript": "^5.6.3"
+    "tsx": "^4.19.2"
   }
 }

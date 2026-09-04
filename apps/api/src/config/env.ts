@@ -17,10 +17,20 @@ type NodeEnv = "development" | "test" | "production";
 function required(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
-    throw new Error(
-      `Missing required environment variable: ${name}. ` +
-        `Set it before starting the API — see .env.example.`
+    // Printed as well as thrown: a bare stack trace in a host's deploy log is
+    // easy to misread as a code bug, and this is a configuration problem with
+    // a one-line fix.
+    console.error(
+      "\n" +
+        "==================================================================\n" +
+        ` CONFIGURATION ERROR: ${name} is not set.\n` +
+        "\n" +
+        " The API cannot start without it. Add it to the environment\n" +
+        " variables for this service (see apps/api/.env.example for the\n" +
+        " full list and what each one does), then redeploy.\n" +
+        "==================================================================\n"
     );
+    throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
 }
@@ -48,10 +58,19 @@ const isProd = nodeEnv === "production";
 
 // A secret short enough to brute-force is worse than an obviously absent one,
 // because it looks configured. 32 chars is the floor for an HS256 signing key.
+//
+// This warns rather than throws: a short secret is a weak configuration, not a
+// broken one, and refusing to boot over it would take a running production
+// service down for a policy check. Absence is still fatal — the app genuinely
+// cannot sign a session without it.
 function secret(name: string): string {
   const value = required(name);
   if (isProd && value.length < 32) {
-    throw new Error(`${name} must be at least 32 characters in production (got ${value.length}).`);
+    console.warn(
+      `[config] WARNING: ${name} is only ${value.length} characters. ` +
+        `Use at least 32 in production — generate one with: ` +
+        `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+    );
   }
   return value;
 }

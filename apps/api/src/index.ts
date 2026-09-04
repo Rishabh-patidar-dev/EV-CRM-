@@ -15,18 +15,28 @@
 // container, where the extra processes only add memory and context switching).
 // =============================================================================
 import cluster from "cluster";
-import os from "os";
 import { env } from "./config/env.js";
 import { logger } from "./utils/logger.js";
 import { startServer } from "./server.js";
 
 function desiredWorkers(): number {
+  // Explicit setting always wins.
   if (env.clusterWorkers > 0) return env.clusterWorkers;
   if (!env.isProd) return 1; // one process in dev keeps logs and debugging sane
-  const cores = os.availableParallelism?.() ?? os.cpus().length;
-  // Leave headroom: the container also has to run the platform's own agents,
-  // and each worker carries its own database connection pool.
-  return Math.max(1, Math.min(cores, 8));
+
+  // WEB_CONCURRENCY is the convention hosts use to say how many processes this
+  // container should run — Render and Heroku both set it from the instance's
+  // actual CPU and memory allocation. Trust it over a CPU count read from
+  // inside the container, which reports the HOST's cores and has no idea how
+  // much of them this container is entitled to.
+  const hostSaid = Number.parseInt(process.env.WEB_CONCURRENCY ?? "", 10);
+  if (Number.isFinite(hostSaid) && hostSaid > 0) return hostSaid;
+
+  // Nothing told us anything. Default to a single worker: each one carries its
+  // own Prisma pool and a full copy of the app, so guessing high on a small
+  // container trades a working service for an out-of-memory crash loop.
+  // Set CLUSTER_WORKERS explicitly once you know the instance size.
+  return 1;
 }
 
 const workers = desiredWorkers();
