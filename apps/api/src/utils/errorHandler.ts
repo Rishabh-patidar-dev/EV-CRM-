@@ -88,6 +88,20 @@ function mapError(error: unknown, context: string): Mapped {
         // Connection pool exhausted — a genuine capacity signal. 503 tells the
         // load balancer to retry elsewhere instead of counting it as a bug.
         return { status: 503, message: "The service is busy. Please retry shortly.", isServerFault: true };
+      case "P1001": // can't reach the database server
+      case "P1002": // database server timed out
+      case "P1008": // operation timed out
+      case "P1017": // server closed the connection
+        // The database is unreachable or slow, which is an infrastructure
+        // condition rather than a defect in this request. 503 is the honest
+        // status: it tells the caller (and the load balancer, and uptime
+        // monitoring) that retrying is the right move, whereas a 500 says the
+        // request itself was broken and retrying is pointless.
+        return {
+          status: 503,
+          message: "The service is temporarily unable to reach its database. Please retry shortly.",
+          isServerFault: true,
+        };
       default:
         return { status: 500, message: "A database error occurred.", isServerFault: true };
     }

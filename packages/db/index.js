@@ -40,10 +40,20 @@ const slowQueryMs = Number.parseInt(process.env.SLOW_QUERY_MS ?? "500", 10) || 5
  * there. Editing the URL is how Prisma is configured for this — there is no
  * programmatic pool option.
  *
- * The default of 5 per worker is deliberately modest: with the pooler in
- * transaction mode a connection is only held for the duration of a single
- * query, so a small pool sustains a very high request rate, and staying small
- * is what lets many workers coexist against one database.
+ * SIZING THIS MATTERS MORE THAN IT LOOKS. Several dashboard endpoints fan out
+ * with Promise.all — dealers/stats issues eight queries at once, leads/stats
+ * six. A pool smaller than that fan-out means part of every such request sits
+ * waiting for a connection before it can even start, which shows up as
+ * multi-second response times on endpoints whose individual queries are fast.
+ *
+ * So the floor is "comfortably wider than the widest fan-out", not "as small
+ * as possible". With the pooler in transaction mode a connection is only held
+ * for the duration of one query, so this costs little while it sits idle.
+ *
+ * The ceiling is the pooler's own client limit, and the budget is shared:
+ *   total connections = workers x this limit x number of instances
+ * The API now runs one worker by default (see apps/api/src/index.ts), so the
+ * default below is sized for that. Raise workers and this should come down.
  */
 function buildDatabaseUrl() {
   const raw = process.env.DATABASE_URL;
@@ -52,7 +62,11 @@ function buildDatabaseUrl() {
   try {
     const url = new URL(raw);
     if (!url.searchParams.has("connection_limit")) {
-      url.searchParams.set("connection_limit", process.env.DB_CONNECTION_LIMIT ?? "5");
+      const workers = Number.parseInt(process.env.WEB_CONCURRENCY ?? "1", 10) || 1;
+      // 10 per worker for a single-worker deployment, scaled down as workers
+      // multiply so the total stays in the same place, with 5 as the floor.
+      const perWorker = Math.max(5, Math.floor(10 / workers));
+      url.searchParams.set("connection_limit", process.env.DB_CONNECTION_LIMIT ?? String(perWorker));
     }
     if (!url.searchParams.has("pool_timeout")) {
       // Seconds to wait for a free connection before failing with P2024.
